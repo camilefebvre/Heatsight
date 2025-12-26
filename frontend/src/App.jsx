@@ -1,19 +1,16 @@
-import { useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import AppLayout from "./layout/AppLayout";
+import Dashboard from "./pages/Dashboard";
+import Documents from "./pages/Documents";
 
 export default function App() {
-  const [message, setMessage] = useState("");
-
-  const ping = async () => {
-    const res = await fetch("http://127.0.0.1:8000/ping");
-    const data = await res.json();
-    setMessage(data.message);
-  };
-
   return (
-    <div style={{ padding: 24 }}>
-      <h1>HeatSight — Front ↔ Back</h1>
-      <button onClick={ping}>Ping backend</button>
-      <p>Réponse : {message}</p>
-    </div>
+    <Routes>
+      <Route element={<AppLayout />}>
+        <Route path="/" element={<Navigate to="/dashboard" replace />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/documents" element={<Documents />} />
+      </Route>
+    </Routes>
   );
 }
