@@ -31,15 +31,15 @@ Monorepo contenant :
 HeatSight/
 ├── backend/
 │   ├── app/
-│   │   └── main.py
+│   │   └── main.py          # API FastAPI (Projects CRUD)
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
-│   │   ├── layout/
-│   │   ├── pages/
-│   │   ├── ui/
-│   │   ├── App.jsx
+│   │   ├── layout/          # AppLayout, Sidebar
+│   │   ├── pages/           # Dashboard, Projects, Documents
+│   │   ├── ui/              # Composants UI réutilisables
+│   │   ├── App.jsx          # Routing principal
 │   │   └── main.jsx
 │   ├── package.json
 │   └── vite.config.js
@@ -52,12 +52,17 @@ HeatSight/
 - Layout global avec sidebar
 - Page **Dashboard** (statistiques + audits récents)
 - Page **Document Management** (UI + données mock)
+- **Module Projects** (Création de projet via formulaire)
 - Navigation avec React Router
 
 ### Backend (FastAPI)
 - API FastAPI opérationnelle
-- Endpoint de test :
-  - `GET /ping` → `{ "message": "pong" }`
+- Gestion des projets d’audit (MVP, stockage en mémoire) :
+- GET /projects → liste des projets
+- POST /projects → création d’un projet
+- PATCH /projects/{id} → modification partielle (edit / status)
+- DELETE /projects/{id} → suppression
+- Validation des données avec Pydantic
 - CORS configuré pour communication frontend ↔ backend
 
 ---

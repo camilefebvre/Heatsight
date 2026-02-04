@@ -9,6 +9,7 @@ const linkStyle = ({ isActive }) => ({
   textDecoration: "none",
   color: isActive ? "white" : "#d4d6dd",
   background: isActive ? "#6d28d9" : "transparent",
+  fontWeight: isActive ? 800 : 600,
 });
 
 export default function Sidebar() {
@@ -21,29 +22,40 @@ export default function Sidebar() {
         padding: 18,
       }}
     >
-      <div style={{ fontWeight: 800, fontSize: 20, marginBottom: 18 }}>
-        Heat Sight
+      {/* Logo / Title */}
+      <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 22 }}>
+        HeatSight
       </div>
 
+      {/* Core section */}
       <div style={{ color: "#8a8ea3", fontSize: 12, margin: "14px 0 8px" }}>
-        Core
+        CORE
       </div>
 
       <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
         <NavLink to="/dashboard" style={linkStyle}>
-          📊 Dashboard
+          📈 Dashboard
         </NavLink>
+
+        <NavLink to="/projects" style={linkStyle}>
+          🗂️ Projects
+        </NavLink>
+
         <NavLink to="/documents" style={linkStyle}>
-          📁 Document Management
+          📄 Documents
         </NavLink>
       </nav>
 
-      <div style={{ color: "#8a8ea3", fontSize: 12, margin: "18px 0 8px" }}>
-        Support & Automation
+      {/* Future modules */}
+      <div style={{ color: "#8a8ea3", fontSize: 12, margin: "22px 0 8px" }}>
+        AUTOMATION
       </div>
 
-      <div style={{ fontSize: 13, color: "#d4d6dd", opacity: 0.8 }}>
-        (à venir)
+      <div style={{ fontSize: 13, color: "#d4d6dd", opacity: 0.6 }}>
+        🤖 AI Assistant <br />
+        📊 Reports <br />
+        ♻️ ACV Analysis <br />
+        💰 Financial Module
       </div>
     </aside>
   );
