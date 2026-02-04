@@ -2,6 +2,15 @@ import { useEffect, useMemo, useState } from "react";
 
 const API_URL = "http://127.0.0.1:8000";
 
+
+import StatusPill from "../ui/StatusPill";
+
+function nextStatus(current) {
+  if (current === "draft") return "in_progress";
+  if (current === "in_progress") return "completed";
+  return "draft";
+}
+
 function Modal({ open, onClose, title, children }) {
   if (!open) return null;
 
@@ -100,6 +109,8 @@ export default function Projects() {
   const [projects, setProjects] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [statusMenuId, setStatusMenuId] = useState(null);
+
 
   // Create modal
   const [createOpen, setCreateOpen] = useState(false);
@@ -342,26 +353,28 @@ export default function Projects() {
                   <td style={{ padding: "12px 8px" }}>{p.audit_type}</td>
 
                   {/* ✅ inline status edit */}
-                  <td style={{ padding: "12px 8px" }}>
-                    <select
-                      value={p.status || "draft"}
-                      onChange={(e) => handleStatusChange(p.id, e.target.value)}
-                      style={{
-                        padding: "8px 10px",
-                        borderRadius: 10,
-                        border: "1px solid #e5e7eb",
-                        fontWeight: 800,
-                        cursor: "pointer",
-                        background: "white",
-                      }}
+                  <td style={{ padding: "12px 8px", position: "relative" }}>
+                    <div
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            setStatusMenuId((prev) => (prev === p.id ? null : p.id));
+                        }}
+                        style={{ display: "inline-block", cursor: "pointer" }}
                     >
-                      {STATUS_OPTIONS.map((s) => (
-                        <option key={s.value} value={s.value}>
-                          {s.label}
-                        </option>
-                      ))}
-                    </select>
-                  </td>
+                        <StatusPill status={p.status || "draft"} />
+                    </div>
+
+                    <Menu
+                        open={statusMenuId === p.id}
+                        onClose={() => setStatusMenuId(null)}
+                        items={STATUS_OPTIONS.map((s) => ({
+                            label: s.label,
+                            onClick: () => handleStatusChange(p.id, s.value),
+                        }))}
+                    />
+                </td>
+
+
 
                   {/* ✅ three-dots menu */}
                   <td style={{ padding: "12px 8px", position: "relative" }}>
