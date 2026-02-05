@@ -41,8 +41,8 @@ export default function Sidebar() {
           🗂️ Projects
         </NavLink>
 
-        <NavLink to="/documents" style={linkStyle}>
-          📄 Documents
+        <NavLink to="/agenda" style={linkStyle}>
+            🗓️ Agenda
         </NavLink>
       </nav>
 
