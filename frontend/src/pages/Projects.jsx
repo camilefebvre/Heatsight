@@ -1,4 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
+import { useProject } from "../state/ProjectContext";
+import { useNavigate } from "react-router-dom";
+
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -110,6 +113,11 @@ export default function Projects() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [statusMenuId, setStatusMenuId] = useState(null);
+  const { setSelectedProjectId, selectedProjectId } = useProject();
+  const navigate = useNavigate();
+
+
+
 
 
   // Create modal
@@ -332,7 +340,18 @@ export default function Projects() {
             </thead>
             <tbody>
               {recent.map((p) => (
-                <tr key={p.id} style={{ borderTop: "1px solid #eef2f7" }}>
+                <tr
+                  key={p.id}
+                  onDoubleClick={() => {
+                    setSelectedProjectId(p.id);
+                    navigate(`/projects/${p.id}/audit`);
+                  }}
+                  style={{
+                  borderTop: "1px solid #eef2f7",
+                  cursor: "pointer",
+                  background: selectedProjectId === p.id ? "#f5f3ff" : "transparent",
+                }}
+                >
                   <td style={{ padding: "12px 8px", fontWeight: 900 }}>
                     {p.project_name}
                   </td>
@@ -359,6 +378,7 @@ export default function Projects() {
                             e.stopPropagation();
                             setStatusMenuId((prev) => (prev === p.id ? null : p.id));
                         }}
+                        onDoubleClick={(e) => e.stopPropagation()}
                         style={{ display: "inline-block", cursor: "pointer" }}
                     >
                         <StatusPill status={p.status || "draft"} />
@@ -383,6 +403,8 @@ export default function Projects() {
                         e.stopPropagation();
                         setMenuId((prev) => (prev === p.id ? null : p.id));
                       }}
+                      onDoubleClick={(e) => e.stopPropagation()}
+
                       style={{
                         border: "1px solid #e5e7eb",
                         background: "white",
@@ -411,6 +433,8 @@ export default function Projects() {
           </table>
         )}
       </div>
+
+
 
       {/* CREATE MODAL */}
       <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create a new project">

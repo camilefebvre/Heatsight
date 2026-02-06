@@ -1,4 +1,5 @@
 import { NavLink } from "react-router-dom";
+import { useProject } from "../state/ProjectContext";
 
 const linkStyle = ({ isActive }) => ({
   display: "flex",
@@ -13,6 +14,8 @@ const linkStyle = ({ isActive }) => ({
 });
 
 export default function Sidebar() {
+  const { selectedProjectId } = useProject();
+
   return (
     <aside
       style={{
@@ -22,12 +25,10 @@ export default function Sidebar() {
         padding: 18,
       }}
     >
-      {/* Logo / Title */}
       <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 22 }}>
         HeatSight
       </div>
 
-      {/* Core section */}
       <div style={{ color: "#8a8ea3", fontSize: 12, margin: "14px 0 8px" }}>
         CORE
       </div>
@@ -42,21 +43,30 @@ export default function Sidebar() {
         </NavLink>
 
         <NavLink to="/agenda" style={linkStyle}>
-            🗓️ Agenda
+          🗓️ Agenda
         </NavLink>
       </nav>
 
-      {/* Future modules */}
-      <div style={{ color: "#8a8ea3", fontSize: 12, margin: "22px 0 8px" }}>
-        AUTOMATION
-      </div>
+      {/* ✅ PROJECT modules (based on selectedProjectId, not URL) */}
+      {selectedProjectId && (
+        <>
+          <div style={{ color: "#8a8ea3", fontSize: 12, margin: "22px 0 8px" }}>
+            PROJECT
+          </div>
 
-      <div style={{ fontSize: 13, color: "#d4d6dd", opacity: 0.6 }}>
-        🤖 AI Assistant <br />
-        📊 Reports <br />
-        ♻️ ACV Analysis <br />
-        💰 Financial Module
-      </div>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            <NavLink to={`/projects/${selectedProjectId}/audit`} style={linkStyle}>
+              📝 Audit
+            </NavLink>
+          </nav>
+        </>
+      )}
+
+      {!selectedProjectId && (
+        <div style={{ marginTop: 22, fontSize: 12, color: "#8a8ea3", opacity: 0.9 }}>
+          Double-click a project to open its Audit module.
+        </div>
+      )}
     </aside>
   );
 }
