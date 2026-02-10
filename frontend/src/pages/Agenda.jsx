@@ -30,6 +30,7 @@ function Card({ children, style }) {
     </div>
   );
 }
+  // caca
 
 export default function Agenda() {
   // MVP: events en mémoire (non persistant)
