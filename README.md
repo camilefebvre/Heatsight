@@ -74,7 +74,7 @@ Les projets sont stock√©s localement dans `backend/app/data.json` (non versionn√
 
 ```bash
 cp backend/app/data.example.json backend/app/data.json
-
+```
 
 ---
 
