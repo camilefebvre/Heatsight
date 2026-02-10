@@ -65,6 +65,17 @@ HeatSight/
 - Validation des données avec Pydantic
 - CORS configuré pour communication frontend ↔ backend
 
+###  Données locales (MVP)
+
+Les projets sont stockés localement dans `backend/app/data.json` (non versionné).
+
+- `data.json` n’est pas push sur GitHub (évite les conflits en équipe).
+- Pour initialiser en local :
+
+```bash
+cp backend/app/data.example.json backend/app/data.json
+
+
 ---
 
 ## Lancer le projet en local
