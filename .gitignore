@@ -14,3 +14,6 @@ build/
 .DS_Store
 .vscode/
 .idea/
+
+# Local MVP data (do not commit)
+backend/app/data.json
