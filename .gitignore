@@ -17,3 +17,5 @@ build/
 
 # Local MVP data (do not commit)
 backend/app/data.json
+backend/app/data.json
+backend/app/excel/
