@@ -1,5 +1,8 @@
 import { NavLink } from "react-router-dom";
+import { useEffect, useState } from "react";
 import { useProject } from "../state/ProjectContext";
+
+const API_URL = "http://127.0.0.1:8000";
 
 const linkStyle = ({ isActive }) => ({
   display: "flex",
@@ -15,6 +18,25 @@ const linkStyle = ({ isActive }) => ({
 
 export default function Sidebar() {
   const { selectedProjectId } = useProject();
+  const [projectName, setProjectName] = useState("");
+
+  useEffect(() => {
+    async function loadName() {
+      if (!selectedProjectId) {
+        setProjectName("");
+        return;
+      }
+      try {
+        const res = await fetch(`${API_URL}/projects`);
+        const list = await res.json();
+        const p = list.find((x) => x.id === selectedProjectId);
+        setProjectName(p?.project_name || "");
+      } catch {
+        setProjectName("");
+      }
+    }
+    loadName();
+  }, [selectedProjectId]);
 
   return (
     <aside
@@ -47,11 +69,10 @@ export default function Sidebar() {
         </NavLink>
       </nav>
 
-      {/* ✅ PROJECT modules (based on selectedProjectId, not URL) */}
-      {selectedProjectId && (
+      {selectedProjectId ? (
         <>
           <div style={{ color: "#8a8ea3", fontSize: 12, margin: "22px 0 8px" }}>
-            PROJECT
+            PROJECT{projectName ? ` — ${projectName}` : ""}
           </div>
 
           <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -60,13 +81,23 @@ export default function Sidebar() {
             </NavLink>
           </nav>
         </>
-      )}
-
-      {!selectedProjectId && (
-        <div style={{ marginTop: 22, fontSize: 12, color: "#8a8ea3", opacity: 0.9 }}>
+      ) : (
+        <div
+          style={{
+            marginTop: 22,
+            fontSize: 12,
+            color: "#8a8ea3",
+            opacity: 0.9,
+          }}
+        >
           Double-click a project to open its Audit module.
         </div>
       )}
     </aside>
   );
 }
+
+
+
+
+
