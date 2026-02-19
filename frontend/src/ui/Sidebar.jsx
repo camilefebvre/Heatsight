@@ -79,6 +79,9 @@ export default function Sidebar() {
             <NavLink to={`/projects/${selectedProjectId}/audit`} style={linkStyle}>
               📝 Audit
             </NavLink>
+            <NavLink to={`/projects/${selectedProjectId}/energy`} style={linkStyle}>
+              ⚡ Comptabilité énergétique
+            </NavLink>
           </nav>
         </>
       ) : (

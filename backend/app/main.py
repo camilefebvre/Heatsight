@@ -83,6 +83,8 @@ class ProjectCreate(BaseModel):
     audit_type: str
     status: str = "draft"
     audit_data: Dict[str, Any] = Field(default_factory=dict)
+    energy_accounting: Dict[str, Any] = Field(default_factory=dict)
+
     
 
 
@@ -93,6 +95,12 @@ class Project(ProjectCreate):
 
 class AuditUpdate(BaseModel):
     audit_data: Dict[str, Any]
+    
+class EnergyAccountingUpdate(BaseModel):
+    energy_accounting: Dict[str, Any]
+
+class EnergyYearImportRequest(BaseModel):
+    year: str  # ex: "2023"
     
 class ProjectUpdate(BaseModel):
     project_name: Optional[str] = None
@@ -436,3 +444,90 @@ def get_indices(project_id: str):
         pass
 
     return read_indices_from_excel(excel_path)
+
+@app.get("/projects/{project_id}/energy-accounting")
+def get_energy_accounting(project_id: str):
+    project = next((p for p in PROJECTS if p.id == project_id), None)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project.energy_accounting or {}
+
+
+@app.patch("/projects/{project_id}/energy-accounting")
+def update_energy_accounting(project_id: str, payload: EnergyAccountingUpdate):
+    for i, p in enumerate(PROJECTS):
+        if p.id == project_id:
+            updated = p.model_dump()
+            updated["energy_accounting"] = payload.energy_accounting
+            PROJECTS[i] = Project(**updated)
+            save_projects(PROJECTS)
+            return {"status": "ok", "energy_accounting": PROJECTS[i].energy_accounting}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@app.post("/projects/{project_id}/energy-accounting/import-from-audit")
+def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
+    """
+    MVP: crée/écrase l'année demandée dans energy_accounting à partir des données audit (year2023).
+    """
+    for i, p in enumerate(PROJECTS):
+        if p.id == project_id:
+            audit = (p.audit_data or {}).get("year2023", {})
+            year = payload.year
+
+            # Helper: somme une colonne sur toutes les sections
+            def sum_field(rows, field):
+                total = 0.0
+                for r in rows or []:
+                    v = r.get(field, None)
+                    if v is None or str(v).strip() == "":
+                        continue
+                    try:
+                        s = str(v).replace(" ", "").replace(",", ".")
+                        total += float(s)
+                    except:
+                        pass
+                return total
+
+            sections = ["operational", "buildings", "transport", "utility"]
+            all_rows = []
+            for sk in sections:
+                all_rows += (audit.get(sk, []) or [])
+
+            # Totaux simples (tu peux enrichir plus tard)
+            imported_year = {
+                "year": year,
+                "totals": {
+                    "electricity": sum_field(all_rows, "electricity"),
+                    "gas": sum_field(all_rows, "gas"),
+                    "fuel": sum_field(all_rows, "fuel"),
+                    "biogas": sum_field(all_rows, "biogas"),
+                    "util1": sum_field(all_rows, "util1"),
+                    "util2": sum_field(all_rows, "util2"),
+                    "process": sum_field(all_rows, "process"),
+                },
+                # “details” optionnel pour garder des lignes
+                "details": {
+                    "operational": audit.get("operational", []),
+                    "buildings": audit.get("buildings", []),
+                    "transport": audit.get("transport", []),
+                    "utility": audit.get("utility", []),
+                },
+                "notes": "",
+            }
+
+            existing = p.energy_accounting or {}
+            years = existing.get("years", {}) if isinstance(existing, dict) else {}
+            years[str(year)] = imported_year
+
+            new_energy = { **existing, "years": years }
+
+            updated = p.model_dump()
+            updated["energy_accounting"] = new_energy
+            PROJECTS[i] = Project(**updated)
+            save_projects(PROJECTS)
+
+            return {"status": "ok", "energy_accounting": PROJECTS[i].energy_accounting}
+
+    raise HTTPException(status_code=404, detail="Project not found")
+
