@@ -31,15 +31,26 @@ Monorepo contenant :
 HeatSight/
 ├── backend/
 │   ├── app/
-│   │   └── main.py          # API FastAPI (Projects CRUD)
+│   │   ├── main.py                 # API FastAPI complète
+│   │   ├── data.json               # Données locales (non versionné)
+│   │   ├── templates/
+│   │   │   ├── audit_template.xlsx
+│   │   │   └── report_template.docx
+│   │   ├── excel/                  # Fichiers Excel générés par projet
+│   │   └── reports/                # Rapports Word générés
 │   ├── requirements.txt
 │   └── .env.example
 ├── frontend/
 │   ├── src/
-│   │   ├── layout/          # AppLayout, Sidebar
-│   │   ├── pages/           # Dashboard, Projects, Documents
-│   │   ├── ui/              # Composants UI réutilisables
-│   │   ├── App.jsx          # Routing principal
+│   │   ├── layout/                 # AppLayout, Sidebar
+│   │   ├── pages/
+│   │   │   ├── Dashboard.jsx
+│   │   │   ├── Projects.jsx
+│   │   │   ├── ProjectAudit.jsx
+│   │   │   ├── ProjectEnergy.jsx
+│   │   │   └── ProjectReport.jsx
+│   │   ├── ui/                     # Composants UI réutilisables
+│   │   ├── App.jsx                 # Routing principal
 │   │   └── main.jsx
 │   ├── package.json
 │   └── vite.config.js
@@ -64,6 +75,7 @@ HeatSight/
 - DELETE /projects/{id} → suppression
 - Validation des données avec Pydantic
 - CORS configuré pour communication frontend ↔ backend
+
 
 ###  Données locales (MVP)
 
