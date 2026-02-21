@@ -11,6 +11,8 @@ from shutil import copyfile, move
 from openpyxl import load_workbook
 import subprocess
 import tempfile
+from docxtpl import DocxTemplate
+
 
 # ==============================
 # CONFIG
@@ -19,13 +21,20 @@ SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
 
 BASE_DIR = Path(__file__).parent
 DATA_FILE = BASE_DIR / "data.json"
+
+# Excel template + per-project Excel folder
 TEMPLATE_FILE = BASE_DIR / "templates" / "audit_template.xlsx"
 EXCEL_DIR = BASE_DIR / "excel"
 EXCEL_DIR.mkdir(exist_ok=True)
 
-SHEET_NAME = "2023"  # <-- adapte si ta feuille s'appelle autrement
+# Word report template + output folder
+REPORT_TEMPLATE_FILE = BASE_DIR / "templates" / "report_template.docx"
+REPORT_DIR = BASE_DIR / "reports"
+REPORT_DIR.mkdir(exist_ok=True)
 
-# Emplacement des titres (fixes)
+SHEET_NAME = "2023"  # adapte si ta feuille s'appelle autrement
+
+# Emplacement des titres (fixes) colonne B
 TITLE_ROWS = {
     "operational": 5,  # B5
     "buildings": 8,    # B8
@@ -41,15 +50,14 @@ SECTION_START_ROW = {
     "utility": 15,
 }
 
-
-
-# ⚠️ correspond à ton template (nombre de lignes dispo sous chaque titre)
+# Nombre de lignes dispo sous chaque titre (selon ton template)
 MAX_ROWS_PER_SECTION = 2
 
+# Facteurs d'influence (L/M/N) lignes 6..13
 INFLUENCE_START_ROW = 6
-INFLUENCE_MAX_ROWS = 8  # lignes 6..13
+INFLUENCE_MAX_ROWS = 8
 
-
+# Indices à lire dans Excel
 INDICES_CELLS = {
     "primary": {"IEE": "B43", "IC": "B44", "iSER": "B45"},
     "secondary": {"AEE": "B49", "iCO2": "B50", "ACO2": "B51"},
@@ -82,10 +90,10 @@ class ProjectCreate(BaseModel):
     building_type: str
     audit_type: str
     status: str = "draft"
+
     audit_data: Dict[str, Any] = Field(default_factory=dict)
     energy_accounting: Dict[str, Any] = Field(default_factory=dict)
-
-    
+    report_data: Dict[str, Any] = Field(default_factory=dict)
 
 
 class Project(ProjectCreate):
@@ -93,15 +101,7 @@ class Project(ProjectCreate):
     created_at: str
     excel_file: str
 
-class AuditUpdate(BaseModel):
-    audit_data: Dict[str, Any]
-    
-class EnergyAccountingUpdate(BaseModel):
-    energy_accounting: Dict[str, Any]
 
-class EnergyYearImportRequest(BaseModel):
-    year: str  # ex: "2023"
-    
 class ProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     client_name: Optional[str] = None
@@ -113,12 +113,28 @@ class ProjectUpdate(BaseModel):
     status: Optional[str] = None
 
 
+class AuditUpdate(BaseModel):
+    audit_data: Dict[str, Any]
+
+
+class EnergyAccountingUpdate(BaseModel):
+    energy_accounting: Dict[str, Any]
+
+
+class EnergyYearImportRequest(BaseModel):
+    year: str  # ex "2023"
+
+
+class ReportUpdate(BaseModel):
+    report_data: Dict[str, Any]
+
 
 # ==============================
 # PERSISTENCE JSON
 # ==============================
 if not DATA_FILE.exists():
     DATA_FILE.write_text("[]", encoding="utf-8")
+
 
 def load_projects() -> List[Project]:
     try:
@@ -127,11 +143,13 @@ def load_projects() -> List[Project]:
     except Exception:
         return []
 
+
 def save_projects(projects: List[Project]) -> None:
     DATA_FILE.write_text(
         json.dumps([p.model_dump() for p in projects], indent=2, ensure_ascii=False),
-        encoding="utf-8"
+        encoding="utf-8",
     )
+
 
 PROJECTS: List[Project] = load_projects()
 
@@ -153,6 +171,7 @@ def _to_number(v: Any):
     except ValueError:
         return None
 
+
 def _set_cell(ws, addr: str, value: Any, numeric: bool = False):
     if numeric:
         n = _to_number(value)
@@ -162,20 +181,20 @@ def _set_cell(ws, addr: str, value: Any, numeric: bool = False):
     else:
         ws[addr].value = value if value is not None else ""
 
+
 def _get_sheet(wb):
     if SHEET_NAME in wb.sheetnames:
         return wb[SHEET_NAME]
     return wb.active
 
+
 def recalc_excel_in_place(excel_path: Path) -> None:
     """
-    Recalcule via LibreOffice headless en générant un nouveau .xlsx puis en remplaçant l'original.
-    => permet à openpyxl(data_only=True) de lire des valeurs calculées au lieu des formules.
+    Recalcule via LibreOffice headless en générant un nouveau .xlsx puis remplace l'original.
+    -> openpyxl(data_only=True) peut lire les valeurs calculées (si LO sait calculer).
     """
     if not excel_path.exists():
         return
-
-    # Si soffice absent, on ne bloque pas (MVP)
     if not Path(SOFFICE).exists():
         return
 
@@ -202,13 +221,13 @@ def recalc_excel_in_place(excel_path: Path) -> None:
 
         generated = tmpdir / excel_path.name
         if not generated.exists():
-            # fallback: prend le premier .xlsx généré
             cands = list(tmpdir.glob("*.xlsx"))
             if cands:
                 generated = cands[0]
 
         if generated.exists():
             move(str(generated), str(excel_path))
+
 
 def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
     excel_path = EXCEL_DIR / project.excel_file
@@ -219,6 +238,11 @@ def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
     ws = _get_sheet(wb)
 
     year = (audit_data or {}).get("year2023", {}) or {}
+
+    # (optionnel) on ignore "specifics" si ton template a des formules là-bas
+    if isinstance(year, dict) and "specifics" in year:
+        year = dict(year)  # copie
+        year.pop("specifics", None)
 
     # 1) Titles fixes (col B)
     _set_cell(ws, f"B{TITLE_ROWS['operational']}", "Activité opérationnelle")
@@ -257,7 +281,7 @@ def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
                 addr = f"{col}{excel_row}"
                 _set_cell(ws, addr, "" if field == "name" else None, numeric=(field in numeric_fields))
 
-        # write (clamp)
+        # write rows
         for idx, row in enumerate(rows[:MAX_ROWS_PER_SECTION]):
             excel_row = start_row + idx
             _set_cell(ws, f"B{excel_row}", row.get("name", ""))
@@ -271,6 +295,7 @@ def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
 
     # 4) Facteurs d'influence (L/M/N), lignes 6..13
     influence = year.get("influence_factors", []) or []
+
     for i in range(INFLUENCE_MAX_ROWS):
         excel_row = INFLUENCE_START_ROW + i
         _set_cell(ws, f"L{excel_row}", "")
@@ -283,7 +308,7 @@ def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
         _set_cell(ws, f"M{excel_row}", row.get("value", None), numeric=True)
         _set_cell(ws, f"N{excel_row}", row.get("unit", ""))
 
-    # 6) Factures / Compteur entrée (C19..I19)
+    # 5) Factures / Compteur entrée (C19..I19)
     invoice = year.get("invoice_meter", {}) or {}
     _set_cell(ws, "C19", invoice.get("electricity", None), numeric=True)
     _set_cell(ws, "D19", invoice.get("gas", None), numeric=True)
@@ -298,7 +323,7 @@ def write_audit_to_excel(project: Project, audit_data: Dict[str, Any]) -> None:
 
 def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
     """
-    Lit les VALEURS calculées (data_only=True) dans les cellules B43.. etc.
+    Lit les VALEURS calculées (data_only=True) dans les cellules d'indices.
     """
     wb = load_workbook(excel_path, data_only=True)
     ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
@@ -322,11 +347,12 @@ def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
 
 
 # ==============================
-# ROUTES
+# ROUTES: PROJECTS CRUD
 # ==============================
 @app.get("/projects", response_model=List[Project])
 def list_projects():
     return PROJECTS
+
 
 @app.post("/projects", response_model=Project)
 def create_project(payload: ProjectCreate):
@@ -349,6 +375,7 @@ def create_project(payload: ProjectCreate):
     save_projects(PROJECTS)
     return new_project
 
+
 @app.patch("/projects/{project_id}", response_model=Project)
 def update_project(project_id: str, payload: ProjectUpdate):
     for i, p in enumerate(PROJECTS):
@@ -356,11 +383,9 @@ def update_project(project_id: str, payload: ProjectUpdate):
             updated = p.model_dump()
             patch = payload.model_dump(exclude_unset=True)
             updated.update(patch)
-
             PROJECTS[i] = Project(**updated)
             save_projects(PROJECTS)
             return PROJECTS[i]
-
     raise HTTPException(status_code=404, detail="Project not found")
 
 
@@ -374,6 +399,10 @@ def delete_project(project_id: str):
     save_projects(PROJECTS)
     return {"status": "deleted", "id": project_id}
 
+
+# ==============================
+# ROUTES: AUDIT + EXCEL
+# ==============================
 @app.get("/projects/{project_id}/audit")
 def get_project_audit(project_id: str):
     project = next((p for p in PROJECTS if p.id == project_id), None)
@@ -381,26 +410,21 @@ def get_project_audit(project_id: str):
         raise HTTPException(status_code=404, detail="Project not found")
     return project.audit_data
 
+
 @app.patch("/projects/{project_id}/audit")
 def update_project_audit(project_id: str, payload: AuditUpdate):
     for i, p in enumerate(PROJECTS):
         if p.id == project_id:
+            # sauvegarde audit_data en JSON
             updated = p.model_dump()
             updated["audit_data"] = payload.audit_data
             PROJECTS[i] = Project(**updated)
-            
-            year = payload.audit_data.get("year2023", {})
-            if isinstance(year, dict) and "specifics" in year:
-                year.pop("specifics", None)
-
-
-            # persist JSON
             save_projects(PROJECTS)
 
-            # write excel
+            # écrit dans Excel
             write_audit_to_excel(PROJECTS[i], payload.audit_data)
 
-            # recalc formules => overwrite file
+            # recalcul LO (MVP: ne bloque pas si ça échoue)
             excel_path = EXCEL_DIR / PROJECTS[i].excel_file
             try:
                 recalc_excel_in_place(excel_path)
@@ -410,6 +434,7 @@ def update_project_audit(project_id: str, payload: AuditUpdate):
             return {"status": "ok", "audit_data": PROJECTS[i].audit_data}
 
     raise HTTPException(status_code=404, detail="Project not found")
+
 
 @app.get("/projects/{project_id}/excel")
 def download_project_excel(project_id: str):
@@ -427,6 +452,10 @@ def download_project_excel(project_id: str):
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
+
+# ==============================
+# ROUTES: INDICES
+# ==============================
 @app.get("/projects/{project_id}/indices")
 def get_indices(project_id: str):
     project = next((p for p in PROJECTS if p.id == project_id), None)
@@ -437,7 +466,7 @@ def get_indices(project_id: str):
     if not excel_path.exists():
         raise HTTPException(status_code=404, detail="Excel file not found")
 
-    # (optionnel) recalc à la demande pour être sûr
+    # optionnel: recalc à la demande
     try:
         recalc_excel_in_place(excel_path)
     except Exception:
@@ -445,6 +474,10 @@ def get_indices(project_id: str):
 
     return read_indices_from_excel(excel_path)
 
+
+# ==============================
+# ROUTES: ENERGY ACCOUNTING
+# ==============================
 @app.get("/projects/{project_id}/energy-accounting")
 def get_energy_accounting(project_id: str):
     project = next((p for p in PROJECTS if p.id == project_id), None)
@@ -472,10 +505,9 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
     """
     for i, p in enumerate(PROJECTS):
         if p.id == project_id:
-            audit = (p.audit_data or {}).get("year2023", {})
-            year = payload.year
+            audit = (p.audit_data or {}).get("year2023", {}) or {}
+            year = str(payload.year)
 
-            # Helper: somme une colonne sur toutes les sections
             def sum_field(rows, field):
                 total = 0.0
                 for r in rows or []:
@@ -485,7 +517,7 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
                     try:
                         s = str(v).replace(" ", "").replace(",", ".")
                         total += float(s)
-                    except:
+                    except Exception:
                         pass
                 return total
 
@@ -494,7 +526,6 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
             for sk in sections:
                 all_rows += (audit.get(sk, []) or [])
 
-            # Totaux simples (tu peux enrichir plus tard)
             imported_year = {
                 "year": year,
                 "totals": {
@@ -506,7 +537,6 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
                     "util2": sum_field(all_rows, "util2"),
                     "process": sum_field(all_rows, "process"),
                 },
-                # “details” optionnel pour garder des lignes
                 "details": {
                     "operational": audit.get("operational", []),
                     "buildings": audit.get("buildings", []),
@@ -516,11 +546,11 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
                 "notes": "",
             }
 
-            existing = p.energy_accounting or {}
-            years = existing.get("years", {}) if isinstance(existing, dict) else {}
-            years[str(year)] = imported_year
+            existing = p.energy_accounting if isinstance(p.energy_accounting, dict) else {}
+            years = existing.get("years", {}) if isinstance(existing.get("years", {}), dict) else {}
+            years[year] = imported_year
 
-            new_energy = { **existing, "years": years }
+            new_energy = {**existing, "years": years}
 
             updated = p.model_dump()
             updated["energy_accounting"] = new_energy
@@ -531,3 +561,65 @@ def import_energy_from_audit(project_id: str, payload: EnergyYearImportRequest):
 
     raise HTTPException(status_code=404, detail="Project not found")
 
+
+# ==============================
+# ROUTES: REPORT (WORD)
+# ==============================
+@app.get("/projects/{project_id}/report")
+def get_project_report(project_id: str):
+    project = next((p for p in PROJECTS if p.id == project_id), None)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return project.report_data or {}
+
+
+@app.patch("/projects/{project_id}/report")
+def update_project_report(project_id: str, payload: ReportUpdate):
+    for i, p in enumerate(PROJECTS):
+        if p.id == project_id:
+            updated = p.model_dump()
+            updated["report_data"] = payload.report_data
+            PROJECTS[i] = Project(**updated)
+            save_projects(PROJECTS)
+            return {"status": "ok", "report_data": PROJECTS[i].report_data}
+    raise HTTPException(status_code=404, detail="Project not found")
+
+
+@app.get("/projects/{project_id}/report/docx")
+def download_project_report_docx(project_id: str):
+    project = next((p for p in PROJECTS if p.id == project_id), None)
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not REPORT_TEMPLATE_FILE.exists():
+        raise HTTPException(status_code=500, detail="Report template not found")
+
+    data = project.report_data or {}
+    audit_type = (data.get("audit_type") or project.audit_type or "").strip()
+
+    is_global = audit_type.lower() == "audit global"
+    is_partiel = audit_type.lower() == "audit partiel"
+
+    context = {
+        "audit_type": audit_type,
+        "audit_theme": data.get("audit_theme", ""),  # <-- thématique
+        "provider_company": data.get("provider_company", ""),
+        "auditor_name": data.get("auditor_name", ""),
+        "amureba_skills": data.get("amureba_skills", ""),
+
+        # ✅ checkboxes
+        "audit_global_box": "☑" if is_global else "☐",
+        "audit_partiel_box": "☑" if is_partiel else "☐",
+    }
+
+    out_path = REPORT_DIR / f"{project.id}_report.docx"
+
+    doc = DocxTemplate(str(REPORT_TEMPLATE_FILE))
+    doc.render(context)
+    doc.save(str(out_path))
+
+    return FileResponse(
+        path=str(out_path),
+        filename=f"HeatSight_{project.project_name}_rapport.docx",
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    )

@@ -82,6 +82,9 @@ export default function Sidebar() {
             <NavLink to={`/projects/${selectedProjectId}/energy`} style={linkStyle}>
               ⚡ Comptabilité énergétique
             </NavLink>
+            <NavLink to={`/projects/${selectedProjectId}/report`} style={linkStyle}>
+              📄 Rapport
+            </NavLink>
           </nav>
         </>
       ) : (

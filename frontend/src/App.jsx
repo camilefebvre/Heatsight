@@ -5,6 +5,7 @@ import Projects from "./pages/Projects";
 import Agenda from "./pages/Agenda";
 import ProjectAudit from "./pages/ProjectAudit";
 import ProjectEnergy from "./pages/ProjectEnergy";
+import ProjectReport from "./pages/ProjectReport";
 
 
 export default function App() {
@@ -18,6 +19,7 @@ export default function App() {
         {/* ✅ routes “dans un projet” */}
         <Route path="/projects/:projectId/audit" element={<ProjectAudit />} />
         <Route path="/projects/:projectId/energy" element={<ProjectEnergy />} />
+        <Route path="/projects/:projectId/report" element={<ProjectReport />} />
       </Route>
     </Routes>
   );
