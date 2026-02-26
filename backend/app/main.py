@@ -4,7 +4,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, EmailStr, Field
 from typing import List, Optional, Dict, Any
 from uuid import uuid4
-from datetime import datetime
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 from shutil import copyfile, move
@@ -102,6 +102,8 @@ class Project(ProjectCreate):
     excel_file: str
 
 
+VALID_STATUSES = {"draft", "in_progress", "on_hold", "completed"}
+
 class ProjectUpdate(BaseModel):
     project_name: Optional[str] = None
     client_name: Optional[str] = None
@@ -111,6 +113,10 @@ class ProjectUpdate(BaseModel):
     building_type: Optional[str] = None
     audit_type: Optional[str] = None
     status: Optional[str] = None
+
+    def model_post_init(self, _context):
+        if self.status is not None and self.status not in VALID_STATUSES:
+            raise ValueError(f"status invalide '{self.status}'. Valeurs acceptées : {VALID_STATUSES}")
 
 
 class AuditUpdate(BaseModel):
@@ -185,6 +191,8 @@ def _set_cell(ws, addr: str, value: Any, numeric: bool = False):
 def _get_sheet(wb):
     if SHEET_NAME in wb.sheetnames:
         return wb[SHEET_NAME]
+    # Fallback: première feuille disponible (log pour debug)
+    print(f"[WARN] Feuille '{SHEET_NAME}' introuvable dans le classeur. Feuilles disponibles: {wb.sheetnames}. Utilisation de la feuille active: '{wb.active.title}'.")
     return wb.active
 
 
@@ -326,7 +334,7 @@ def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
     Lit les VALEURS calculées (data_only=True) dans les cellules d'indices.
     """
     wb = load_workbook(excel_path, data_only=True)
-    ws = wb[SHEET_NAME] if SHEET_NAME in wb.sheetnames else wb.active
+    ws = _get_sheet(wb)
 
     def clean(v: Any):
         if v is None:
@@ -367,7 +375,7 @@ def create_project(payload: ProjectCreate):
 
     new_project = Project(
         id=project_id,
-        created_at=datetime.utcnow().isoformat(),
+        created_at=datetime.now(timezone.utc).isoformat(),
         excel_file=excel_name,
         **payload.model_dump(),
     )
@@ -392,10 +400,16 @@ def update_project(project_id: str, payload: ProjectUpdate):
 @app.delete("/projects/{project_id}")
 def delete_project(project_id: str):
     global PROJECTS
-    before = len(PROJECTS)
-    PROJECTS = [p for p in PROJECTS if p.id != project_id]
-    if len(PROJECTS) == before:
+    project = next((p for p in PROJECTS if p.id == project_id), None)
+    if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    # Supprime le fichier Excel associé
+    excel_path = EXCEL_DIR / project.excel_file
+    if excel_path.exists():
+        excel_path.unlink()
+
+    PROJECTS = [p for p in PROJECTS if p.id != project_id]
     save_projects(PROJECTS)
     return {"status": "deleted", "id": project_id}
 

@@ -1,10 +1,17 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useProject } from "../state/ProjectContext";
 
 const API_URL = "http://127.0.0.1:8000";
 
 export default function ProjectReport() {
   const { projectId } = useParams();
+  const { setSelectedProjectId } = useProject();
+
+  // Sync le context sidebar si on arrive directement sur l'URL
+  useEffect(() => {
+    setSelectedProjectId(projectId);
+  }, [projectId]);
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -89,10 +96,36 @@ export default function ProjectReport() {
     }
   }
 
+  async function saveAndDownload() {
+    try {
+      setBusy(true);
+      setError("");
+      setOkMsg("");
+
+      // 1) Sauvegarde d'abord
+      const res = await fetch(`${API_URL}/projects/${projectId}/report`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report_data: report }),
+      });
+
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Save failed");
+      }
+
+      // 2) Ensuite déclenche le téléchargement
+      window.open(`${API_URL}/projects/${projectId}/report/docx`, "_blank");
+      setOkMsg("Rapport sauvegardé et téléchargé ✅");
+    } catch (e) {
+      setError(e.message || "Erreur lors de la génération du rapport");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (loading) return <div style={{ color: "#6b7280" }}>Loading…</div>;
   if (!project) return <div style={{ color: "#6b7280" }}>Project not found.</div>;
-
-  const isPartiel = report.audit_type === "Audit Partiel";
 
   return (
     <div style={{ maxWidth: 1100, width: "100%" }}>
@@ -109,7 +142,7 @@ export default function ProjectReport() {
 
       <div style={card}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-          <Field label="Type d’audit">
+          <Field label="Type d'audit">
             <select
               value={report.audit_type}
               onChange={(e) => updateField("audit_type", e.target.value)}
@@ -138,7 +171,7 @@ export default function ProjectReport() {
             />
           </Field>
 
-          <Field label="Nom / prénom de l’auditeur(trice) responsable">
+          <Field label="Nom / prénom de l'auditeur(trice) responsable">
             <input
               value={report.auditor_name}
               onChange={(e) => updateField("auditor_name", e.target.value)}
@@ -162,23 +195,12 @@ export default function ProjectReport() {
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
           <button type="button" onClick={saveReport} disabled={busy} style={primaryBtn}>
-            {busy ? "…" : "💾 Sauvegarder"}
+            {busy ? "..." : "Sauvegarder"}
           </button>
 
-          <a
-            href={`${API_URL}/projects/${projectId}/report/docx`}
-            target="_blank"
-            rel="noreferrer"
-            style={{ textDecoration: "none" }}
-          >
-            <button type="button" style={secondaryBtn}>
-              ⬇️ Télécharger le rapport (Word)
-            </button>
-          </a>
-        </div>
-
-        <div style={{ marginTop: 10, color: "#6b7280", fontSize: 12 }}>
-          Astuce : clique “Sauvegarder” puis “Télécharger”.
+          <button type="button" onClick={saveAndDownload} disabled={busy} style={secondaryBtn}>
+            {busy ? "..." : "Sauvegarder + Telecharger (Word)"}
+          </button>
         </div>
       </div>
     </div>

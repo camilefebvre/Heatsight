@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useProject } from "../state/ProjectContext";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -22,6 +23,12 @@ function safeClone(obj) {
 
 export default function ProjectAudit() {
   const { projectId } = useParams();
+  const { setSelectedProjectId } = useProject();
+
+  // Sync le context sidebar si on arrive directement sur l'URL
+  useEffect(() => {
+    setSelectedProjectId(projectId);
+  }, [projectId]);
 
   const [project, setProject] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -119,7 +126,7 @@ export default function ProjectAudit() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectId]);
 
-  // ✅ charge les indices quand on va sur l’onglet
+  // ✅ charge les indices quand on va sur l'onglet
   useEffect(() => {
     if (tab === "indices") loadIndices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -209,7 +216,7 @@ export default function ProjectAudit() {
 
       await load();
 
-      // ✅ si tu es sur l’onglet indices, on refresh aussi
+      // ✅ si tu es sur l'onglet indices, on refresh aussi
       if (tab === "indices") await loadIndices();
     } catch (e) {
       setError(e.message || "Save failed");
@@ -246,13 +253,20 @@ export default function ProjectAudit() {
         {/* Tabs */}
         <div style={tabsRow}>
           <Tab label="Énergies" active={tab === "energies"} onClick={() => setTab("energies")} />
-          <Tab label="Facteurs d’influence" active={tab === "influence"} onClick={() => setTab("influence")} />
+          <Tab label="Facteurs d'influence" active={tab === "influence"} onClick={() => setTab("influence")} />
           <Tab label="Factures / Compteur" active={tab === "invoices"} onClick={() => setTab("invoices")} />
           <Tab label="Indices" active={tab === "indices"} onClick={() => setTab("indices")} />
         </div>
 
         {tab === "energies" && (
           <>
+            {/* Avertissement si une section dépasse 2 lignes (limite du template Excel) */}
+            {sections.some((s) => (audit.year2023[s.key] || []).length > 2) && (
+              <div style={{ marginBottom: 14, background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", padding: "10px 14px", borderRadius: 12, fontSize: 13 }}>
+                ⚠️ Le template Excel supporte max <strong>2 lignes par section</strong>. Les lignes supplémentaires sont sauvegardées ici mais ne seront pas écrites dans l'Excel (et n'impacteront pas les indices).
+              </div>
+            )}
+
             {/* Utility headers */}
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
               <MiniCard title="Utilité 1">
@@ -292,7 +306,7 @@ export default function ProjectAudit() {
 
         {tab === "influence" && (
           <div style={{ marginTop: 14 }}>
-            <h3 style={h3}>Facteurs d’influence</h3>
+            <h3 style={h3}>Facteurs d'influence</h3>
             <SmallTable
               headers={["Description", "Valeur", "Unité", ""]}
               rows={audit.year2023.influence_factors}
@@ -345,7 +359,7 @@ export default function ProjectAudit() {
         {tab === "indices" && (
           <div style={{ marginTop: 14 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-              <h3 style={{ ...h3, margin: 0 }}>Indices (lus depuis l’Excel)</h3>
+              <h3 style={{ ...h3, margin: 0 }}>Indices (lus depuis l'Excel)</h3>
               <button type="button" onClick={loadIndices} style={secondaryBtn} disabled={indicesLoading}>
                 {indicesLoading ? "Chargement…" : "Rafraîchir"}
               </button>
@@ -375,7 +389,7 @@ export default function ProjectAudit() {
             )}
 
             <div style={{ marginTop: 12, color: "#6b7280", fontSize: 12 }}>
-              Remarque : si ces cellules proviennent de formules, il faut que l’Excel ait été calculé et sauvegardé pour que la valeur apparaisse ici.
+              Remarque : si ces cellules proviennent de formules, il faut que l'Excel ait été calculé et sauvegardé pour que la valeur apparaisse ici.
             </div>
           </div>
         )}

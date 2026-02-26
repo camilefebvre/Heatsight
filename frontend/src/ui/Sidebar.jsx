@@ -96,7 +96,7 @@ export default function Sidebar() {
             opacity: 0.9,
           }}
         >
-          Double-click a project to open its Audit module.
+          Double-clique sur un projet pour ouvrir son module Audit.
         </div>
       )}
     </aside>

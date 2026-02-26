@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
+import { useProject } from "../state/ProjectContext";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -65,9 +66,17 @@ function YearButton({ active, label, onClick }) {
 
 export default function ProjectEnergy() {
   const { projectId } = useParams();
+  const { setSelectedProjectId } = useProject();
+
+  // Sync le context sidebar si on arrive directement sur l'URL
+  useEffect(() => {
+    setSelectedProjectId(projectId);
+  }, [projectId]);
 
   const [project, setProject] = useState(null);
   const [energy, setEnergy] = useState({ years: {} }); // { years: { "2023": {...}, ... } }
+  const [util1Name, setUtil1Name] = useState("Utilité 1");
+  const [util2Name, setUtil2Name] = useState("Utilité 2");
 
   const [tab, setTab] = useState("data"); // data | charts
 
@@ -76,6 +85,8 @@ export default function ProjectEnergy() {
 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [addingYear, setAddingYear] = useState(false);
+  const [newYearInput, setNewYearInput] = useState("");
 
   async function loadProjectAndEnergy() {
     try {
@@ -87,6 +98,11 @@ export default function ProjectEnergy() {
       const list = await resP.json();
       const p = list.find((x) => x.id === projectId);
       setProject(p || null);
+
+      // Récupère les noms d'utilités depuis l'audit
+      const headers = p?.audit_data?.year2023?.utility_headers || {};
+      if (headers.util1_name) setUtil1Name(headers.util1_name);
+      if (headers.util2_name) setUtil2Name(headers.util2_name);
 
       const resE = await fetch(`${API_URL}/projects/${projectId}/energy-accounting`);
       if (!resE.ok) throw new Error(`GET /energy-accounting failed (${resE.status})`);
@@ -117,9 +133,6 @@ export default function ProjectEnergy() {
     return keys.sort(); // "2021","2022","2023"
   }, [energy]);
 
-  // labels utilités (si tu veux plus tard les envoyer depuis backend)
-  const util1Name = energy?.util1_name || "Utilité 1";
-  const util2Name = energy?.util2_name || "Utilité 2";
 
   function ensureYear(year) {
     setEnergy((prev) => {
@@ -130,11 +143,13 @@ export default function ProjectEnergy() {
     });
   }
 
-  function addYear() {
-    const y = prompt("Quelle année veux-tu ajouter ? (ex: 2024)");
+  function confirmAddYear() {
+    const y = newYearInput.trim();
     if (!y) return;
     ensureYear(y);
-    setActiveYear(String(y));
+    setActiveYear(y);
+    setNewYearInput("");
+    setAddingYear(false);
   }
 
   function updateTotal(field, value) {
@@ -263,9 +278,26 @@ export default function ProjectEnergy() {
                   onClick={() => setActiveYear(k)}
                 />
               ))}
-              <button type="button" onClick={addYear} style={secondaryBtn}>
-                + Ajouter une année
-              </button>
+
+              {addingYear ? (
+                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                  <input
+                    autoFocus
+                    value={newYearInput}
+                    onChange={(e) => setNewYearInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") confirmAddYear(); if (e.key === "Escape") setAddingYear(false); }}
+                    placeholder="Ex: 2024"
+                    style={{ ...inputStyle, width: 100 }}
+                    maxLength={4}
+                  />
+                  <button type="button" onClick={confirmAddYear} style={primaryBtn}>OK</button>
+                  <button type="button" onClick={() => { setAddingYear(false); setNewYearInput(""); }} style={secondaryBtn}>✕</button>
+                </div>
+              ) : (
+                <button type="button" onClick={() => setAddingYear(true)} style={secondaryBtn}>
+                  + Ajouter une année
+                </button>
+              )}
             </div>
 
             <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
