@@ -33,7 +33,7 @@ function Tab({ label, active, onClick }) {
         border: "1px solid #e5e7eb",
         background: active ? "#6d28d9" : "white",
         color: active ? "white" : "#111827",
-        fontWeight: 900,
+        fontWeight: 700,
         cursor: "pointer",
         whiteSpace: "nowrap",
       }}
@@ -54,7 +54,7 @@ function YearButton({ active, label, onClick }) {
         border: "1px solid #e5e7eb",
         background: active ? "#6d28d9" : "white",
         color: active ? "white" : "#111827",
-        fontWeight: 900,
+        fontWeight: 700,
         cursor: "pointer",
         whiteSpace: "nowrap",
       }}
@@ -68,21 +68,18 @@ export default function ProjectEnergy() {
   const { projectId } = useParams();
   const { setSelectedProjectId } = useProject();
 
-  // Sync le context sidebar si on arrive directement sur l'URL
   useEffect(() => {
     setSelectedProjectId(projectId);
   }, [projectId]);
 
   const [project, setProject] = useState(null);
-  const [energy, setEnergy] = useState({ years: {} }); // { years: { "2023": {...}, ... } }
+  const [energy, setEnergy] = useState({ years: {} });
   const [util1Name, setUtil1Name] = useState("Utilité 1");
   const [util2Name, setUtil2Name] = useState("Utilité 2");
 
-  const [tab, setTab] = useState("data"); // data | charts
-
+  const [tab, setTab] = useState("data");
   const [activeYear, setActiveYear] = useState("2023");
   const [loading, setLoading] = useState(true);
-
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [addingYear, setAddingYear] = useState(false);
@@ -99,7 +96,6 @@ export default function ProjectEnergy() {
       const p = list.find((x) => x.id === projectId);
       setProject(p || null);
 
-      // Récupère les noms d'utilités depuis l'audit
       const headers = p?.audit_data?.year2023?.utility_headers || {};
       if (headers.util1_name) setUtil1Name(headers.util1_name);
       if (headers.util2_name) setUtil2Name(headers.util2_name);
@@ -111,7 +107,6 @@ export default function ProjectEnergy() {
       const normalized = data && typeof data === "object" ? data : { years: {} };
       if (!normalized.years) normalized.years = {};
 
-      // ensure activeYear exists
       const ay = String(activeYear);
       if (!normalized.years[ay]) normalized.years[ay] = emptyYear(ay);
 
@@ -130,9 +125,8 @@ export default function ProjectEnergy() {
 
   const yearKeys = useMemo(() => {
     const keys = Object.keys(energy.years || {});
-    return keys.sort(); // "2021","2022","2023"
+    return keys.sort();
   }, [energy]);
-
 
   function ensureYear(year) {
     setEnergy((prev) => {
@@ -178,18 +172,15 @@ export default function ProjectEnergy() {
     try {
       setSaving(true);
       setError("");
-
       const res = await fetch(`${API_URL}/projects/${projectId}/energy-accounting`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ energy_accounting: energy }),
       });
-
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(txt || "Save failed");
       }
-
       await loadProjectAndEnergy();
     } catch (e) {
       setError(e.message || "Save failed");
@@ -202,18 +193,15 @@ export default function ProjectEnergy() {
     try {
       setSaving(true);
       setError("");
-
       const res = await fetch(`${API_URL}/projects/${projectId}/energy-accounting/import-from-audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year: String(activeYear) }),
       });
-
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(txt || "Import failed");
       }
-
       await loadProjectAndEnergy();
     } catch (e) {
       setError(e.message || "Import failed");
@@ -222,20 +210,19 @@ export default function ProjectEnergy() {
     }
   }
 
-  if (loading) return <div style={{ color: "#6b7280" }}>Loading…</div>;
-  if (!project) return <div style={{ color: "#6b7280" }}>Project not found.</div>;
+  if (loading) return <div style={{ color: "#6b7280", padding: 24 }}>Chargement...</div>;
+  if (!project) return <div style={{ color: "#6b7280", padding: 24 }}>Projet introuvable.</div>;
 
   const y = energy.years?.[String(activeYear)] || emptyYear(activeYear);
 
-  // ✅ séries globales (toutes années)
   const series = [
-    { key: "electricity", label: "Électricité", color: "#6d28d9" },
-    { key: "gas", label: "Gaz", color: "#2563eb" },
-    { key: "fuel", label: "Fuel", color: "#f59e0b" },
-    { key: "biogas", label: "Biogaz", color: "#10b981" },
-    { key: "util1", label: util1Name, color: "#14b8a6" },
-    { key: "util2", label: util2Name, color: "#06b6d4" },
-    { key: "process", label: "Process", color: "#ef4444" },
+    { key: "electricity", label: "Électricité",  color: "#7C3AED" },
+    { key: "gas",         label: "Gaz",          color: "#2563eb" },
+    { key: "fuel",        label: "Fuel",          color: "#f59e0b" },
+    { key: "biogas",      label: "Biogaz",        color: "#10b981" },
+    { key: "util1",       label: util1Name,       color: "#14b8a6" },
+    { key: "util2",       label: util2Name,       color: "#06b6d4" },
+    { key: "process",     label: "Process",       color: "#ef4444" },
   ];
 
   const stackedSeries = series.map((s) => ({
@@ -245,19 +232,15 @@ export default function ProjectEnergy() {
 
   return (
     <div style={{ maxWidth: 1100, width: "100%" }}>
-      <div style={{ color: "#6b7280" }}>Projet</div>
-      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>
-        Comptabilité énergétique — {project.project_name}
+      <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
+      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
+        Comptabilité énergétique &mdash; {project.project_name}
       </h1>
-      <div style={{ color: "#6b7280" }}>
+      <div style={{ color: "#6b7280", fontSize: 14 }}>
         Ajoute des années, saisis les totaux et visualise les graphes globaux.
       </div>
 
-      {error && (
-        <div style={errorBox}>
-          {error}
-        </div>
-      )}
+      {error && <div style={errorBox}>{error}</div>}
 
       <div style={card}>
         {/* Tabs */}
@@ -285,13 +268,16 @@ export default function ProjectEnergy() {
                     autoFocus
                     value={newYearInput}
                     onChange={(e) => setNewYearInput(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") confirmAddYear(); if (e.key === "Escape") setAddingYear(false); }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") confirmAddYear();
+                      if (e.key === "Escape") setAddingYear(false);
+                    }}
                     placeholder="Ex: 2024"
                     style={{ ...inputStyle, width: 100 }}
                     maxLength={4}
                   />
                   <button type="button" onClick={confirmAddYear} style={primaryBtn}>OK</button>
-                  <button type="button" onClick={() => { setAddingYear(false); setNewYearInput(""); }} style={secondaryBtn}>✕</button>
+                  <button type="button" onClick={() => { setAddingYear(false); setNewYearInput(""); }} style={secondaryBtn}>&#x2715;</button>
                 </div>
               ) : (
                 <button type="button" onClick={() => setAddingYear(true)} style={secondaryBtn}>
@@ -301,15 +287,15 @@ export default function ProjectEnergy() {
             </div>
 
             <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="button" onClick={importFromAudit} style={secondaryBtn} disabled={saving}>
-                {saving ? "…" : `Importer depuis Audit (${activeYear})`}
+              <button type="button" onClick={importFromAudit} style={importBtn} disabled={saving}>
+                {saving ? "..." : `Importer depuis Audit (${activeYear})`}
               </button>
             </div>
 
             {/* Totals */}
             <div style={{ marginTop: 18 }}>
-              <div style={{ fontWeight: 900, marginBottom: 10 }}>
-                Consommations annuelles — {activeYear}
+              <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 10 }}>
+                Consommations annuelles &mdash; {activeYear}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
@@ -322,7 +308,6 @@ export default function ProjectEnergy() {
                 <Field label="Fuel léger (litres)">
                   <input value={y.totals.fuel ?? ""} onChange={(e) => updateTotal("fuel", e.target.value)} style={inputStyle} placeholder="0" />
                 </Field>
-
                 <Field label="Biogaz (kWh)">
                   <input value={y.totals.biogas ?? ""} onChange={(e) => updateTotal("biogas", e.target.value)} style={inputStyle} placeholder="0" />
                 </Field>
@@ -332,7 +317,6 @@ export default function ProjectEnergy() {
                 <Field label={util2Name}>
                   <input value={y.totals.util2 ?? ""} onChange={(e) => updateTotal("util2", e.target.value)} style={inputStyle} placeholder="0" />
                 </Field>
-
                 <Field label="Process (kgCO₂)">
                   <input value={y.totals.process ?? ""} onChange={(e) => updateTotal("process", e.target.value)} style={inputStyle} placeholder="0" />
                 </Field>
@@ -353,7 +337,7 @@ export default function ProjectEnergy() {
 
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.7 : 1 }}>
-                {saving ? "Sauvegarde…" : "Sauvegarder"}
+                {saving ? "Sauvegarde..." : "Sauvegarder"}
               </button>
             </div>
           </>
@@ -361,43 +345,40 @@ export default function ProjectEnergy() {
 
         {tab === "charts" && (
           <>
-            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 12 }}>
+            <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 16 }}>
               Graphes globaux basés sur toutes les années enregistrées.
             </div>
 
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))",
-                gap: 12,
-              }}
-            >
-              <StackedBarChart
-                title="Toutes les énergies par année (répartition)"
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
+              <StackedAreaChart
+                title="Toutes les énergies par année"
+                subtitle="Répartition empilée des vecteurs énergétiques"
                 years={yearKeys}
-                unit="(valeurs annuelles)"
                 series={stackedSeries}
               />
 
               <LineBars
                 title="Électricité par année"
+                subtitle="Consommation en kWh"
                 labels={yearKeys}
                 values={yearKeys.map((k) => toNum(energy.years?.[k]?.totals?.electricity))}
-                unit="kWh"
+                color="#7C3AED"
               />
 
               <LineBars
                 title="Gaz par année"
+                subtitle="Consommation en kWh"
                 labels={yearKeys}
                 values={yearKeys.map((k) => toNum(energy.years?.[k]?.totals?.gas))}
-                unit="kWh"
+                color="#2563eb"
               />
 
               <LineBars
                 title="Process par année"
+                subtitle="Émissions en kgCO₂"
                 labels={yearKeys}
                 values={yearKeys.map((k) => toNum(energy.years?.[k]?.totals?.process))}
-                unit="kgCO₂"
+                color="#ef4444"
               />
             </div>
           </>
@@ -407,24 +388,32 @@ export default function ProjectEnergy() {
   );
 }
 
-/* UI */
+/* ── UI helpers ─────────────────────────────────────────────────────────────── */
+
 function Field({ label, children }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
-      <span style={{ fontSize: 12, color: "#6b7280" }}>{label}</span>
+      <span style={{ fontSize: 12, fontWeight: 600, color: "#6b7280" }}>{label}</span>
       {children}
     </label>
   );
 }
 
-/* ---------------- Styles ---------------- */
+/* ── Styles ─────────────────────────────────────────────────────────────────── */
 
 const card = {
   marginTop: 18,
   background: "white",
   borderRadius: 16,
-  padding: 16,
-  boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+  padding: 20,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+};
+
+const chartCard = {
+  background: "white",
+  borderRadius: 14,
+  padding: 20,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
 };
 
 const tabsRow = {
@@ -446,10 +435,13 @@ const errorBox = {
 const inputStyle = {
   width: "100%",
   padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
+  borderRadius: 8,
+  border: "1.5px solid #e5e7eb",
   outline: "none",
   fontSize: 14,
+  color: "#111827",
+  background: "white",
+  boxSizing: "border-box",
 };
 
 const primaryBtn = {
@@ -458,49 +450,81 @@ const primaryBtn = {
   border: "none",
   padding: "10px 14px",
   borderRadius: 12,
-  fontWeight: 900,
+  fontWeight: 700,
   cursor: "pointer",
 };
 
 const secondaryBtn = {
   border: "1px solid #e5e7eb",
   background: "white",
+  color: "#111827",
   padding: "10px 14px",
   borderRadius: 12,
-  fontWeight: 900,
+  fontWeight: 700,
   cursor: "pointer",
 };
 
-/* ---------------- Charts ---------------- */
+const importBtn = {
+  border: "1.5px solid #6d28d9",
+  background: "white",
+  color: "#6d28d9",
+  padding: "10px 14px",
+  borderRadius: 12,
+  fontWeight: 700,
+  cursor: "pointer",
+};
 
-function LineBars({ title, labels, values, unit = "" }) {
+/* ── Charts ─────────────────────────────────────────────────────────────────── */
+
+function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
   const max = Math.max(1, ...values.map((v) => (Number.isFinite(v) ? v : 0)));
-  return (
-    <div style={{ border: "1px solid #eef2f7", borderRadius: 14, padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", gap: 10, alignItems: "baseline" }}>
-        <div style={{ fontWeight: 900 }}>{title}</div>
-        {unit ? <div style={{ fontSize: 12, color: "#6b7280" }}>{unit}</div> : null}
-      </div>
+  const svgW = Math.max(520, labels.length * 90);
 
-      <div style={{ overflowX: "auto", marginTop: 10 }}>
-        <svg width={Math.max(520, labels.length * 90)} height={240} role="img">
-          <line x1="40" y1="200" x2="100%" y2="200" stroke="#e5e7eb" />
+  return (
+    <div style={chartCard}>
+      <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{subtitle}</div>}
+
+      <div style={{ overflowX: "auto", marginTop: 14 }}>
+        <svg width={svgW} height={240} role="img" style={{ overflow: "visible" }}>
+          {/* Grid */}
+          {[0, 0.25, 0.5, 0.75, 1].map((frac) => (
+            <line key={frac} x1="40" y1={20 + (1 - frac) * 160} x2={svgW} y2={20 + (1 - frac) * 160} stroke="#f3f4f6" strokeWidth={1} />
+          ))}
+          <line x1="40" y1="200" x2={svgW} y2="200" stroke="#e5e7eb" />
           <line x1="40" y1="20" x2="40" y2="200" stroke="#e5e7eb" />
 
           {labels.map((lab, i) => {
             const v = Number.isFinite(values[i]) ? values[i] : 0;
             const h = Math.round((v / max) * 160);
             const x = 60 + i * 80;
-            const y = 200 - h;
+            const barY = 200 - h;
+            const isHovered = hoveredIdx === i;
+
             return (
               <g key={`${lab}-${i}`}>
-                <rect x={x} y={y} width={44} height={h} rx="8" fill="#6d28d9" />
-                <text x={x + 22} y={y - 8} textAnchor="middle" fontSize="12" fill="#111827" fontWeight="700">
-                  {v ? formatNumber(v) : "—"}
-                </text>
-                <text x={x + 22} y={220} textAnchor="middle" fontSize="12" fill="#6b7280">
-                  {lab}
-                </text>
+                {/* Hit area */}
+                <rect
+                  x={x - 10} y={20} width={64} height={200}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIdx(i)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                  style={{ cursor: "default" }}
+                />
+                {/* Bar */}
+                <rect x={x} y={barY} width={44} height={h} rx={4} fill={color} fillOpacity={isHovered ? 1 : 0.82} />
+                {/* Year label */}
+                <text x={x + 22} y={220} textAnchor="middle" fontSize="12" fill="#6b7280">{lab}</text>
+                {/* Tooltip */}
+                {isHovered && (
+                  <g>
+                    <rect x={x - 14} y={barY - 36} width={72} height={26} rx={6} fill="#1f2937" />
+                    <text x={x + 22} y={barY - 18} textAnchor="middle" fontSize="11" fill="white" fontWeight="700">
+                      {v ? formatNumber(v) : "\u2014"}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -510,73 +534,125 @@ function LineBars({ title, labels, values, unit = "" }) {
   );
 }
 
-function StackedBarChart({ title, years, series, unit = "" }) {
+function StackedAreaChart({ title, subtitle, years, series }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
+  const activeSeries = series.filter((s) => s.values.some((v) => v > 0));
+
+  const padL = 50, padR = 20, padT = 24, padB = 36;
+  const chartH = 180;
+  const svgH = padT + chartH + padB;
+  const svgW = Math.max(560, years.length * 100 + padL + padR + 40);
+  const chartW = svgW - padL - padR;
+
   const totals = years.map((_, i) =>
-    series.reduce((sum, s) => sum + (Number.isFinite(s.values[i]) ? s.values[i] : 0), 0)
+    activeSeries.reduce((sum, s) => sum + (Number.isFinite(s.values[i]) ? s.values[i] : 0), 0)
   );
-  const maxTotal = Math.max(1, ...totals);
+  const maxVal = Math.max(1, ...totals);
 
-  const barW = 44;
-  const gap = 28;
-  const leftPad = 50;
-  const topPad = 20;
-  const baseY = 220;
-  const height = 180;
+  // Cumulative stacked values per series
+  const stacked = activeSeries.map((_, si) =>
+    years.map((_, yi) => {
+      let cum = 0;
+      for (let sj = 0; sj <= si; sj++) {
+        cum += Number.isFinite(activeSeries[sj].values[yi]) ? activeSeries[sj].values[yi] : 0;
+      }
+      return cum;
+    })
+  );
 
-  const width = Math.max(620, leftPad + years.length * (barW + gap) + 40);
-  const svgH = 260;
+  const xPos = (i) =>
+    padL + (years.length <= 1 ? chartW / 2 : (i / (years.length - 1)) * chartW);
+  const yPos = (v) => padT + chartH - (v / maxVal) * chartH;
+
+  // Build closed SVG path for each series
+  const buildPath = (si) => {
+    const tops = stacked[si];
+    const bottoms = si === 0 ? years.map(() => 0) : stacked[si - 1];
+
+    if (years.length === 1) {
+      const x = xPos(0);
+      const hw = 24;
+      return [
+        `M${x - hw},${yPos(tops[0])}`,
+        `L${x + hw},${yPos(tops[0])}`,
+        `L${x + hw},${yPos(bottoms[0])}`,
+        `L${x - hw},${yPos(bottoms[0])}`,
+        "Z",
+      ].join(" ");
+    }
+
+    const fwd = years.map((_, i) => `${xPos(i)},${yPos(tops[i])}`);
+    const bwd = [...years].map((_, i) => {
+      const ri = years.length - 1 - i;
+      return `${xPos(ri)},${yPos(bottoms[ri])}`;
+    });
+
+    return [`M${fwd[0]}`, ...fwd.slice(1).map((p) => `L${p}`), ...bwd.map((p) => `L${p}`), "Z"].join(" ");
+  };
 
   return (
-    <div style={{ border: "1px solid #eef2f7", borderRadius: 14, padding: 12 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 12 }}>
-        <div style={{ fontWeight: 900 }}>{title}</div>
-        {unit ? <div style={{ fontSize: 12, color: "#6b7280" }}>{unit}</div> : null}
-      </div>
+    <div style={chartCard}>
+      <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{subtitle}</div>}
 
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 10 }}>
-        {series.map((s) => (
-          <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: "#374151" }}>
-            <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, display: "inline-block" }} />
-            <span style={{ fontWeight: 700 }}>{s.label}</span>
-          </div>
-        ))}
-      </div>
+      {/* Legend */}
+      {activeSeries.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
+          {activeSeries.map((s) => (
+            <div key={s.key} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#374151" }}>
+              <span style={{ width: 10, height: 10, borderRadius: 3, background: s.color, display: "inline-block", opacity: 0.85 }} />
+              <span style={{ fontWeight: 600 }}>{s.label}</span>
+            </div>
+          ))}
+        </div>
+      )}
 
-      <div style={{ overflowX: "auto", marginTop: 10 }}>
-        <svg width={width} height={svgH} role="img">
-          <line x1={leftPad} y1={baseY} x2={width - 20} y2={baseY} stroke="#e5e7eb" />
-          <line x1={leftPad} y1={topPad} x2={leftPad} y2={baseY} stroke="#e5e7eb" />
+      <div style={{ overflowX: "auto", marginTop: 12 }}>
+        <svg width={svgW} height={svgH} role="img" style={{ overflow: "visible" }}>
+          {/* Grid */}
+          {[0, 0.25, 0.5, 0.75, 1].map((frac) => (
+            <line
+              key={frac}
+              x1={padL} y1={padT + (1 - frac) * chartH}
+              x2={svgW - padR} y2={padT + (1 - frac) * chartH}
+              stroke="#f3f4f6" strokeWidth={1}
+            />
+          ))}
+          <line x1={padL} y1={padT + chartH} x2={svgW - padR} y2={padT + chartH} stroke="#e5e7eb" />
+          <line x1={padL} y1={padT} x2={padL} y2={padT + chartH} stroke="#e5e7eb" />
 
+          {/* Stacked areas */}
+          {activeSeries.map((s, si) => (
+            <path key={s.key} d={buildPath(si)} fill={s.color} fillOpacity={0.72} />
+          ))}
+
+          {/* Hover zones + labels + tooltips */}
           {years.map((yr, i) => {
-            const x = leftPad + 20 + i * (barW + gap);
-            let yCursor = baseY;
+            const x = xPos(i);
+            const isHovered = hoveredIdx === i;
 
             return (
               <g key={yr}>
-                {series.map((s) => {
-                  const v = Number.isFinite(s.values[i]) ? s.values[i] : 0;
-                  if (v <= 0) return null;
-
-                  const h = Math.round((v / maxTotal) * height);
-                  yCursor -= h;
-
-                  return <rect key={s.key} x={x} y={yCursor} width={barW} height={h} rx="8" fill={s.color} />;
-                })}
-
-                <text
-                  x={x + barW / 2}
-                  y={baseY - Math.round((totals[i] / maxTotal) * height) - 8}
-                  textAnchor="middle"
-                  fontSize="12"
-                  fill="#111827"
-                  fontWeight="800"
-                >
-                  {totals[i] ? formatNumber(totals[i]) : "—"}
-                </text>
-
-                <text x={x + barW / 2} y={baseY + 18} textAnchor="middle" fontSize="12" fill="#6b7280">
-                  {yr}
-                </text>
+                <rect
+                  x={x - 30} y={padT} width={60} height={chartH + 16}
+                  fill="transparent"
+                  onMouseEnter={() => setHoveredIdx(i)}
+                  onMouseLeave={() => setHoveredIdx(null)}
+                  style={{ cursor: "default" }}
+                />
+                {isHovered && (
+                  <line x1={x} y1={padT} x2={x} y2={padT + chartH} stroke="#6b7280" strokeWidth={1} strokeDasharray="4,3" />
+                )}
+                <text x={x} y={svgH - 6} textAnchor="middle" fontSize="12" fill="#6b7280">{yr}</text>
+                {isHovered && totals[i] > 0 && (
+                  <g>
+                    <rect x={x - 40} y={padT - 34} width={80} height={26} rx={6} fill="#1f2937" />
+                    <text x={x} y={padT - 16} textAnchor="middle" fontSize="11" fill="white" fontWeight="700">
+                      {formatNumber(totals[i])}
+                    </text>
+                  </g>
+                )}
               </g>
             );
           })}
@@ -586,7 +662,8 @@ function StackedBarChart({ title, years, series, unit = "" }) {
   );
 }
 
-/* utils */
+/* ── Utils ─────────────────────────────────────────────────────────────────── */
+
 function formatNumber(n) {
   const x = Number(n);
   if (!Number.isFinite(x)) return "";

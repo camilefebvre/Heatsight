@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
+import { Download } from "lucide-react";
 
 const API_URL = "http://127.0.0.1:8000";
 
@@ -397,7 +398,10 @@ export default function ProjectAudit() {
         {/* Actions (always visible) */}
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, gap: 12, flexWrap: "wrap" }}>
           <a href={`${API_URL}/projects/${projectId}/excel`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <button style={secondaryBtn}>⬇️ Télécharger Excel</button>
+            <button style={{ ...secondaryBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
+              <Download size={15} strokeWidth={2} />
+              Télécharger Excel
+            </button>
           </a>
 
           <button onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.7 : 1 }}>
@@ -572,8 +576,8 @@ const card = {
   marginTop: 18,
   background: "white",
   borderRadius: 16,
-  padding: 16,
-  boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+  padding: 20,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
 };
 
 const tabsRow = {
@@ -589,11 +593,14 @@ const td = { padding: 10 };
 
 const inputStyle = {
   width: "100%",
-  padding: "10px 12px",
-  borderRadius: 10,
-  border: "1px solid #e5e7eb",
+  padding: "9px 12px",
+  borderRadius: 8,
+  border: "1.5px solid #e5e7eb",
   outline: "none",
   fontSize: 14,
+  color: "#111827",
+  background: "white",
+  boxSizing: "border-box",
 };
 
 const primaryBtn = {

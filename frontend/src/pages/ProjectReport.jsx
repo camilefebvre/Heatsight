@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
+import { Download, Save } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -193,14 +194,59 @@ export default function ProjectReport() {
           </div>
         </div>
 
-        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16 }}>
-          <button type="button" onClick={saveReport} disabled={busy} style={primaryBtn}>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 16, alignItems: "center" }}>
+          <button
+            type="button"
+            onClick={saveReport}
+            disabled={busy}
+            style={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 8, opacity: busy ? 0.7 : 1 }}
+          >
+            <Save size={15} />
             {busy ? "..." : "Sauvegarder"}
           </button>
 
-          <button type="button" onClick={saveAndDownload} disabled={busy} style={secondaryBtn}>
-            {busy ? "..." : "Sauvegarder + Telecharger (Word)"}
+          <button
+            type="button"
+            onClick={saveAndDownload}
+            disabled={busy}
+            style={{ ...downloadBtn, display: "flex", alignItems: "center", gap: 8, opacity: busy ? 0.7 : 1 }}
+          >
+            <Download size={15} />
+            {busy ? "..." : "Sauvegarder + Télécharger (Word)"}
           </button>
+        </div>
+      </div>
+
+      {/* ── Section informative ───────────────────────────────────────────────── */}
+      <div style={infoCard}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: "#374151", marginBottom: 4 }}>
+          Contenu du rapport Word généré
+        </div>
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
+          Le fichier .docx téléchargé contient les sections suivantes, remplies automatiquement depuis les données du projet.
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+          <InfoBlock
+            number="1"
+            title="Page de garde"
+            description="Titre du projet, coordonnées du client, type d'audit, nom de l'auditeur et compétences AMUREBA."
+          />
+          <InfoBlock
+            number="2"
+            title="Données du bâtiment"
+            description="Adresse, type de bâtiment, surface, année de construction et usage principal du site audité."
+          />
+          <InfoBlock
+            number="3"
+            title="Consommations énergétiques"
+            description="Totaux annuels par vecteur (electricity, gaz, fuel…) importés depuis la Comptabilité énergétique."
+          />
+          <InfoBlock
+            number="4"
+            title="Indices AMUREBA"
+            description="Indicateurs normalisés calculés à partir des données d'audit et de comptabilité énergétique."
+          />
         </div>
       </div>
     </div>
@@ -214,6 +260,43 @@ function Field({ label, children }) {
       <span style={{ fontSize: 12, color: "#6b7280" }}>{label}</span>
       {children}
     </label>
+  );
+}
+
+function InfoBlock({ number, title, description }) {
+  return (
+    <div
+      style={{
+        background: "white",
+        borderRadius: 12,
+        padding: "14px 16px",
+        border: "1px solid #e5e7eb",
+        display: "grid",
+        gap: 6,
+      }}
+    >
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span
+          style={{
+            width: 22,
+            height: 22,
+            borderRadius: "50%",
+            background: "#6d28d9",
+            color: "white",
+            fontSize: 11,
+            fontWeight: 800,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+          }}
+        >
+          {number}
+        </span>
+        <span style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{title}</span>
+      </div>
+      <p style={{ margin: 0, fontSize: 12, color: "#6b7280", lineHeight: 1.5 }}>{description}</p>
+    </div>
   );
 }
 
@@ -245,13 +328,22 @@ const primaryBtn = {
   cursor: "pointer",
 };
 
-const secondaryBtn = {
-  border: "1px solid #e5e7eb",
+const downloadBtn = {
+  border: "1.5px solid #6d28d9",
   background: "white",
+  color: "#6d28d9",
   padding: "10px 14px",
   borderRadius: 12,
-  fontWeight: 900,
+  fontWeight: 700,
   cursor: "pointer",
+};
+
+const infoCard = {
+  marginTop: 16,
+  background: "#f8fafc",
+  borderRadius: 16,
+  padding: 20,
+  border: "1px solid #e5e7eb",
 };
 
 const errorBox = {
