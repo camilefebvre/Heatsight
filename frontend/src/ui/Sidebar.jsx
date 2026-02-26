@@ -1,20 +1,57 @@
 import { NavLink } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { useProject } from "../state/ProjectContext";
+import {
+  LayoutDashboard,
+  FolderOpen,
+  CalendarDays,
+  ClipboardList,
+  Zap,
+  FileText,
+} from "lucide-react";
 
 const API_URL = "http://127.0.0.1:8000";
 
-const linkStyle = ({ isActive }) => ({
-  display: "flex",
-  alignItems: "center",
-  gap: 10,
-  padding: "10px 12px",
-  borderRadius: 10,
-  textDecoration: "none",
-  color: isActive ? "white" : "#d4d6dd",
-  background: isActive ? "#6d28d9" : "transparent",
-  fontWeight: isActive ? 800 : 600,
-});
+function SidebarLink({ to, icon: Icon, label }) {
+  return (
+    <NavLink
+      to={to}
+      style={({ isActive }) => ({
+        display: "flex",
+        alignItems: "center",
+        gap: 10,
+        padding: "9px 12px",
+        borderRadius: 10,
+        textDecoration: "none",
+        color: isActive ? "white" : "#9ca3b8",
+        background: isActive ? "#6d28d9" : "transparent",
+        fontWeight: isActive ? 700 : 500,
+        fontSize: 14,
+        transition: "background 0.15s, color 0.15s",
+      })}
+    >
+      <Icon size={16} strokeWidth={2} />
+      {label}
+    </NavLink>
+  );
+}
+
+function SectionLabel({ label }) {
+  return (
+    <div
+      style={{
+        color: "#4b5063",
+        fontSize: 11,
+        fontWeight: 700,
+        letterSpacing: "0.08em",
+        textTransform: "uppercase",
+        margin: "20px 0 6px 4px",
+      }}
+    >
+      {label}
+    </div>
+  );
+}
 
 export default function Sidebar() {
   const { selectedProjectId } = useProject();
@@ -41,59 +78,68 @@ export default function Sidebar() {
   return (
     <aside
       style={{
-        width: 260,
+        width: 240,
+        minHeight: "100vh",
         background: "#0f1020",
         color: "white",
-        padding: 18,
+        padding: "20px 14px",
+        display: "flex",
+        flexDirection: "column",
+        flexShrink: 0,
       }}
     >
-      <div style={{ fontWeight: 900, fontSize: 20, marginBottom: 22 }}>
+      {/* Logo */}
+      <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 8, color: "white", letterSpacing: "-0.5px" }}>
         HeatSight
       </div>
 
-      <div style={{ color: "#8a8ea3", fontSize: 12, margin: "14px 0 8px" }}>
-        CORE
-      </div>
-
-      <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-        <NavLink to="/dashboard" style={linkStyle}>
-          📈 Dashboard
-        </NavLink>
-
-        <NavLink to="/projects" style={linkStyle}>
-          🗂️ Projects
-        </NavLink>
-
-        <NavLink to="/agenda" style={linkStyle}>
-          🗓️ Agenda
-        </NavLink>
+      {/* Gestion & Administration */}
+      <SectionLabel label="Gestion & Administration" />
+      <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <SidebarLink to="/dashboard" icon={LayoutDashboard} label="Tableau de bord" />
+        <SidebarLink to="/projects" icon={FolderOpen} label="Projets" />
+        <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" />
       </nav>
 
-      {selectedProjectId ? (
+      {/* Section projet — affichée seulement si un projet est ouvert */}
+      {selectedProjectId && (
         <>
-          <div style={{ color: "#8a8ea3", fontSize: 12, margin: "22px 0 8px" }}>
-            PROJECT{projectName ? ` — ${projectName}` : ""}
+          <div
+            style={{
+              margin: "20px 0 6px",
+              borderTop: "1px solid #1e2235",
+              paddingTop: 20,
+            }}
+          >
+            <div style={{ color: "#4b5063", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4, marginLeft: 4 }}>
+              Collecte de données
+            </div>
+            {projectName && (
+              <div style={{ color: "#6d28d9", fontSize: 12, fontWeight: 600, marginLeft: 4, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                {projectName}
+              </div>
+            )}
           </div>
+          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
+          </nav>
 
-          <nav style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            <NavLink to={`/projects/${selectedProjectId}/audit`} style={linkStyle}>
-              📝 Audit
-            </NavLink>
-            <NavLink to={`/projects/${selectedProjectId}/energy`} style={linkStyle}>
-              ⚡ Comptabilité énergétique
-            </NavLink>
-            <NavLink to={`/projects/${selectedProjectId}/report`} style={linkStyle}>
-              📄 Rapport
-            </NavLink>
+          <SectionLabel label="Support & Automatisation" />
+          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+            <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
+            <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
           </nav>
         </>
-      ) : (
+      )}
+
+      {!selectedProjectId && (
         <div
           style={{
-            marginTop: 22,
+            marginTop: "auto",
+            paddingTop: 24,
             fontSize: 12,
-            color: "#8a8ea3",
-            opacity: 0.9,
+            color: "#4b5063",
+            lineHeight: 1.5,
           }}
         >
           Double-clique sur un projet pour ouvrir son module Audit.
@@ -102,8 +148,3 @@ export default function Sidebar() {
     </aside>
   );
 }
-
-
-
-
-

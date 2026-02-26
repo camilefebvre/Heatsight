@@ -1,5 +1,23 @@
 import { useMemo, useState } from "react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2 } from "lucide-react";
 
+// ─── Detection du type depuis le titre ────────────────────────────────────────
+function detectType(title = "") {
+  const t = title.toLowerCase();
+  if (t.includes("visite") || t.includes("terrain") || t.includes("inspection")) return "visite";
+  if (t.includes("call") || t.includes("appel") || t.includes("reunion") || t.includes("meeting")) return "call";
+  if (t.includes("deadline") || t.includes("limite") || t.includes("rendu") || t.includes("delai")) return "deadline";
+  return "autre";
+}
+
+const TYPE_CONFIG = {
+  visite:   { label: "Visite",    color: "#2563eb", bg: "#eff6ff", Icon: MapPin       },
+  call:     { label: "Call",      color: "#16a34a", bg: "#f0fdf4", Icon: Phone        },
+  deadline: { label: "Deadline",  color: "#dc2626", bg: "#fef2f2", Icon: AlertCircle  },
+  autre:    { label: "Autre",     color: "#64748b", bg: "#f8fafc", Icon: CalendarDays },
+};
+
+// ─── Formatage date ────────────────────────────────────────────────────────────
 function formatDate(d) {
   try {
     return new Intl.DateTimeFormat("fr-BE", {
@@ -15,14 +33,15 @@ function formatDate(d) {
   }
 }
 
+// ─── Composants UI ────────────────────────────────────────────────────────────
 function Card({ children, style }) {
   return (
     <div
       style={{
         background: "white",
         borderRadius: 16,
-        padding: 18,
-        boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+        padding: 20,
+        boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
         ...style,
       }}
     >
@@ -30,19 +49,61 @@ function Card({ children, style }) {
     </div>
   );
 }
-  // caca
 
+function TypeBadge({ type }) {
+  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
+  return (
+    <span
+      style={{
+        display: "inline-flex",
+        alignItems: "center",
+        padding: "3px 9px",
+        borderRadius: 999,
+        fontSize: 11,
+        fontWeight: 700,
+        background: cfg.color,
+        color: "white",
+        letterSpacing: "0.03em",
+        flexShrink: 0,
+      }}
+    >
+      {cfg.label}
+    </span>
+  );
+}
+
+function Field({ label, children }) {
+  return (
+    <label style={{ display: "grid", gap: 5 }}>
+      <span style={{ fontSize: 12, fontWeight: 600, color: "#6b7280" }}>{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const inputStyle = {
+  padding: "10px 12px",
+  borderRadius: 10,
+  border: "1.5px solid #e5e7eb",
+  outline: "none",
+  fontSize: 14,
+  color: "#111827",
+  background: "white",
+  width: "100%",
+  boxSizing: "border-box",
+};
+
+// ─── Page principale ───────────────────────────────────────────────────────────
 export default function Agenda() {
-  // MVP: events en mémoire (non persistant)
   const [events, setEvents] = useState([
     {
       id: "1",
-      title: "Visite bâtiment — Downtown Office Complex",
+      title: "Visite batiment — Downtown Office Complex",
       start: "2026-02-06T09:00",
       durationMin: 90,
       location: "Bruxelles",
       project: "Downtown Office Complex",
-      notes: "Prendre plans + photos façades.",
+      notes: "Prendre plans + photos facades.",
     },
     {
       id: "2",
@@ -51,23 +112,18 @@ export default function Agenda() {
       durationMin: 30,
       location: "Teams",
       project: "School Renovation",
-      notes: "Confirmer factures + données conso.",
+      notes: "Confirmer factures + donnees conso.",
     },
   ]);
 
-  const empty = {
-    title: "",
-    start: "",
-    durationMin: 60,
-    location: "",
-    project: "",
-    notes: "",
-  };
+  const empty = { title: "", start: "", durationMin: 60, location: "", project: "", notes: "" };
   const [form, setForm] = useState(empty);
+  const [focused, setFocused] = useState(null);
 
-  const sorted = useMemo(() => {
-    return [...events].sort((a, b) => new Date(a.start) - new Date(b.start));
-  }, [events]);
+  const sorted = useMemo(
+    () => [...events].sort((a, b) => new Date(a.start) - new Date(b.start)),
+    [events]
+  );
 
   function update(key, value) {
     setForm((p) => ({ ...p, [key]: value }));
@@ -75,161 +131,205 @@ export default function Agenda() {
 
   function addEvent(e) {
     e.preventDefault();
-    const newEvent = {
-      id: crypto.randomUUID(),
-      ...form,
-      durationMin: Number(form.durationMin || 0),
-    };
-    setEvents((p) => [newEvent, ...p]);
+    setEvents((p) => [{ id: crypto.randomUUID(), ...form, durationMin: Number(form.durationMin || 0) }, ...p]);
     setForm(empty);
   }
 
   function removeEvent(id) {
-    if (!confirm("Supprimer cet évènement ?")) return;
+    if (!confirm("Supprimer cet evenement ?")) return;
     setEvents((p) => p.filter((x) => x.id !== id));
   }
 
+  function focusStyle(name) {
+    return focused === name
+      ? { ...inputStyle, borderColor: "#6d28d9", boxShadow: "0 0 0 3px rgba(109,40,217,0.12)" }
+      : inputStyle;
+  }
+
   return (
-    <div>
-      <div style={{ color: "#6b7280" }}>Core</div>
-      <h1 style={{ fontSize: 40, margin: "10px 0 6px" }}>Agenda</h1>
-      <div style={{ color: "#6b7280" }}>
-        Planning simple (MVP) — à connecter plus tard aux projets et au backend.
+    <div style={{ maxWidth: 1200, width: "100%" }}>
+      <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
+      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Agenda</h1>
+      <div style={{ color: "#6b7280", fontSize: 14 }}>
+        Planning simple (MVP) — a connecter plus tard aux projets et au backend.
       </div>
 
       <div
         style={{
-          marginTop: 18,
+          marginTop: 22,
           display: "grid",
-          gridTemplateColumns: "1.2fr 0.8fr",
-          gap: 18,
+          gridTemplateColumns: "1fr 360px",
+          gap: 20,
           alignItems: "start",
         }}
       >
-        {/* LISTE */}
+        {/* ── LISTE DES EVENEMENTS ─────────────────────────────────── */}
         <Card>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>Upcoming</div>
-          <div style={{ color: "#6b7280", marginTop: 6 }}>
-            Tes prochains rendez-vous (visites, calls, deadlines).
+          <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
+            Evenements a venir
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+            Visites, appels et deadlines.
           </div>
 
-          <div style={{ marginTop: 14, display: "grid", gap: 10 }}>
+          <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
             {sorted.length === 0 ? (
-              <div style={{ color: "#6b7280" }}>Aucun évènement.</div>
+              <div style={{ color: "#9ca3af", fontSize: 14, padding: "12px 0" }}>
+                Aucun evenement pour l'instant.
+              </div>
             ) : (
-              sorted.map((ev) => (
-                <div
-                  key={ev.id}
-                  style={{
-                    border: "1px solid #eef2f7",
-                    borderRadius: 14,
-                    padding: 12,
-                    display: "grid",
-                    gap: 6,
-                  }}
-                >
-                  <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                    <div style={{ fontWeight: 900 }}>{ev.title}</div>
-                    <button
-                      onClick={() => removeEvent(ev.id)}
-                      style={{
-                        border: "1px solid #e5e7eb",
-                        background: "white",
-                        borderRadius: 10,
-                        padding: "6px 10px",
-                        cursor: "pointer",
-                        fontWeight: 900,
-                      }}
-                      title="Supprimer"
-                    >
-                      🗑️
-                    </button>
-                  </div>
+              sorted.map((ev) => {
+                const type = detectType(ev.title);
+                const cfg = TYPE_CONFIG[type];
+                const { Icon } = cfg;
 
-                  <div style={{ color: "#6b7280", fontSize: 13 }}>
-                    {formatDate(ev.start)} • {ev.durationMin} min • {ev.location || "—"}
-                  </div>
-
-                  <div style={{ fontSize: 13 }}>
-                    <b>Projet :</b> {ev.project || "—"}
-                  </div>
-
-                  {ev.notes ? (
-                    <div style={{ color: "#6b7280", fontSize: 13 }}>
-                      {ev.notes}
+                return (
+                  <div
+                    key={ev.id}
+                    style={{
+                      border: "1px solid #f3f4f6",
+                      borderLeft: `4px solid ${cfg.color}`,
+                      borderRadius: 12,
+                      padding: "14px 16px",
+                      display: "grid",
+                      gap: 8,
+                      background: cfg.bg,
+                    }}
+                  >
+                    {/* Ligne titre */}
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1, minWidth: 0 }}>
+                        <Icon size={16} color={cfg.color} strokeWidth={2.2} style={{ flexShrink: 0 }} />
+                        <span style={{ fontWeight: 700, color: "#111827", fontSize: 14, lineHeight: 1.3 }}>
+                          {ev.title}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8, flexShrink: 0 }}>
+                        <TypeBadge type={type} />
+                        <button
+                          onClick={() => removeEvent(ev.id)}
+                          style={{
+                            border: "none",
+                            background: "transparent",
+                            cursor: "pointer",
+                            padding: "4px",
+                            borderRadius: 8,
+                            display: "flex",
+                            alignItems: "center",
+                            color: "#9ca3af",
+                          }}
+                          title="Supprimer"
+                        >
+                          <Trash2 size={14} strokeWidth={2} />
+                        </button>
+                      </div>
                     </div>
-                  ) : null}
-                </div>
-              ))
+
+                    {/* Meta */}
+                    <div style={{ color: "#6b7280", fontSize: 12 }}>
+                      {formatDate(ev.start)}
+                      {ev.durationMin ? ` \u2022 ${ev.durationMin} min` : ""}
+                      {ev.location ? ` \u2022 ${ev.location}` : ""}
+                    </div>
+
+                    {ev.project && (
+                      <div style={{ fontSize: 12, color: "#374151" }}>
+                        <span style={{ fontWeight: 600 }}>Projet :</span> {ev.project}
+                      </div>
+                    )}
+
+                    {ev.notes && (
+                      <div style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
+                        {ev.notes}
+                      </div>
+                    )}
+                  </div>
+                );
+              })
             )}
           </div>
         </Card>
 
-        {/* FORM */}
+        {/* ── FORMULAIRE ───────────────────────────────────────────── */}
         <Card>
-          <div style={{ fontWeight: 900, fontSize: 18 }}>New event</div>
-          <div style={{ color: "#6b7280", marginTop: 6 }}>
-            Ajoute rapidement un rendez-vous.
+          <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
+            Nouvel evenement
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+            Remplis les champs et ajoute.
           </div>
 
-          <form onSubmit={addEvent} style={{ marginTop: 12, display: "grid", gap: 10 }}>
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Title</span>
+          <form onSubmit={addEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
+            <Field label="Titre">
               <input
                 value={form.title}
                 onChange={(e) => update("title", e.target.value)}
+                onFocus={() => setFocused("title")}
+                onBlur={() => setFocused(null)}
+                style={focusStyle("title")}
+                placeholder="Ex: Visite batiment, Call client..."
                 required
               />
-            </label>
+            </Field>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Date & time</span>
+            <Field label="Date & heure">
               <input
                 type="datetime-local"
                 value={form.start}
                 onChange={(e) => update("start", e.target.value)}
+                onFocus={() => setFocused("start")}
+                onBlur={() => setFocused(null)}
+                style={focusStyle("start")}
                 required
               />
-            </label>
+            </Field>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Duration (min)</span>
+            <Field label="Duree (min)">
               <input
                 type="number"
                 min="5"
                 step="5"
                 value={form.durationMin}
                 onChange={(e) => update("durationMin", e.target.value)}
+                onFocus={() => setFocused("duration")}
+                onBlur={() => setFocused(null)}
+                style={focusStyle("duration")}
               />
-            </label>
+            </Field>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Location</span>
+            <Field label="Lieu">
               <input
                 value={form.location}
                 onChange={(e) => update("location", e.target.value)}
-                placeholder="Bruxelles / Teams / ..."
+                onFocus={() => setFocused("location")}
+                onBlur={() => setFocused(null)}
+                style={focusStyle("location")}
+                placeholder="Bruxelles, Teams..."
               />
-            </label>
+            </Field>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Project (optional)</span>
+            <Field label="Projet (optionnel)">
               <input
                 value={form.project}
                 onChange={(e) => update("project", e.target.value)}
-                placeholder="Downtown Office Complex…"
+                onFocus={() => setFocused("project")}
+                onBlur={() => setFocused(null)}
+                style={focusStyle("project")}
+                placeholder="Nom du projet..."
               />
-            </label>
+            </Field>
 
-            <label style={{ display: "grid", gap: 6 }}>
-              <span style={{ fontSize: 13, color: "#6b7280" }}>Notes</span>
+            <Field label="Notes">
               <textarea
                 value={form.notes}
                 onChange={(e) => update("notes", e.target.value)}
+                onFocus={() => setFocused("notes")}
+                onBlur={() => setFocused(null)}
                 rows={3}
-                placeholder="Check-list, documents à demander…"
+                style={{ ...focusStyle("notes"), resize: "vertical" }}
+                placeholder="Check-list, documents a apporter..."
               />
-            </label>
+            </Field>
 
             <button
               type="submit"
@@ -237,30 +337,16 @@ export default function Agenda() {
                 background: "#6d28d9",
                 color: "white",
                 border: "none",
-                padding: "12px 14px",
+                padding: "11px 14px",
                 borderRadius: 12,
-                fontWeight: 900,
+                fontWeight: 700,
+                fontSize: 14,
                 cursor: "pointer",
                 marginTop: 4,
               }}
             >
-              + Add event
+              + Ajouter l'evenement
             </button>
-
-            <style>{`
-              input, textarea {
-                padding: 10px 12px;
-                border-radius: 10px;
-                border: 1px solid #e5e7eb;
-                outline: none;
-                font-size: 14px;
-              }
-              input:focus, textarea:focus {
-                border-color: #6d28d9;
-                box-shadow: 0 0 0 3px rgba(109,40,217,0.15);
-              }
-              textarea { resize: vertical; }
-            `}</style>
           </form>
         </Card>
       </div>

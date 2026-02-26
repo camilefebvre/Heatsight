@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { useNavigate } from "react-router-dom";
+import { Pencil, Trash2 } from "lucide-react";
 
 
 const API_URL = "http://127.0.0.1:8000";
@@ -85,15 +86,21 @@ function Menu({ open, onClose, items }) {
           style={{
             width: "100%",
             textAlign: "left",
-            padding: "10px 12px",
+            padding: "10px 14px",
             border: "none",
             background: "white",
             cursor: "pointer",
-            fontWeight: 700,
+            fontWeight: 600,
+            fontSize: 14,
+            display: "flex",
+            alignItems: "center",
+            gap: 8,
+            color: "#374151",
           }}
           onMouseEnter={(e) => (e.currentTarget.style.background = "#f3f4f6")}
           onMouseLeave={(e) => (e.currentTarget.style.background = "white")}
         >
+          {it.icon && <it.icon size={14} strokeWidth={2} />}
           {it.label}
         </button>
       ))}
@@ -102,10 +109,10 @@ function Menu({ open, onClose, items }) {
 }
 
 const STATUS_OPTIONS = [
-  { value: "draft", label: "Draft" },
-  { value: "in_progress", label: "In progress" },
-  { value: "on_hold", label: "On hold" },
-  { value: "completed", label: "Completed" },
+  { value: "draft",       label: "Brouillon"  },
+  { value: "in_progress", label: "En cours"   },
+  { value: "on_hold",     label: "En attente" },
+  { value: "completed",   label: "Terminé"    },
 ];
 
 export default function Projects() {
@@ -193,7 +200,7 @@ export default function Projects() {
   }
 
   async function handleDelete(id) {
-    if (!confirm("Delete this project?")) return;
+    if (!confirm("Supprimer ce projet ? Cette action est irreversible.")) return;
 
     try {
       const res = await fetch(`${API_URL}/projects/${id}`, { method: "DELETE" });
@@ -269,10 +276,10 @@ export default function Projects() {
     <div onClick={() => setMenuId(null)}>
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div>
-          <div style={{ color: "#6b7280" }}>Core</div>
-          <h1 style={{ fontSize: 40, margin: "10px 0 6px" }}>Projects</h1>
+          <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
+          <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Projets</h1>
           <div style={{ color: "#6b7280" }}>
-            Create, edit and track audit projects.
+            Créez, modifiez et suivez vos projets d'audit.
           </div>
         </div>
 
@@ -285,14 +292,14 @@ export default function Projects() {
             background: "#6d28d9",
             color: "white",
             border: "none",
-            padding: "12px 16px",
+            padding: "12px 18px",
             borderRadius: 12,
-            fontWeight: 900,
+            fontWeight: 700,
             cursor: "pointer",
-            height: 44,
+            fontSize: 14,
           }}
         >
-          + New Project
+          + Nouveau projet
         </button>
       </div>
 
@@ -321,21 +328,21 @@ export default function Projects() {
         }}
       >
         {loading ? (
-          <div style={{ color: "#6b7280" }}>Loading projects…</div>
+          <div style={{ color: "#6b7280" }}>Chargement…</div>
         ) : recent.length === 0 ? (
           <div style={{ color: "#6b7280" }}>
-            No projects yet. Click <b>New Project</b> to create one.
+            Aucun projet. Cliquez sur <b>Nouveau projet</b> pour commencer.
           </div>
         ) : (
           <table style={{ width: "100%", borderCollapse: "collapse" }}>
             <thead>
-              <tr style={{ textAlign: "left", color: "#6b7280", fontSize: 13 }}>
-                <th style={{ padding: "10px 8px" }}>Project</th>
-                <th style={{ padding: "10px 8px" }}>Client</th>
-                <th style={{ padding: "10px 8px" }}>Building</th>
-                <th style={{ padding: "10px 8px" }}>Audit</th>
-                <th style={{ padding: "10px 8px" }}>Status</th>
-                <th style={{ padding: "10px 8px" }}>Actions</th>
+              <tr style={{ textAlign: "left", color: "#6b7280", fontSize: 12, background: "#f9fafb", borderBottom: "1px solid #f3f4f6" }}>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Projet</th>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Client</th>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Bâtiment</th>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Type d'audit</th>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Statut</th>
+                <th style={{ padding: "10px 12px", fontWeight: 700, textTransform: "uppercase", letterSpacing: "0.05em" }}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -422,8 +429,8 @@ export default function Projects() {
                       open={menuId === p.id}
                       onClose={() => setMenuId(null)}
                       items={[
-                        { label: "✏️ Edit", onClick: () => openEdit(p) },
-                        { label: "🗑️ Delete", onClick: () => handleDelete(p.id) },
+                        { label: "Modifier", icon: Pencil, onClick: () => openEdit(p) },
+                        { label: "Supprimer", icon: Trash2, onClick: () => handleDelete(p.id) },
                       ]}
                     />
                   </td>
@@ -437,24 +444,24 @@ export default function Projects() {
 
 
       {/* CREATE MODAL */}
-      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Create a new project">
+      <Modal open={createOpen} onClose={() => setCreateOpen(false)} title="Nouveau projet">
         <ProjectForm
           form={form}
           updateField={updateField}
           onCancel={() => setCreateOpen(false)}
           onSubmit={handleCreate}
-          submitLabel="Create"
+          submitLabel="Creer"
         />
       </Modal>
 
       {/* EDIT MODAL */}
-      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Edit project">
+      <Modal open={editOpen} onClose={() => setEditOpen(false)} title="Modifier le projet">
         <ProjectForm
           form={form}
           updateField={updateField}
           onCancel={() => setEditOpen(false)}
           onSubmit={handleEditSubmit}
-          submitLabel="Save changes"
+          submitLabel="Enregistrer"
         />
       </Modal>
     </div>
@@ -473,51 +480,51 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
       }}
     >
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Project name</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Nom du projet</span>
         <input value={form.project_name} onChange={(e) => updateField("project_name", e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Building type</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Type de batiment</span>
         <select value={form.building_type} onChange={(e) => updateField("building_type", e.target.value)}>
-          <option value="residential">Residential</option>
-          <option value="tertiary">Tertiary</option>
-          <option value="industrial">Industrial</option>
-          <option value="other">Other</option>
+          <option value="residential">Residentiel</option>
+          <option value="tertiary">Tertiaire</option>
+          <option value="industrial">Industriel</option>
+          <option value="other">Autre</option>
         </select>
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Client name</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Nom du client</span>
         <input value={form.client_name} onChange={(e) => updateField("client_name", e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Client email</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Email du client</span>
         <input type="email" value={form.client_email} onChange={(e) => updateField("client_email", e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Client phone (optional)</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Telephone (optionnel)</span>
         <input value={form.client_phone || ""} onChange={(e) => updateField("client_phone", e.target.value)} />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Audit type</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Type d'audit</span>
         <select value={form.audit_type} onChange={(e) => updateField("audit_type", e.target.value)}>
           <option value="AMUREBA">AM/UREBA</option>
           <option value="PEB">PEB</option>
-          <option value="custom">Custom</option>
+          <option value="custom">Personnalise</option>
         </select>
       </label>
 
       <label style={{ gridColumn: "1 / -1", display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Building address</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Adresse du batiment</span>
         <input value={form.building_address} onChange={(e) => updateField("building_address", e.target.value)} required />
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Status</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Statut</span>
         <select value={form.status} onChange={(e) => updateField("status", e.target.value)}>
           {STATUS_OPTIONS.map((s) => (
             <option key={s.value} value={s.value}>
@@ -537,10 +544,11 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
             border: "1px solid #e5e7eb",
             background: "white",
             cursor: "pointer",
-            fontWeight: 700,
+            fontWeight: 600,
+            fontSize: 14,
           }}
         >
-          Cancel
+          Annuler
         </button>
         <button
           type="submit"
@@ -550,8 +558,9 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
             border: "none",
             background: "#6d28d9",
             color: "white",
-            fontWeight: 900,
+            fontWeight: 700,
             cursor: "pointer",
+            fontSize: 14,
           }}
         >
           {submitLabel}
