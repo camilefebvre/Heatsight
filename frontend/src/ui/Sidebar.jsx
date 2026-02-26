@@ -8,6 +8,7 @@ import {
   ClipboardList,
   Zap,
   FileText,
+  MessageSquare,
 } from "lucide-react";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -129,6 +130,7 @@ export default function Sidebar() {
           </div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
+            <SidebarLink to={`/projects/${selectedProjectId}/client-requests`} icon={MessageSquare} label="Requête client" />
           </nav>
 
           <SectionLabel label="Support & Automatisation" />
