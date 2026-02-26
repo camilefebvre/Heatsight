@@ -1,5 +1,4 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Eye, Trash2, Plus, X, Paperclip } from "lucide-react";
 
@@ -153,12 +152,7 @@ function Modal({ open, onClose, title, children, width = 640 }) {
 
 // ─── Page principale ──────────────────────────────────────────────────────────
 export default function ClientRequests() {
-  const { projectId } = useParams();
-  const { setSelectedProjectId } = useProject();
-
-  useEffect(() => {
-    setSelectedProjectId(projectId);
-  }, [projectId]);
+  const { selectedProjectId } = useProject();
 
   const [requests, setRequests] = useState(INITIAL_REQUESTS);
   const [projects, setProjects] = useState([]);
@@ -319,7 +313,7 @@ export default function ClientRequests() {
         </div>
         <button
           onClick={() => {
-            const proj = projects.find((p) => p.id === projectId);
+            const proj = projects.find((p) => p.id === selectedProjectId);
             setForm({ ...emptyForm, projectName: proj?.project_name || "" });
             setCreateOpen(true);
           }}

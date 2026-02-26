@@ -109,6 +109,12 @@ export default function Sidebar() {
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" />
       </nav>
 
+      {/* Collecte de données — global */}
+      <SectionLabel label="Collecte de données" />
+      <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+        <SidebarLink to="/client-requests" icon={MessageSquare} label="Requête client" />
+      </nav>
+
       {/* Section projet — affichée seulement si un projet est ouvert */}
       {selectedProjectId && (
         <>
@@ -130,7 +136,6 @@ export default function Sidebar() {
           </div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
-            <SidebarLink to={`/projects/${selectedProjectId}/client-requests`} icon={MessageSquare} label="Requête client" />
           </nav>
 
           <SectionLabel label="Support & Automatisation" />
