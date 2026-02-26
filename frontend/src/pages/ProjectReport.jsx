@@ -53,7 +53,7 @@ export default function ProjectReport() {
 
       // petit confort: si vide, proposer une valeur par défaut
       if (p && (!data || !data.provider_company)) {
-        setReport((prev) => ({ ...prev, provider_company: "HeatSight" }));
+        setReport((prev) => ({ ...prev, provider_company: "Heat Sight" }));
       }
     } catch (e) {
       setError(e.message || "Load failed");
@@ -168,7 +168,7 @@ export default function ProjectReport() {
               value={report.provider_company}
               onChange={(e) => updateField("provider_company", e.target.value)}
               style={inputStyle}
-              placeholder="Ex: HeatSight SRL"
+              placeholder="Ex: Heat Sight SRL"
             />
           </Field>
 

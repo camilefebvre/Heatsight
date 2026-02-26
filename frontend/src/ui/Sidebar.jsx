@@ -89,8 +89,15 @@ export default function Sidebar() {
       }}
     >
       {/* Logo */}
-      <div style={{ fontWeight: 900, fontSize: 18, marginBottom: 8, color: "white", letterSpacing: "-0.5px" }}>
-        HeatSight
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 8 }}>
+        <img
+          src="/logo.png"
+          alt="Heat Sight logo"
+          style={{ width: 28, height: 28, objectFit: "contain", borderRadius: 6 }}
+        />
+        <span style={{ fontWeight: 900, fontSize: 18, color: "white", letterSpacing: "-0.5px" }}>
+          Heat Sight
+        </span>
       </div>
 
       {/* Gestion & Administration */}
