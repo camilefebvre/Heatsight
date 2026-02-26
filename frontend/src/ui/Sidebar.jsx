@@ -1,6 +1,7 @@
-import { NavLink } from "react-router-dom";
-import { useEffect, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import { useEffect, useRef, useState } from "react";
 import { useProject } from "../state/ProjectContext";
+import { useAuth } from "../state/AuthContext";
 import {
   LayoutDashboard,
   FolderOpen,
@@ -9,6 +10,7 @@ import {
   Zap,
   FileText,
   MessageSquare,
+  Users2,
 } from "lucide-react";
 
 const API_URL = "http://127.0.0.1:8000";
@@ -54,6 +56,136 @@ function SectionLabel({ label }) {
   );
 }
 
+function UserSection() {
+  const { user, logout } = useAuth();
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (ref.current && !ref.current.contains(e.target)) setOpen(false);
+    }
+    if (open) document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [open]);
+
+  if (!user) return null;
+
+  const initials = user.name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  function handleLogout() {
+    logout();
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <div ref={ref} style={{ position: "relative" }}>
+      {/* Dropdown — s'ouvre vers le haut */}
+      {open && (
+        <div
+          style={{
+            position: "absolute",
+            bottom: "calc(100% + 6px)",
+            left: 0,
+            right: 0,
+            background: "#1a1d2e",
+            border: "1px solid #2a2d45",
+            borderRadius: 12,
+            overflow: "hidden",
+            boxShadow: "0 -8px 24px rgba(0,0,0,0.4)",
+            zIndex: 100,
+          }}
+        >
+          <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid #2a2d45" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "white" }}>{user.name}</div>
+            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>{user.email}</div>
+          </div>
+          <div style={{ padding: "6px" }}>
+            <button
+              onClick={handleLogout}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                color: "#f87171",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "background 0.12s",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "#2a1a1a")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+            >
+              Se déconnecter
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bouton utilisateur */}
+      <button
+        onClick={() => setOpen((v) => !v)}
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "10px 8px",
+          borderRadius: 10,
+          border: "none",
+          background: open ? "#1e2235" : "transparent",
+          cursor: "pointer",
+          transition: "background 0.15s",
+        }}
+        onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "#1a1d2e"; }}
+        onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}
+      >
+        <div
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: "50%",
+            background: "#6d28d9",
+            color: "white",
+            fontWeight: 700,
+            fontSize: 13,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            flexShrink: 0,
+            letterSpacing: "0.04em",
+          }}
+        >
+          {initials}
+        </div>
+        <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 600,
+              color: "white",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              whiteSpace: "nowrap",
+            }}
+          >
+            {user.name}
+          </div>
+        </div>
+      </button>
+    </div>
+  );
+}
+
 export default function Sidebar() {
   const { selectedProjectId } = useProject();
   const [projectName, setProjectName] = useState("");
@@ -80,7 +212,8 @@ export default function Sidebar() {
     <aside
       style={{
         width: 240,
-        minHeight: "100vh",
+        height: "100%",
+        overflowY: "auto",
         background: "#0f1020",
         color: "white",
         padding: "20px 14px",
@@ -107,6 +240,7 @@ export default function Sidebar() {
         <SidebarLink to="/dashboard" icon={LayoutDashboard} label="Tableau de bord" />
         <SidebarLink to="/projects" icon={FolderOpen} label="Projets" />
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" />
+        <SidebarLink to="/share-access" icon={Users2} label="Partage & Accès" />
       </nav>
 
       {/* Collecte de données — global */}
@@ -146,19 +280,13 @@ export default function Sidebar() {
         </>
       )}
 
-      {!selectedProjectId && (
-        <div
-          style={{
-            marginTop: "auto",
-            paddingTop: 24,
-            fontSize: 12,
-            color: "#4b5063",
-            lineHeight: 1.5,
-          }}
-        >
-          Double-clique sur un projet pour ouvrir son module Audit.
-        </div>
-      )}
+      {/* Spacer — pousse l'avatar vers le bas */}
+      <div style={{ flex: 1 }} />
+
+      {/* Avatar utilisateur — épinglé en bas */}
+      <div style={{ borderTop: "1px solid #1e2235", paddingTop: 12, paddingBottom: 16 }}>
+        <UserSection />
+      </div>
     </aside>
   );
 }

@@ -9,6 +9,7 @@ import ProjectAudit from "./pages/ProjectAudit";
 import ProjectEnergy from "./pages/ProjectEnergy";
 import ProjectReport from "./pages/ProjectReport";
 import ClientRequests from "./pages/ClientRequests";
+import ShareAccess from "./pages/ShareAccess";
 
 
 export default function App() {
@@ -23,6 +24,7 @@ export default function App() {
           <Route path="/projects" element={<Projects />} />
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/client-requests" element={<ClientRequests />} />
+          <Route path="/share-access" element={<ShareAccess />} />
           {/* routes "dans un projet" */}
           <Route path="/projects/:projectId/audit" element={<ProjectAudit />} />
           <Route path="/projects/:projectId/energy" element={<ProjectEnergy />} />
