@@ -1,16 +1,110 @@
-# React + Vite
+# Heat Sight — Frontend
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Application web de gestion d'audits énergétiques. Interface SaaS construite avec React + Vite.
 
-Currently, two official plugins are available:
+## Lancer le projet
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+```bash
+npm install
+npm run dev
+```
 
-## React Compiler
+L'app tourne sur `http://localhost:5173`. Le backend FastAPI doit tourner sur `http://127.0.0.1:8000`.
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+## Authentification (mock MVP)
 
-## Expanding the ESLint configuration
+| Champ | Valeur |
+|-------|--------|
+| Email | `admin@heatsight.be` |
+| Mot de passe | `heatsight2024` |
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+La session est stockée dans `localStorage` sous la clé `heatsight_auth`. Toutes les routes sont protégées — une redirection vers `/login` s'effectue si non connecté.
+
+---
+
+## Structure du projet
+
+```
+src/
+├── layout/
+│   └── AppLayout.jsx          # Layout principal : sidebar + contenu scrollable
+├── pages/
+│   ├── Login.jsx              # Page de connexion
+│   ├── Dashboard.jsx          # Tableau de bord
+│   ├── Projects.jsx           # Liste des projets
+│   ├── Agenda.jsx             # Agenda
+│   ├── ProjectAudit.jsx       # Module audit (par projet)
+│   ├── ProjectEnergy.jsx      # Comptabilité énergie (par projet)
+│   ├── ProjectReport.jsx      # Rapport (par projet)
+│   ├── ClientRequests.jsx     # Requêtes client (global)
+│   └── ShareAccess.jsx        # Partage & Accès (global)
+├── ui/
+│   ├── Sidebar.jsx            # Sidebar avec navigation + avatar utilisateur
+│   └── RequireAuth.jsx        # Guard de route (redirige si non connecté)
+└── state/
+    ├── AuthContext.jsx        # Contexte authentification
+    └── ProjectContext.jsx     # Contexte projet sélectionné (persisté en localStorage)
+```
+
+---
+
+## Modules
+
+### Gestion & Administration
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/dashboard` | Dashboard | Vue d'ensemble des projets |
+| `/projects` | Projets | Liste et gestion des projets (double-clic pour ouvrir) |
+| `/agenda` | Agenda | Calendrier des interventions |
+| `/share-access` | Partage & Accès | Gestion des accès collaborateurs et clients |
+
+### Collecte de données
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/client-requests` | Requêtes client | Envoi et suivi des demandes de documents clients |
+
+### Modules projet (nécessitent un projet sélectionné)
+
+| Route | Page | Description |
+|-------|------|-------------|
+| `/projects/:id/audit` | Audit | Formulaire d'audit énergétique |
+| `/projects/:id/energy` | Comptabilité énergie | Saisie et visualisation des consommations |
+| `/projects/:id/report` | Rapport | Génération du rapport d'audit |
+
+---
+
+## Navigation et état
+
+- **Projet actif** : sélectionné par double-clic dans la page Projets, persisté dans `localStorage` (`heatsight_selected_project_id`). Les modules projet apparaissent dans la sidebar uniquement quand un projet est ouvert.
+- **Routes globales** (`/client-requests`, `/share-access`, `/agenda`) : accessibles indépendamment du projet sélectionné — le projet reste ouvert dans la sidebar.
+
+## Layout
+
+```
+┌──────────────────────────────────────────────┐
+│  Sidebar (240px, fixe, fond sombre)          │
+│  ├─ Logo Heat Sight                          │  ┌─────────────────────────┐
+│  ├─ Gestion & Administration                 │  │  Contenu (flex: 1,      │
+│  │   ├─ Tableau de bord                      │  │  overflow-y: auto,      │
+│  │   ├─ Projets                              │  │  padding: 24px)         │
+│  │   ├─ Agenda                               │  │                         │
+│  │   └─ Partage & Accès                      │  │  <Outlet />             │
+│  ├─ Collecte de données                      │  │                         │
+│  │   └─ Requête client                       │  └─────────────────────────┘
+│  ├─ [si projet ouvert]                       │
+│  │   ├─ Audit                                │
+│  │   ├─ Comptabilité énergie                 │
+│  │   └─ Rapport                              │
+│  └─ Avatar utilisateur (épinglé en bas)      │
+└──────────────────────────────────────────────┘
+```
+
+## Stack technique
+
+- **React 18** + **Vite**
+- **React Router DOM v7** — routing côté client
+- **Lucide React** — icônes
+- Styles 100% inline (pas de CSS framework)
+- Données mock pour les modules sans API connectée
