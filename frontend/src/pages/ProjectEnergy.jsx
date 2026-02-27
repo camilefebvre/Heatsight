@@ -18,6 +18,29 @@ const emptyYear = (year) => ({
   notes: "",
 });
 
+const DEFAULT_PRICES = {
+  electricity: 0.25,
+  gas: 0.08,
+  fuel: 0.95,
+  biogas: 0.06,
+};
+
+const PRICE_KEYS = ["electricity", "gas", "fuel", "biogas"];
+
+const ENERGY_LABELS = {
+  electricity: "Électricité",
+  gas: "Gaz naturel",
+  fuel: "Fuel léger",
+  biogas: "Biogaz",
+};
+
+const ENERGY_COLORS = {
+  electricity: "#7C3AED",
+  gas: "#2563eb",
+  fuel: "#f59e0b",
+  biogas: "#10b981",
+};
+
 function safeClone(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
@@ -76,6 +99,7 @@ export default function ProjectEnergy() {
   const [energy, setEnergy] = useState({ years: {} });
   const [util1Name, setUtil1Name] = useState("Utilité 1");
   const [util2Name, setUtil2Name] = useState("Utilité 2");
+  const [prices, setPrices] = useState(DEFAULT_PRICES);
 
   const [tab, setTab] = useState("data");
   const [activeYear, setActiveYear] = useState("2023");
@@ -127,6 +151,58 @@ export default function ProjectEnergy() {
     const keys = Object.keys(energy.years || {});
     return keys.sort();
   }, [energy]);
+
+  // ── Cost calculations ──────────────────────────────────────────────────────
+
+  const costsPerYear = useMemo(() =>
+    yearKeys.map((yr) => {
+      const t = energy.years?.[yr]?.totals || {};
+      return PRICE_KEYS.reduce((acc, k) => {
+        acc[k] = toNum(t[k]) * toNum(prices[k]);
+        return acc;
+      }, {});
+    }),
+    [yearKeys, energy, prices]
+  );
+
+  const totalCostPerYear = useMemo(() =>
+    costsPerYear.map((c) => PRICE_KEYS.reduce((s, k) => s + c[k], 0)),
+    [costsPerYear]
+  );
+
+  const totalCostPerEnergy = useMemo(() =>
+    PRICE_KEYS.reduce((acc, k) => {
+      acc[k] = costsPerYear.reduce((s, c) => s + c[k], 0);
+      return acc;
+    }, {}),
+    [costsPerYear]
+  );
+
+  const totalCostAll = useMemo(() =>
+    totalCostPerYear.reduce((s, v) => s + v, 0),
+    [totalCostPerYear]
+  );
+
+  const mostExpensiveYearKey = useMemo(() => {
+    if (!yearKeys.length) return null;
+    const max = Math.max(...totalCostPerYear);
+    return max > 0 ? yearKeys[totalCostPerYear.indexOf(max)] : null;
+  }, [yearKeys, totalCostPerYear]);
+
+  const mostExpensiveEnergyKey = useMemo(() => {
+    const max = Math.max(...PRICE_KEYS.map((k) => totalCostPerEnergy[k]));
+    if (max === 0) return null;
+    return PRICE_KEYS.find((k) => totalCostPerEnergy[k] === max);
+  }, [totalCostPerEnergy]);
+
+  const donutData = useMemo(() =>
+    PRICE_KEYS
+      .map((k) => ({ label: ENERGY_LABELS[k], value: totalCostPerEnergy[k], color: ENERGY_COLORS[k] }))
+      .filter((d) => d.value > 0),
+    [totalCostPerEnergy]
+  );
+
+  // ── Helpers ────────────────────────────────────────────────────────────────
 
   function ensureYear(year) {
     setEnergy((prev) => {
@@ -335,6 +411,58 @@ export default function ProjectEnergy() {
               </Field>
             </div>
 
+            {/* Prix unitaires */}
+            <div style={{ marginTop: 24, paddingTop: 20, borderTop: "1px solid #f3f4f6" }}>
+              <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 4 }}>
+                Prix unitaires
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 12 }}>
+                Utilisés pour le calcul des coûts dans l'onglet Graphes.
+              </div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 12 }}>
+                <Field label="Prix électricité (€/kWh)">
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={prices.electricity}
+                    onChange={(e) => setPrices((p) => ({ ...p, electricity: e.target.value }))}
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Prix gaz naturel (€/kWh)">
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={prices.gas}
+                    onChange={(e) => setPrices((p) => ({ ...p, gas: e.target.value }))}
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Prix fuel léger (€/litre)">
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={prices.fuel}
+                    onChange={(e) => setPrices((p) => ({ ...p, fuel: e.target.value }))}
+                    style={inputStyle}
+                  />
+                </Field>
+                <Field label="Prix biogaz (€/kWh)">
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0"
+                    value={prices.biogas}
+                    onChange={(e) => setPrices((p) => ({ ...p, biogas: e.target.value }))}
+                    style={inputStyle}
+                  />
+                </Field>
+              </div>
+            </div>
+
             <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 16 }}>
               <button onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.7 : 1 }}>
                 {saving ? "Sauvegarde..." : "Sauvegarder"}
@@ -349,6 +477,7 @@ export default function ProjectEnergy() {
               Graphes globaux basés sur toutes les années enregistrées.
             </div>
 
+            {/* ── Consommations ─────────────────────────────────────────── */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
               <StackedAreaChart
                 title="Toutes les énergies par année"
@@ -381,6 +510,53 @@ export default function ProjectEnergy() {
                 color="#ef4444"
               />
             </div>
+
+            {/* ── Analyse financière ────────────────────────────────────── */}
+            <div style={{ marginTop: 32, paddingTop: 24, borderTop: "1px solid #f3f4f6" }}>
+              <div style={{ fontWeight: 800, fontSize: 16, color: "#111827", marginBottom: 4 }}>
+                Analyse financière
+              </div>
+              <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16 }}>
+                Coûts calculés à partir des consommations et des prix unitaires renseignés dans l'onglet Données.
+              </div>
+
+              {/* Cartes récapitulatives */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(190px, 1fr))", gap: 12, marginBottom: 20 }}>
+                <SummaryKpi
+                  label="Coût total"
+                  value={formatEuro(totalCostAll)}
+                  sub="toutes années confondues"
+                />
+                <SummaryKpi
+                  label="Année la plus coûteuse"
+                  value={mostExpensiveYearKey ?? "—"}
+                  sub={mostExpensiveYearKey ? formatEuro(Math.max(...totalCostPerYear)) : null}
+                />
+                <SummaryKpi
+                  label="Énergie la plus coûteuse"
+                  value={mostExpensiveEnergyKey ? ENERGY_LABELS[mostExpensiveEnergyKey] : "—"}
+                  sub={mostExpensiveEnergyKey ? formatEuro(totalCostPerEnergy[mostExpensiveEnergyKey]) : null}
+                  accentColor={mostExpensiveEnergyKey ? ENERGY_COLORS[mostExpensiveEnergyKey] : null}
+                />
+              </div>
+
+              {/* Graphes financiers */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(360px, 1fr))", gap: 16 }}>
+                <LineBars
+                  title="Coût total par année"
+                  subtitle="Coût énergétique total en €"
+                  labels={yearKeys}
+                  values={totalCostPerYear}
+                  color="#6d28d9"
+                  formatValue={formatEuro}
+                />
+                <DonutChart
+                  title="Répartition des coûts par énergie"
+                  subtitle="Proportion des coûts par vecteur énergétique"
+                  data={donutData}
+                />
+              </div>
+            </div>
           </>
         )}
       </div>
@@ -396,6 +572,28 @@ function Field({ label, children }) {
       <span style={{ fontSize: 12, fontWeight: 600, color: "#6b7280" }}>{label}</span>
       {children}
     </label>
+  );
+}
+
+function SummaryKpi({ label, value, sub, accentColor }) {
+  return (
+    <div
+      style={{
+        background: "#f9fafb",
+        borderRadius: 12,
+        padding: "14px 16px",
+        border: "1px solid #f3f4f6",
+        borderLeft: accentColor ? `4px solid ${accentColor}` : "1px solid #f3f4f6",
+      }}
+    >
+      <div style={{ fontSize: 11, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>
+        {label}
+      </div>
+      <div style={{ fontSize: 20, fontWeight: 900, color: "#111827", lineHeight: 1.2 }}>
+        {value}
+      </div>
+      {sub && <div style={{ fontSize: 12, color: "#6b7280", marginTop: 4 }}>{sub}</div>}
+    </div>
   );
 }
 
@@ -476,8 +674,9 @@ const importBtn = {
 
 /* ── Charts ─────────────────────────────────────────────────────────────────── */
 
-function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
+function LineBars({ title, subtitle, labels, values, color = "#7C3AED", formatValue }) {
   const [hoveredIdx, setHoveredIdx] = useState(null);
+  const fmt = formatValue || formatNumber;
   const max = Math.max(1, ...values.map((v) => (Number.isFinite(v) ? v : 0)));
   const svgW = Math.max(520, labels.length * 90);
 
@@ -488,7 +687,6 @@ function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
 
       <div style={{ overflowX: "auto", marginTop: 14 }}>
         <svg width={svgW} height={240} role="img" style={{ overflow: "visible" }}>
-          {/* Grid */}
           {[0, 0.25, 0.5, 0.75, 1].map((frac) => (
             <line key={frac} x1="40" y1={20 + (1 - frac) * 160} x2={svgW} y2={20 + (1 - frac) * 160} stroke="#f3f4f6" strokeWidth={1} />
           ))}
@@ -504,7 +702,6 @@ function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
 
             return (
               <g key={`${lab}-${i}`}>
-                {/* Hit area */}
                 <rect
                   x={x - 10} y={20} width={64} height={200}
                   fill="transparent"
@@ -512,16 +709,13 @@ function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
                   onMouseLeave={() => setHoveredIdx(null)}
                   style={{ cursor: "default" }}
                 />
-                {/* Bar */}
                 <rect x={x} y={barY} width={44} height={h} rx={4} fill={color} fillOpacity={isHovered ? 1 : 0.82} />
-                {/* Year label */}
                 <text x={x + 22} y={220} textAnchor="middle" fontSize="12" fill="#6b7280">{lab}</text>
-                {/* Tooltip */}
                 {isHovered && (
                   <g>
-                    <rect x={x - 14} y={barY - 36} width={72} height={26} rx={6} fill="#1f2937" />
+                    <rect x={x - 20} y={barY - 36} width={84} height={26} rx={6} fill="#1f2937" />
                     <text x={x + 22} y={barY - 18} textAnchor="middle" fontSize="11" fill="white" fontWeight="700">
-                      {v ? formatNumber(v) : "\u2014"}
+                      {v ? fmt(v) : "\u2014"}
                     </text>
                   </g>
                 )}
@@ -529,6 +723,116 @@ function LineBars({ title, subtitle, labels, values, color = "#7C3AED" }) {
             );
           })}
         </svg>
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({ title, subtitle, data }) {
+  const [hoveredIdx, setHoveredIdx] = useState(null);
+
+  const total = data.reduce((s, d) => s + d.value, 0);
+
+  if (total === 0) {
+    return (
+      <div style={chartCard}>
+        <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{subtitle}</div>}
+        <div style={{ color: "#9ca3af", fontSize: 13, marginTop: 20, fontStyle: "italic" }}>
+          Aucune donnée de coût disponible.
+        </div>
+      </div>
+    );
+  }
+
+  const cx = 90, cy = 90, outerR = 78, innerR = 50;
+
+  const segments = [];
+  let startAngle = -Math.PI / 2;
+
+  data.forEach((d) => {
+    const fraction = d.value / total;
+    const sweep = fraction * 2 * Math.PI;
+    const endAngle = startAngle + sweep;
+    const largeArc = sweep > Math.PI ? 1 : 0;
+
+    const cos0 = Math.cos(startAngle), sin0 = Math.sin(startAngle);
+    const cos1 = Math.cos(endAngle),   sin1 = Math.sin(endAngle);
+
+    const path = [
+      `M${cx + outerR * cos0},${cy + outerR * sin0}`,
+      `A${outerR},${outerR},0,${largeArc},1,${cx + outerR * cos1},${cy + outerR * sin1}`,
+      `L${cx + innerR * cos1},${cy + innerR * sin1}`,
+      `A${innerR},${innerR},0,${largeArc},0,${cx + innerR * cos0},${cy + innerR * sin0}`,
+      "Z",
+    ].join(" ");
+
+    segments.push({ ...d, path, fraction });
+    startAngle = endAngle;
+  });
+
+  return (
+    <div style={chartCard}>
+      <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{subtitle}</div>}
+
+      <div style={{ display: "flex", alignItems: "center", gap: 20, marginTop: 16, flexWrap: "wrap" }}>
+        {/* Donut SVG */}
+        <svg width={180} height={180} style={{ flexShrink: 0 }}>
+          {segments.map((seg, i) => {
+            const isHovered = hoveredIdx === i;
+            return (
+              <path
+                key={i}
+                d={seg.path}
+                fill={seg.color}
+                fillOpacity={isHovered ? 1 : 0.82}
+                stroke="white"
+                strokeWidth={isHovered ? 3 : 2}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{ cursor: "default", transition: "fill-opacity 0.12s" }}
+              />
+            );
+          })}
+          {/* Centre */}
+          <text x={cx} y={cy - 7} textAnchor="middle" fontSize="11" fontWeight="700" fill="#6b7280">Total</text>
+          <text x={cx} y={cy + 10} textAnchor="middle" fontSize="13" fontWeight="900" fill="#111827">
+            {formatCompact(total)}
+          </text>
+        </svg>
+
+        {/* Légende */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 6, flex: 1, minWidth: 130 }}>
+          {segments.map((seg, i) => {
+            const isHovered = hoveredIdx === i;
+            return (
+              <div
+                key={i}
+                onMouseEnter={() => setHoveredIdx(i)}
+                onMouseLeave={() => setHoveredIdx(null)}
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "6px 8px",
+                  borderRadius: 8,
+                  background: isHovered ? "#f9fafb" : "transparent",
+                  cursor: "default",
+                  transition: "background 0.12s",
+                }}
+              >
+                <span style={{ width: 10, height: 10, borderRadius: 3, background: seg.color, flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: "#374151" }}>{seg.label}</div>
+                  <div style={{ fontSize: 11, color: "#6b7280" }}>
+                    {formatEuro(seg.value)} · {Math.round(seg.fraction * 100)}%
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );
@@ -550,7 +854,6 @@ function StackedAreaChart({ title, subtitle, years, series }) {
   );
   const maxVal = Math.max(1, ...totals);
 
-  // Cumulative stacked values per series
   const stacked = activeSeries.map((_, si) =>
     years.map((_, yi) => {
       let cum = 0;
@@ -565,7 +868,6 @@ function StackedAreaChart({ title, subtitle, years, series }) {
     padL + (years.length <= 1 ? chartW / 2 : (i / (years.length - 1)) * chartW);
   const yPos = (v) => padT + chartH - (v / maxVal) * chartH;
 
-  // Build closed SVG path for each series
   const buildPath = (si) => {
     const tops = stacked[si];
     const bottoms = si === 0 ? years.map(() => 0) : stacked[si - 1];
@@ -596,7 +898,6 @@ function StackedAreaChart({ title, subtitle, years, series }) {
       <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>{title}</div>
       {subtitle && <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>{subtitle}</div>}
 
-      {/* Legend */}
       {activeSeries.length > 0 && (
         <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 12 }}>
           {activeSeries.map((s) => (
@@ -610,7 +911,6 @@ function StackedAreaChart({ title, subtitle, years, series }) {
 
       <div style={{ overflowX: "auto", marginTop: 12 }}>
         <svg width={svgW} height={svgH} role="img" style={{ overflow: "visible" }}>
-          {/* Grid */}
           {[0, 0.25, 0.5, 0.75, 1].map((frac) => (
             <line
               key={frac}
@@ -622,12 +922,10 @@ function StackedAreaChart({ title, subtitle, years, series }) {
           <line x1={padL} y1={padT + chartH} x2={svgW - padR} y2={padT + chartH} stroke="#e5e7eb" />
           <line x1={padL} y1={padT} x2={padL} y2={padT + chartH} stroke="#e5e7eb" />
 
-          {/* Stacked areas */}
           {activeSeries.map((s, si) => (
             <path key={s.key} d={buildPath(si)} fill={s.color} fillOpacity={0.72} />
           ))}
 
-          {/* Hover zones + labels + tooltips */}
           {years.map((yr, i) => {
             const x = xPos(i);
             const isHovered = hoveredIdx === i;
@@ -669,6 +967,20 @@ function formatNumber(n) {
   if (!Number.isFinite(x)) return "";
   const decimals = Math.abs(x) >= 100 ? 0 : 2;
   return x.toLocaleString(undefined, { maximumFractionDigits: decimals });
+}
+
+function formatEuro(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "0 €";
+  return x.toLocaleString("fr-BE", { style: "currency", currency: "EUR", maximumFractionDigits: 0 });
+}
+
+function formatCompact(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x)) return "0 €";
+  if (x >= 1_000_000) return `${(x / 1_000_000).toFixed(1)}M €`;
+  if (x >= 1_000) return `${Math.round(x / 1_000)}k €`;
+  return `${Math.round(x)} €`;
 }
 
 function toNum(v) {
