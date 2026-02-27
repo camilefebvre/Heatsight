@@ -4,3 +4,7 @@ openpyxl
 docxtpl
 python-docx
 pydantic[email]
+sqlalchemy
+psycopg2-binary
+alembic
+python-dotenv
