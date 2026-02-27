@@ -107,4 +107,4 @@ src/
 - **React Router DOM v7** — routing côté client
 - **Lucide React** — icônes
 - Styles 100% inline (pas de CSS framework)
-- Données mock pour les modules sans API connectée
+- Toutes les données sont persistées via l'API FastAPI (PostgreSQL)
