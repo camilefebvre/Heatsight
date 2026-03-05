@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { Eye, Trash2, Plus, X, Paperclip } from "lucide-react";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 // ─── Config statuts ───────────────────────────────────────────────────────────
 const STATUS_CONFIG = {

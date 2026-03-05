@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Download } from "lucide-react";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 const emptyEnergyRow = {
   name: "",

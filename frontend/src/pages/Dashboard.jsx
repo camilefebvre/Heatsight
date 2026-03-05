@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, Play, Clock, CheckCircle } from "lucide-react";
 import StatusPill from "../ui/StatusPill";
 
-const API_URL = "http://127.0.0.1:8000";
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
 function StatCard({ title, value, subtitle, Icon, accentColor }) {
   return (
