@@ -28,6 +28,11 @@ TEMPLATE_FILE = BASE_DIR / "templates" / "audit_template.xlsx"
 EXCEL_DIR = BASE_DIR / "excel"
 EXCEL_DIR.mkdir(exist_ok=True)
 
+print(f"[DEBUG] BASE_DIR: {BASE_DIR}", flush=True)
+print(f"[DEBUG] TEMPLATE_FILE: {TEMPLATE_FILE}", flush=True)
+print(f"[DEBUG] Template exists: {TEMPLATE_FILE.exists()}", flush=True)
+print(f"[DEBUG] Templates dir contents: {list((BASE_DIR / 'templates').iterdir()) if (BASE_DIR / 'templates').exists() else 'DIR NOT FOUND'}", flush=True)
+
 REPORT_TEMPLATE_FILE = BASE_DIR / "templates" / "report_template.docx"
 REPORT_DIR = BASE_DIR / "reports"
 REPORT_DIR.mkdir(exist_ok=True)
