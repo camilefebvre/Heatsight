@@ -131,6 +131,17 @@ def recalc_excel_in_place(excel_path: Path) -> None:
             move(str(generated), str(excel_path))
 
 
+def _ensure_excel(project, db: Session) -> None:
+    """Recrée le fichier Excel depuis le template + données audit si absent (filesystem éphémère sur Render)."""
+    excel_path = EXCEL_DIR / project.excel_file
+    if excel_path.exists():
+        return
+    copyfile(TEMPLATE_FILE, excel_path)
+    audit = db.query(models.Audit).filter(models.Audit.project_id == project.id).first()
+    if audit:
+        write_audit_to_excel(project, _audit_to_data(audit))
+
+
 def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
     excel_path = EXCEL_DIR / project.excel_file
     if not excel_path.exists():
@@ -453,9 +464,8 @@ def download_project_excel(project_id: str, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    _ensure_excel(project, db)
     excel_path = EXCEL_DIR / project.excel_file
-    if not excel_path.exists():
-        raise HTTPException(status_code=404, detail="Excel file not found")
 
     return FileResponse(
         path=str(excel_path),
@@ -473,9 +483,8 @@ def get_indices(project_id: str, db: Session = Depends(get_db)):
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    _ensure_excel(project, db)
     excel_path = EXCEL_DIR / project.excel_file
-    if not excel_path.exists():
-        raise HTTPException(status_code=404, detail="Excel file not found")
 
     try:
         recalc_excel_in_place(excel_path)
