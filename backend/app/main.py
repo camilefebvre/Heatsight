@@ -10,6 +10,7 @@ from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import subprocess
+import os
 import tempfile
 from docxtpl import DocxTemplate
 
@@ -139,9 +140,18 @@ def recalc_excel_in_place(excel_path: Path) -> None:
 def _ensure_excel(project, db: Session) -> None:
     """Recrée le fichier Excel depuis le template + données audit si absent (filesystem éphémère sur Render)."""
     excel_path = EXCEL_DIR / project.excel_file
+    print(f"[DEBUG] _ensure_excel: excel_path={excel_path}", flush=True)
+    print(f"[DEBUG] _ensure_excel: excel_path.exists()={excel_path.exists()}", flush=True)
+    print(f"[DEBUG] _ensure_excel: EXCEL_DIR exists={EXCEL_DIR.exists()}, writable={os.access(EXCEL_DIR, os.W_OK)}", flush=True)
     if excel_path.exists():
         return
-    copyfile(TEMPLATE_FILE, excel_path)
+    print(f"[DEBUG] _ensure_excel: fichier absent, copie du template...", flush=True)
+    try:
+        copyfile(TEMPLATE_FILE, excel_path)
+        print(f"[DEBUG] _ensure_excel: copie réussie, fichier créé={excel_path.exists()}", flush=True)
+    except Exception as e:
+        print(f"[DEBUG] _ensure_excel: ERREUR copyfile: {e}", flush=True)
+        raise
     audit = db.query(models.Audit).filter(models.Audit.project_id == project.id).first()
     if audit:
         write_audit_to_excel(project, _audit_to_data(audit))
