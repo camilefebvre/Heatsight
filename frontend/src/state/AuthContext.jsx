@@ -1,9 +1,7 @@
 import { createContext, useContext, useState } from "react";
 
+const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 const STORAGE_KEY = "heatsight_auth";
-const VALID_EMAIL = "admin@heatsight.be";
-const VALID_PASSWORD = "heatsight2024";
-const USER = { name: "Admin HeatSight", email: VALID_EMAIL };
 
 const AuthContext = createContext(null);
 
@@ -13,13 +11,31 @@ export function AuthProvider({ children }) {
     return stored ? JSON.parse(stored) : null;
   });
 
-  function login(email, password) {
-    if (email === VALID_EMAIL && password === VALID_PASSWORD) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(USER));
-      setUser(USER);
-      return true;
+  async function login(email, password) {
+    const res = await fetch(`${API_URL}/auth/login`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email, password }),
+    });
+    if (!res.ok) return false;
+    const data = await res.json();
+    const userData = { ...data.user, token: data.access_token };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
+    setUser(userData);
+    return true;
+  }
+
+  async function register(fullName, email, password) {
+    const res = await fetch(`${API_URL}/auth/register`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ full_name: fullName, email, password }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || "Erreur lors de l'inscription");
     }
-    return false;
+    return true;
   }
 
   function logout() {
@@ -28,7 +44,7 @@ export function AuthProvider({ children }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, logout }}>
+    <AuthContext.Provider value={{ user, login, register, logout }}>
       {children}
     </AuthContext.Provider>
   );

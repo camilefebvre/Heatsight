@@ -2,27 +2,36 @@ import { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useAuth } from "../state/AuthContext";
 
-export default function Login() {
-  const { login } = useAuth();
+export default function Register() {
+  const { register } = useAuth();
   const navigate = useNavigate();
+
+  const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
-    setLoading(true);
     setError("");
+
+    if (password !== confirm) {
+      setError("Les mots de passe ne correspondent pas.");
+      return;
+    }
+    if (password.length < 8) {
+      setError("Le mot de passe doit contenir au moins 8 caractères.");
+      return;
+    }
+
+    setLoading(true);
     try {
-      const ok = await login(email, password);
-      if (ok) {
-        navigate("/dashboard", { replace: true });
-      } else {
-        setError("Email ou mot de passe incorrect.");
-      }
-    } catch {
-      setError("Erreur de connexion au serveur.");
+      await register(fullName, email, password);
+      navigate("/login", { replace: true, state: { registered: true } });
+    } catch (err) {
+      setError(err.message || "Erreur lors de l'inscription.");
     } finally {
       setLoading(false);
     }
@@ -78,50 +87,39 @@ export default function Login() {
             alt="Heat Sight logo"
             style={{ width: 36, height: 36, objectFit: "contain", borderRadius: 8 }}
           />
-          <span
-            style={{
-              fontWeight: 900,
-              fontSize: 22,
-              color: "white",
-              letterSpacing: "-0.5px",
-            }}
-          >
+          <span style={{ fontWeight: 900, fontSize: 22, color: "white", letterSpacing: "-0.5px" }}>
             Heat Sight
           </span>
         </div>
 
-        <h2
-          style={{
-            margin: "0 0 6px",
-            fontSize: 20,
-            fontWeight: 700,
-            color: "white",
-            textAlign: "center",
-          }}
-        >
-          Connexion
+        <h2 style={{ margin: "0 0 6px", fontSize: 20, fontWeight: 700, color: "white", textAlign: "center" }}>
+          Créer un compte
         </h2>
-        <p
-          style={{
-            margin: "0 0 28px",
-            fontSize: 14,
-            color: "#6b7280",
-            textAlign: "center",
-          }}
-        >
-          Accédez à votre espace Heat Sight
+        <p style={{ margin: "0 0 28px", fontSize: 14, color: "#6b7280", textAlign: "center" }}>
+          Rejoignez Heat Sight dès aujourd'hui
         </p>
 
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>
-              Adresse email
-            </label>
+            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>Nom complet</label>
+            <input
+              type="text"
+              value={fullName}
+              onChange={(e) => { setFullName(e.target.value); setError(""); }}
+              placeholder="Jean Dupont"
+              required
+              autoComplete="name"
+              style={inputStyle}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>Adresse email</label>
             <input
               type="email"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(""); }}
-              placeholder="admin@heatsight.be"
+              placeholder="jean@exemple.com"
               required
               autoComplete="email"
               style={inputStyle}
@@ -129,16 +127,27 @@ export default function Login() {
           </div>
 
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>
-              Mot de passe
-            </label>
+            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>Mot de passe</label>
             <input
               type="password"
               value={password}
               onChange={(e) => { setPassword(e.target.value); setError(""); }}
+              placeholder="Minimum 8 caractères"
+              required
+              autoComplete="new-password"
+              style={inputStyle}
+            />
+          </div>
+
+          <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <label style={{ fontSize: 13, color: "#9ca3af", fontWeight: 600 }}>Confirmer le mot de passe</label>
+            <input
+              type="password"
+              value={confirm}
+              onChange={(e) => { setConfirm(e.target.value); setError(""); }}
               placeholder="••••••••"
               required
-              autoComplete="current-password"
+              autoComplete="new-password"
               style={inputStyle}
             />
           </div>
@@ -175,14 +184,14 @@ export default function Login() {
               transition: "background 0.15s",
             }}
           >
-            {loading ? "Connexion…" : "Se connecter"}
+            {loading ? "Création du compte…" : "S'inscrire"}
           </button>
         </form>
 
         <p style={{ marginTop: 24, textAlign: "center", fontSize: 14, color: "#6b7280" }}>
-          Pas encore de compte ?{" "}
-          <Link to="/register" style={{ color: "#a78bfa", fontWeight: 600, textDecoration: "none" }}>
-            S'inscrire
+          Déjà un compte ?{" "}
+          <Link to="/login" style={{ color: "#a78bfa", fontWeight: 600, textDecoration: "none" }}>
+            Se connecter
           </Link>
         </p>
       </div>

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { Download, Save } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 export default function ProjectReport() {
   const { projectId } = useParams();
@@ -37,14 +36,14 @@ export default function ProjectReport() {
 
     try {
       // 1) Project
-      const res = await fetch(`${API_URL}/projects`);
+      const res = await apiFetch(`/projects`);
       if (!res.ok) throw new Error(`GET /projects failed (${res.status})`);
       const list = await res.json();
       const p = list.find((x) => x.id === projectId);
       setProject(p || null);
 
       // 2) Report data
-      const resR = await fetch(`${API_URL}/projects/${projectId}/report`);
+      const resR = await apiFetch(`/projects/${projectId}/report`);
       if (!resR.ok) throw new Error(`GET /report failed (${resR.status})`);
       const data = await resR.json();
 
@@ -78,7 +77,7 @@ export default function ProjectReport() {
       setError("");
       setOkMsg("");
 
-      const res = await fetch(`${API_URL}/projects/${projectId}/report`, {
+      const res = await apiFetch(`/projects/${projectId}/report`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ report_data: report }),
@@ -104,7 +103,7 @@ export default function ProjectReport() {
       setOkMsg("");
 
       // 1) Sauvegarde d'abord
-      const res = await fetch(`${API_URL}/projects/${projectId}/report`, {
+      const res = await apiFetch(`/projects/${projectId}/report`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ report_data: report }),
@@ -116,7 +115,7 @@ export default function ProjectReport() {
       }
 
       // 2) Ensuite déclenche le téléchargement
-      window.open(`${API_URL}/projects/${projectId}/report/docx`, "_blank");
+      window.open(`${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/projects/${projectId}/report/docx`, "_blank");
       setOkMsg("Rapport sauvegardé et téléchargé ✅");
     } catch (e) {
       setError(e.message || "Erreur lors de la génération du rapport");

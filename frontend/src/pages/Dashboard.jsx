@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { FolderOpen, Play, Clock, CheckCircle } from "lucide-react";
 import StatusPill from "../ui/StatusPill";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 function StatCard({ title, value, subtitle, Icon, accentColor }) {
   return (
@@ -58,7 +57,7 @@ export default function Dashboard() {
     async function fetchProjects() {
       try {
         setLoading(true);
-        const res = await fetch(`${API_URL}/projects`);
+        const res = await apiFetch(`/projects`);
         const data = await res.json();
         setProjects(Array.isArray(data) ? data : []);
       } catch (e) {

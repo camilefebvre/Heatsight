@@ -2,11 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { useNavigate } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
-
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
-
-
+import { apiFetch } from "../api";
 import StatusPill from "../ui/StatusPill";
 
 function nextStatus(current) {
@@ -158,7 +154,7 @@ export default function Projects() {
     try {
       setLoading(true);
       setError("");
-      const res = await fetch(`${API_URL}/projects`);
+      const res = await apiFetch(`/projects`);
       if (!res.ok) throw new Error(`GET /projects failed (${res.status})`);
       const data = await res.json();
       setProjects(Array.isArray(data) ? data : []);
@@ -182,7 +178,7 @@ export default function Projects() {
     e.preventDefault();
     try {
       setError("");
-      const res = await fetch(`${API_URL}/projects`, {
+      const res = await apiFetch(`/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),
@@ -203,7 +199,7 @@ export default function Projects() {
     if (!confirm("Supprimer ce projet ? Cette action est irreversible.")) return;
 
     try {
-      const res = await fetch(`${API_URL}/projects/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/projects/${id}`, { method: "DELETE" });
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(txt || `DELETE failed (${res.status})`);
@@ -217,7 +213,7 @@ export default function Projects() {
   // ✅ inline status change (PATCH)
   async function handleStatusChange(id, newStatus) {
     try {
-      const res = await fetch(`${API_URL}/projects/${id}`, {
+      const res = await apiFetch(`/projects/${id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: newStatus }),
@@ -254,7 +250,7 @@ export default function Projects() {
     if (!editing?.id) return;
 
     try {
-      const res = await fetch(`${API_URL}/projects/${editing.id}`, {
+      const res = await apiFetch(`/projects/${editing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(form),

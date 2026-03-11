@@ -3,6 +3,27 @@ from typing import Optional, Dict, Any, List
 
 
 # ──────────────────────────────────────────
+# Auth
+# ──────────────────────────────────────────
+class UserCreate(BaseModel):
+    full_name: str
+    email: EmailStr
+    password: str
+
+
+class UserLogin(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class UserSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+    id: str
+    full_name: str
+    email: str
+
+
+# ──────────────────────────────────────────
 # Projects
 # ──────────────────────────────────────────
 class ProjectCreate(BaseModel):

@@ -1,8 +1,7 @@
 import { useEffect, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { Eye, Trash2, Plus, X, Paperclip } from "lucide-react";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 // ─── Config statuts ───────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -70,8 +69,8 @@ export default function ClientRequests() {
   // ── Chargement initial ─────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
-      fetch(`${API_URL}/client-requests`).then((r) => r.json()).catch(() => []),
-      fetch(`${API_URL}/projects`).then((r) => r.json()).catch(() => []),
+      apiFetch(`/client-requests`).then((r) => r.json()).catch(() => []),
+      apiFetch(`/projects`).then((r) => r.json()).catch(() => []),
     ]).then(([reqs, projs]) => {
       setRequests(Array.isArray(reqs) ? reqs : []);
       setProjects(Array.isArray(projs) ? projs : []);
@@ -108,7 +107,7 @@ export default function ClientRequests() {
     };
 
     try {
-      const res = await fetch(`${API_URL}/client-requests`, {
+      const res = await apiFetch(`/client-requests`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -127,7 +126,7 @@ export default function ClientRequests() {
   async function handleDelete(id) {
     if (!confirm("Supprimer cette demande ?")) return;
     try {
-      await fetch(`${API_URL}/client-requests/${id}`, { method: "DELETE" });
+      await apiFetch(`/client-requests/${id}`, { method: "DELETE" });
       setRequests((prev) => prev.filter((r) => r.id !== id));
       if (detailId === id) setDetailId(null);
     } catch {
@@ -145,7 +144,7 @@ export default function ClientRequests() {
     );
 
     try {
-      const res = await fetch(`${API_URL}/client-requests/${reqId}`, {
+      const res = await apiFetch(`/client-requests/${reqId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ documents: newDocs }),
@@ -161,7 +160,7 @@ export default function ClientRequests() {
   // ── Sauvegarder le feedback ────────────────────────────────────────────────
   async function saveFeedback(reqId) {
     try {
-      const res = await fetch(`${API_URL}/client-requests/${reqId}`, {
+      const res = await apiFetch(`/client-requests/${reqId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ feedback: feedbackDraft }),

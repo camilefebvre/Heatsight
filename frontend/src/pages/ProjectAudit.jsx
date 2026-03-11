@@ -2,8 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Download } from "lucide-react";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 const emptyEnergyRow = {
   name: "",
@@ -87,8 +86,8 @@ export default function ProjectAudit() {
       isDirty.current = false;
 
       const [projectsRes, auditRes] = await Promise.all([
-        fetch(`${API_URL}/projects`),
-        fetch(`${API_URL}/projects/${projectId}/audit`),
+        apiFetch(`/projects`),
+        apiFetch(`/projects/${projectId}/audit`),
       ]);
 
       if (!projectsRes.ok) throw new Error(`GET /projects failed (${projectsRes.status})`);
@@ -113,7 +112,7 @@ export default function ProjectAudit() {
       setIndicesError("");
       setIndicesLoading(true);
 
-      const res = await fetch(`${API_URL}/projects/${projectId}/indices`);
+      const res = await apiFetch(`/projects/${projectId}/indices`);
       if (!res.ok) {
         const txt = await res.text();
         throw new Error(txt || `GET /indices failed (${res.status})`);
@@ -230,7 +229,7 @@ export default function ProjectAudit() {
       setError("");
       isDirty.current = false;
 
-      const res = await fetch(`${API_URL}/projects/${projectId}/audit`, {
+      const res = await apiFetch(`/projects/${projectId}/audit`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ audit_data: audit }),
@@ -420,7 +419,7 @@ export default function ProjectAudit() {
 
         {/* Actions (always visible) */}
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, gap: 12, flexWrap: "wrap" }}>
-          <a href={`${API_URL}/projects/${projectId}/excel`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
+          <a href={`${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/projects/${projectId}/excel`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
             <button style={{ ...secondaryBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
               <Download size={15} strokeWidth={2} />
               Télécharger Excel

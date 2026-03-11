@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Phone, AlertCircle, CalendarDays, Trash2 } from "lucide-react";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
 function detectType(title = "") {
@@ -79,8 +78,8 @@ export default function Agenda() {
   // ── Chargement initial ─────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
-      fetch(`${API_URL}/events`).then((r) => r.json()).catch(() => []),
-      fetch(`${API_URL}/projects`).then((r) => r.json()).catch(() => []),
+      apiFetch(`/events`).then((r) => r.json()).catch(() => []),
+      apiFetch(`/projects`).then((r) => r.json()).catch(() => []),
     ]).then(([evts, projs]) => {
       setEvents(Array.isArray(evts) ? evts : []);
       setProjects(Array.isArray(projs) ? projs : []);
@@ -105,7 +104,7 @@ export default function Agenda() {
   async function addEvent(e) {
     e.preventDefault();
     try {
-      const res = await fetch(`${API_URL}/events`, {
+      const res = await apiFetch(`/events`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -130,7 +129,7 @@ export default function Agenda() {
   async function removeEvent(id) {
     if (!confirm("Supprimer cet événement ?")) return;
     try {
-      await fetch(`${API_URL}/events/${id}`, { method: "DELETE" });
+      await apiFetch(`/events/${id}`, { method: "DELETE" });
       setEvents((prev) => prev.filter((x) => x.id !== id));
     } catch {
       alert("Erreur lors de la suppression.");

@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { UserPlus, Trash2, X, Plus, Globe } from "lucide-react";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 const MOCK_COLLABORATORS = [
@@ -231,7 +230,7 @@ export default function ShareAccess() {
   const [clientForm, setClientForm] = useState(emptyClient);
 
   useEffect(() => {
-    fetch(`${API_URL}/projects`)
+    apiFetch(`/projects`)
       .then((r) => r.json())
       .then((list) => setProjects(Array.isArray(list) ? list : []))
       .catch(() => setProjects([]));

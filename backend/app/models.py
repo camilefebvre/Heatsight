@@ -4,10 +4,20 @@ from sqlalchemy.dialects.postgresql import JSONB
 from .database import Base
 
 
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String, primary_key=True)
+    full_name = Column(String, nullable=False)
+    email = Column(String, nullable=False, unique=True)
+    hashed_password = Column(String, nullable=False)
+
+
 class Project(Base):
     __tablename__ = "projects"
 
     id = Column(String, primary_key=True)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)
     project_name = Column(String, nullable=False)
     client_name = Column(String, nullable=False)
     client_email = Column(String, nullable=False)

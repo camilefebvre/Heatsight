@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
+import { apiFetch } from "../api";
 
 const emptyYear = (year) => ({
   year: String(year),
@@ -114,7 +113,7 @@ export default function ProjectEnergy() {
       setLoading(true);
       setError("");
 
-      const resP = await fetch(`${API_URL}/projects`);
+      const resP = await apiFetch(`/projects`);
       if (!resP.ok) throw new Error(`GET /projects failed (${resP.status})`);
       const list = await resP.json();
       const p = list.find((x) => x.id === projectId);
@@ -124,7 +123,7 @@ export default function ProjectEnergy() {
       if (headers.util1_name) setUtil1Name(headers.util1_name);
       if (headers.util2_name) setUtil2Name(headers.util2_name);
 
-      const resE = await fetch(`${API_URL}/projects/${projectId}/energy-accounting`);
+      const resE = await apiFetch(`/projects/${projectId}/energy-accounting`);
       if (!resE.ok) throw new Error(`GET /energy-accounting failed (${resE.status})`);
       const data = await resE.json();
 
@@ -248,7 +247,7 @@ export default function ProjectEnergy() {
     try {
       setSaving(true);
       setError("");
-      const res = await fetch(`${API_URL}/projects/${projectId}/energy-accounting`, {
+      const res = await apiFetch(`/projects/${projectId}/energy-accounting`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ energy_accounting: energy }),
@@ -269,7 +268,7 @@ export default function ProjectEnergy() {
     try {
       setSaving(true);
       setError("");
-      const res = await fetch(`${API_URL}/projects/${projectId}/energy-accounting/import-from-audit`, {
+      const res = await apiFetch(`/projects/${projectId}/energy-accounting/import-from-audit`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ year: String(activeYear) }),

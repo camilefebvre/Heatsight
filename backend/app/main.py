@@ -1,14 +1,17 @@
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
+from fastapi.security import OAuth2PasswordBearer
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from shutil import copyfile, move
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
+from passlib.context import CryptContext
+from jose import JWTError, jwt
 import subprocess
 import os
 import tempfile
@@ -65,6 +68,51 @@ INDICES_CELLS = {
 
 
 # ==============================
+# AUTH CONFIG
+# ==============================
+SECRET_KEY = os.environ.get("SECRET_KEY", "change-me-in-production")
+ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_DAYS = 7
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+
+
+def _hash_password(password: str) -> str:
+    return pwd_context.hash(password)
+
+
+def _verify_password(plain: str, hashed: str) -> bool:
+    return pwd_context.verify(plain, hashed)
+
+
+def _create_access_token(user_id: str) -> str:
+    expire = datetime.now(timezone.utc) + timedelta(days=ACCESS_TOKEN_EXPIRE_DAYS)
+    return jwt.encode({"sub": user_id, "exp": expire}, SECRET_KEY, algorithm=ALGORITHM)
+
+
+def get_current_user(
+    token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)
+) -> models.User:
+    exc = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Token invalide ou expiré",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        user_id: str = payload.get("sub")
+        if not user_id:
+            raise exc
+    except JWTError:
+        raise exc
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise exc
+    return user
+
+
+# ==============================
 # FASTAPI APP
 # ==============================
 app = FastAPI()
@@ -76,6 +124,37 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# ==============================
+# ROUTES: AUTH
+# ==============================
+@app.post("/auth/register", status_code=201)
+def register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
+    if db.query(models.User).filter(models.User.email == payload.email).first():
+        raise HTTPException(status_code=400, detail="Email déjà utilisé")
+    user = models.User(
+        id=str(uuid4()),
+        full_name=payload.full_name,
+        email=payload.email,
+        hashed_password=_hash_password(payload.password),
+    )
+    db.add(user)
+    db.commit()
+    return {"message": "Compte créé avec succès"}
+
+
+@app.post("/auth/login")
+def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
+    user = db.query(models.User).filter(models.User.email == payload.email).first()
+    if not user or not _verify_password(payload.password, user.hashed_password):
+        raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
+    token = _create_access_token(user.id)
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {"id": user.id, "email": user.email, "full_name": user.full_name},
+    }
 
 
 # ==============================
@@ -394,12 +473,12 @@ def _upsert_energy_year(
 # ROUTES: PROJECTS CRUD
 # ==============================
 @app.get("/projects", response_model=List[schemas.Project])
-def list_projects(db: Session = Depends(get_db)):
-    return db.query(models.Project).all()
+def list_projects(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    return db.query(models.Project).filter(models.Project.owner_id == current_user.id).all()
 
 
 @app.post("/projects", response_model=schemas.Project)
-def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)):
+def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     project_id = str(uuid4())
     excel_name = f"{project_id}.xlsx"
     excel_path = EXCEL_DIR / excel_name
@@ -411,6 +490,7 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
 
     project = models.Project(
         id=project_id,
+        owner_id=current_user.id,
         created_at=datetime.now(timezone.utc).isoformat(),
         excel_file=excel_name,
         **payload.model_dump(),
@@ -422,8 +502,8 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
 
 
 @app.patch("/projects/{project_id}", response_model=schemas.Project)
-def update_project(project_id: str, payload: schemas.ProjectUpdate, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def update_project(project_id: str, payload: schemas.ProjectUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -436,8 +516,8 @@ def update_project(project_id: str, payload: schemas.ProjectUpdate, db: Session 
 
 
 @app.delete("/projects/{project_id}")
-def delete_project(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def delete_project(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -454,8 +534,8 @@ def delete_project(project_id: str, db: Session = Depends(get_db)):
 # ROUTES: AUDIT + EXCEL
 # ==============================
 @app.get("/projects/{project_id}/audit")
-def get_project_audit(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def get_project_audit(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -464,8 +544,8 @@ def get_project_audit(project_id: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/projects/{project_id}/audit")
-def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -483,8 +563,8 @@ def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Sess
 
 
 @app.get("/projects/{project_id}/excel")
-def download_project_excel(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def download_project_excel(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -502,8 +582,8 @@ def download_project_excel(project_id: str, db: Session = Depends(get_db)):
 # ROUTES: INDICES
 # ==============================
 @app.get("/projects/{project_id}/indices")
-def get_indices(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def get_indices(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -522,8 +602,8 @@ def get_indices(project_id: str, db: Session = Depends(get_db)):
 # ROUTES: ENERGY ACCOUNTING
 # ==============================
 @app.get("/projects/{project_id}/energy-accounting")
-def get_energy_accounting(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def get_energy_accounting(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -531,8 +611,8 @@ def get_energy_accounting(project_id: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/projects/{project_id}/energy-accounting")
-def update_energy_accounting(project_id: str, payload: schemas.EnergyAccountingUpdate, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def update_energy_accounting(project_id: str, payload: schemas.EnergyAccountingUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -545,8 +625,8 @@ def update_energy_accounting(project_id: str, payload: schemas.EnergyAccountingU
 
 
 @app.post("/projects/{project_id}/energy-accounting/import-from-audit")
-def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportRequest, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportRequest, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -596,8 +676,8 @@ def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportR
 # ROUTES: REPORT
 # ==============================
 @app.get("/projects/{project_id}/report")
-def get_project_report(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def get_project_report(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -615,8 +695,8 @@ def get_project_report(project_id: str, db: Session = Depends(get_db)):
 
 
 @app.patch("/projects/{project_id}/report")
-def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -655,8 +735,8 @@ def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Se
 
 
 @app.get("/projects/{project_id}/report/docx")
-def download_project_report_docx(project_id: str, db: Session = Depends(get_db)):
-    project = db.query(models.Project).filter(models.Project.id == project_id).first()
+def download_project_report_docx(project_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    project = db.query(models.Project).filter(models.Project.id == project_id, models.Project.owner_id == current_user.id).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
@@ -693,7 +773,7 @@ def download_project_report_docx(project_id: str, db: Session = Depends(get_db))
 # ROUTES: EVENTS (Agenda)
 # ==============================
 @app.get("/events", response_model=List[schemas.EventSchema])
-def list_events(project_id: Optional[str] = None, db: Session = Depends(get_db)):
+def list_events(project_id: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     q = db.query(models.Event)
     if project_id:
         q = q.filter(models.Event.project_id == project_id)
@@ -701,7 +781,7 @@ def list_events(project_id: Optional[str] = None, db: Session = Depends(get_db))
 
 
 @app.post("/events", response_model=schemas.EventSchema)
-def create_event(payload: schemas.EventCreate, db: Session = Depends(get_db)):
+def create_event(payload: schemas.EventCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     event = models.Event(id=str(uuid4()), **payload.model_dump())
     db.add(event)
     db.commit()
@@ -710,7 +790,7 @@ def create_event(payload: schemas.EventCreate, db: Session = Depends(get_db)):
 
 
 @app.patch("/events/{event_id}", response_model=schemas.EventSchema)
-def update_event(event_id: str, payload: schemas.EventCreate, db: Session = Depends(get_db)):
+def update_event(event_id: str, payload: schemas.EventCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -724,7 +804,7 @@ def update_event(event_id: str, payload: schemas.EventCreate, db: Session = Depe
 
 
 @app.delete("/events/{event_id}")
-def delete_event(event_id: str, db: Session = Depends(get_db)):
+def delete_event(event_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
@@ -738,7 +818,7 @@ def delete_event(event_id: str, db: Session = Depends(get_db)):
 # ROUTES: CLIENT REQUESTS
 # ==============================
 @app.get("/client-requests", response_model=List[schemas.ClientRequestSchema])
-def list_client_requests(project_id: Optional[str] = None, db: Session = Depends(get_db)):
+def list_client_requests(project_id: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     q = db.query(models.ClientRequest)
     if project_id:
         q = q.filter(models.ClientRequest.project_id == project_id)
@@ -746,7 +826,7 @@ def list_client_requests(project_id: Optional[str] = None, db: Session = Depends
 
 
 @app.post("/client-requests", response_model=schemas.ClientRequestSchema)
-def create_client_request(payload: schemas.ClientRequestCreate, db: Session = Depends(get_db)):
+def create_client_request(payload: schemas.ClientRequestCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     cr = models.ClientRequest(id=str(uuid4()), **payload.model_dump())
     db.add(cr)
     db.commit()
@@ -755,7 +835,7 @@ def create_client_request(payload: schemas.ClientRequestCreate, db: Session = De
 
 
 @app.patch("/client-requests/{request_id}", response_model=schemas.ClientRequestSchema)
-def update_client_request(request_id: str, payload: schemas.ClientRequestPatch, db: Session = Depends(get_db)):
+def update_client_request(request_id: str, payload: schemas.ClientRequestPatch, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     cr = db.query(models.ClientRequest).filter(models.ClientRequest.id == request_id).first()
     if not cr:
         raise HTTPException(status_code=404, detail="Client request not found")
@@ -771,7 +851,7 @@ def update_client_request(request_id: str, payload: schemas.ClientRequestPatch, 
 
 
 @app.delete("/client-requests/{request_id}")
-def delete_client_request(request_id: str, db: Session = Depends(get_db)):
+def delete_client_request(request_id: str, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
     cr = db.query(models.ClientRequest).filter(models.ClientRequest.id == request_id).first()
     if not cr:
         raise HTTPException(status_code=404, detail="Client request not found")
