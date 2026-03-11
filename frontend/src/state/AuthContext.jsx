@@ -19,7 +19,7 @@ export function AuthProvider({ children }) {
     });
     if (!res.ok) return false;
     const data = await res.json();
-    const userData = { ...data.user, token: data.access_token };
+    const userData = { ...data.user, name: data.user.full_name, token: data.access_token };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(userData));
     setUser(userData);
     return true;
