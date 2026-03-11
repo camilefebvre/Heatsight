@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Download } from "lucide-react";
@@ -34,6 +34,8 @@ export default function ProjectAudit() {
   const [project, setProject] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const isDirty = useRef(false);
+  const saveTimer = useRef(null);
 
   const [tab, setTab] = useState("energies"); // energies | influence | invoices | indices
 
@@ -82,17 +84,23 @@ export default function ProjectAudit() {
   async function load() {
     try {
       setError("");
-      const res = await fetch(`${API_URL}/projects`);
-      if (!res.ok) throw new Error(`GET /projects failed (${res.status})`);
-      const list = await res.json();
+      isDirty.current = false;
+
+      const [projectsRes, auditRes] = await Promise.all([
+        fetch(`${API_URL}/projects`),
+        fetch(`${API_URL}/projects/${projectId}/audit`),
+      ]);
+
+      if (!projectsRes.ok) throw new Error(`GET /projects failed (${projectsRes.status})`);
+      const list = await projectsRes.json();
       const p = list.find((x) => x.id === projectId);
       setProject(p || null);
 
-      if (p?.audit_data) {
-        setAudit((prev) => {
-          const next = safeClone(prev);
-          return { ...next, ...p.audit_data };
-        });
+      if (auditRes.ok) {
+        const auditData = await auditRes.json();
+        if (auditData && Object.keys(auditData).length > 0) {
+          setAudit((prev) => ({ ...safeClone(prev), ...auditData }));
+        }
       }
     } catch (e) {
       setError(e.message || "Load failed");
@@ -134,6 +142,7 @@ export default function ProjectAudit() {
   }, [tab]);
 
   function updateHeader(key, value) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023.utility_headers[key] = value;
@@ -142,6 +151,7 @@ export default function ProjectAudit() {
   }
 
   function updateEnergyRow(sectionKey, idx, field, value) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023[sectionKey][idx][field] = value;
@@ -150,6 +160,7 @@ export default function ProjectAudit() {
   }
 
   function addEnergyRow(sectionKey) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023[sectionKey].push({ ...emptyEnergyRow });
@@ -158,6 +169,7 @@ export default function ProjectAudit() {
   }
 
   function removeEnergyRow(sectionKey, idx) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023[sectionKey].splice(idx, 1);
@@ -168,6 +180,7 @@ export default function ProjectAudit() {
 
   // Influence (L/M/N)
   function updateInfluenceRow(idx, field, value) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023.influence_factors[idx][field] = value;
@@ -175,6 +188,7 @@ export default function ProjectAudit() {
     });
   }
   function addInfluenceRow() {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023.influence_factors.push({ ...emptyInfluenceRow });
@@ -182,6 +196,7 @@ export default function ProjectAudit() {
     });
   }
   function removeInfluenceRow(idx) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023.influence_factors.splice(idx, 1);
@@ -192,6 +207,7 @@ export default function ProjectAudit() {
 
   // Invoice row (C19..I19)
   function updateInvoice(field, value) {
+    isDirty.current = true;
     setAudit((prev) => {
       const next = safeClone(prev);
       next.year2023.invoice_meter[field] = value;
@@ -199,10 +215,20 @@ export default function ProjectAudit() {
     });
   }
 
+  // Auto-save : déclenché 1.5s après la dernière modification
+  useEffect(() => {
+    if (!isDirty.current) return;
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { save(); }, 1500);
+    return () => clearTimeout(saveTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [audit]);
+
   async function save() {
     try {
       setSaving(true);
       setError("");
+      isDirty.current = false;
 
       const res = await fetch(`${API_URL}/projects/${projectId}/audit`, {
         method: "PATCH",
@@ -215,9 +241,6 @@ export default function ProjectAudit() {
         throw new Error(txt || "Save failed");
       }
 
-      await load();
-
-      // ✅ si tu es sur l'onglet indices, on refresh aussi
       if (tab === "indices") await loadIndices();
     } catch (e) {
       setError(e.message || "Save failed");

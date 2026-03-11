@@ -339,6 +339,15 @@ def _reconstruct_energy(project_id: str, db: Session) -> Dict[str, Any]:
     return {"years": years}
 
 
+def _to_float(val) -> Optional[float]:
+    if val is None or val == "":
+        return None
+    try:
+        return float(val)
+    except (ValueError, TypeError):
+        return None
+
+
 def _upsert_energy_year(
     project_id: str, year_str: str, year_data: Dict[str, Any], db: Session
 ) -> None:
@@ -353,13 +362,13 @@ def _upsert_energy_year(
     ).first()
 
     if record:
-        record.electricity = totals.get("electricity")
-        record.gas         = totals.get("gas")
-        record.fuel        = totals.get("fuel")
-        record.biogas      = totals.get("biogas")
-        record.utility1    = totals.get("util1")
-        record.utility2    = totals.get("util2")
-        record.process     = totals.get("process")
+        record.electricity = _to_float(totals.get("electricity"))
+        record.gas         = _to_float(totals.get("gas"))
+        record.fuel        = _to_float(totals.get("fuel"))
+        record.biogas      = _to_float(totals.get("biogas"))
+        record.utility1    = _to_float(totals.get("util1"))
+        record.utility2    = _to_float(totals.get("util2"))
+        record.process     = _to_float(totals.get("process"))
         record.notes       = notes
         record.details     = details
         flag_modified(record, "details")
@@ -368,13 +377,13 @@ def _upsert_energy_year(
             id=str(uuid4()),
             project_id=project_id,
             year=year_str,
-            electricity=totals.get("electricity"),
-            gas=totals.get("gas"),
-            fuel=totals.get("fuel"),
-            biogas=totals.get("biogas"),
-            utility1=totals.get("util1"),
-            utility2=totals.get("util2"),
-            process=totals.get("process"),
+            electricity=_to_float(totals.get("electricity")),
+            gas=_to_float(totals.get("gas")),
+            fuel=_to_float(totals.get("fuel")),
+            biogas=_to_float(totals.get("biogas")),
+            utility1=_to_float(totals.get("util1")),
+            utility2=_to_float(totals.get("util2")),
+            process=_to_float(totals.get("process")),
             notes=notes,
             details=details,
         )
