@@ -22,6 +22,7 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 | Couche | Technologie |
 |---|---|
 | Backend | Python 3.11+, FastAPI, Pydantic v2, openpyxl, docxtpl |
+| Auth | JWT (`python-jose`), hachage mot de passe (`bcrypt`) |
 | Frontend | React 18, React Router v7, Vite |
 | Calcul Excel | LibreOffice headless (recalcul des formules) |
 | Persistance | PostgreSQL + SQLAlchemy 2 (ORM) + Alembic (migrations) |
@@ -35,9 +36,9 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 HeatSight/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                 # API FastAPI — toutes les routes
+│   │   ├── main.py                 # API FastAPI — toutes les routes (auth + métier)
 │   │   ├── database.py             # Engine SQLAlchemy + get_db()
-│   │   ├── models.py               # Modèles ORM (6 tables)
+│   │   ├── models.py               # Modèles ORM (7 tables dont users)
 │   │   ├── schemas.py              # Schémas Pydantic (validation / sérialisation)
 │   │   ├── templates/
 │   │   │   ├── audit_template.xlsx # Template Excel avec formules d'indices
@@ -46,9 +47,10 @@ HeatSight/
 │   │   └── reports/                # Rapports Word générés (UUID_report.docx)
 │   ├── migrations/
 │   │   ├── versions/
-│   │   │   ├── 001_create_projects.py          # Table projects
-│   │   │   └── 002_add_module_tables.py        # Tables events, client_requests,
-│   │   │                                       #   energy_accounting, audits, reports
+│   │   │   ├── 001_create_projects_table.py    # Table projects
+│   │   │   ├── 002_add_module_tables.py        # Tables events, client_requests,
+│   │   │   │                                   #   energy_accounting, audits, reports
+│   │   │   └── 003_add_users_and_owner_id.py   # Table users + owner_id sur projects
 │   │   ├── env.py
 │   │   └── script.py.mako
 │   ├── alembic.ini
@@ -58,9 +60,10 @@ HeatSight/
 ├── frontend/
 │   ├── src/
 │   │   ├── layout/
-│   │   │   └── AppLayout.jsx       # Layout principal (sidebar + contenu)
+│   │   │   └── AppLayout.jsx       # Layout principal (sidebar + topbar + contenu)
 │   │   ├── pages/
-│   │   │   ├── Login.jsx           # Page de connexion (mock MVP)
+│   │   │   ├── Login.jsx           # Page de connexion (JWT)
+│   │   │   ├── Register.jsx        # Page d'inscription
 │   │   │   ├── Dashboard.jsx       # Statistiques globales + projets récents
 │   │   │   ├── Projects.jsx        # CRUD projets (table + modals)
 │   │   │   ├── Agenda.jsx          # Gestion d'événements (persisté en base)
@@ -70,12 +73,13 @@ HeatSight/
 │   │   │   ├── ProjectEnergy.jsx   # Comptabilité énergétique multi-annuelle + graphes
 │   │   │   └── ProjectReport.jsx   # Génération rapport Word
 │   │   ├── state/
-│   │   │   ├── AuthContext.jsx     # Contexte authentification
+│   │   │   ├── AuthContext.jsx     # Contexte auth (token JWT + user courant)
 │   │   │   └── ProjectContext.jsx  # Context React — projet sélectionné (persisté localStorage)
 │   │   ├── ui/
 │   │   │   ├── Sidebar.jsx         # Navigation principale + navigation projet
+│   │   │   ├── TopBar.jsx          # Barre supérieure (nom utilisateur + déconnexion)
 │   │   │   ├── StatusPill.jsx      # Badge de statut
-│   │   │   └── RequireAuth.jsx     # Guard de route
+│   │   │   └── RequireAuth.jsx     # Guard de route (redirige si non connecté)
 │   │   ├── App.jsx                 # Routing principal
 │   │   └── main.jsx
 │   ├── package.json
@@ -91,7 +95,8 @@ HeatSight/
 
 | Table | Description |
 |---|---|
-| `projects` | Projets d'audit (métadonnées, statut, fichier Excel associé) |
+| `users` | Comptes utilisateurs (email, mot de passe haché, nom) |
+| `projects` | Projets d'audit (métadonnées, statut, fichier Excel associé, `owner_id`) |
 | `events` | Événements agenda (visites, appels, deadlines) |
 | `client_requests` | Demandes de documents envoyées aux clients |
 | `energy_accounting` | Comptabilité énergétique annuelle par projet |
@@ -103,6 +108,13 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 ---
 
 ## Fonctionnalités
+
+### Authentification
+- Inscription avec email, nom complet et mot de passe (haché avec bcrypt)
+- Connexion par email/mot de passe → retourne un token JWT (validité 8h)
+- Toutes les routes métier sont protégées (`Authorization: Bearer <token>`)
+- Isolation complète des données : chaque utilisateur ne voit que ses propres projets
+- Déconnexion via la TopBar (purge du localStorage)
 
 ### Gestion de projets
 - Création / édition / suppression de projets d'audit
@@ -149,6 +161,13 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 ---
 
 ## API Backend
+
+### Authentification
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/auth/register` | Crée un compte (email, full_name, password) |
+| POST | `/auth/login` | Connexion → retourne `access_token` (JWT) |
 
 ### Projets
 
@@ -223,8 +242,9 @@ Créer le fichier `.env` dans `backend/` :
 
 ```bash
 cp backend/.env.example backend/.env
-# puis éditer backend/.env avec ta DATABASE_URL :
+# puis éditer backend/.env :
 # DATABASE_URL=postgresql://user:password@localhost:5432/heatsight
+# SECRET_KEY=une-clé-secrète-aléatoire-longue
 ```
 
 ### 2. Backend (FastAPI)
@@ -260,7 +280,6 @@ Application disponible sur : `http://localhost:5173`
 
 ## Limitations connues du MVP
 
-- **Single-user** : pas d'authentification réelle, pas de gestion multi-utilisateurs (login mock)
 - **Template Excel** : limité à 2 lignes par section (Activité op., Bâtiments, Transport, Utilité) — un avertissement s'affiche si dépassé
 - **LibreOffice** : path hardcodé pour macOS — à adapter pour Windows/Linux
 - **Année d'audit** : fixée à `2023` dans le template Excel
