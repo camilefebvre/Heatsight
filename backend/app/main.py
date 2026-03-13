@@ -8,6 +8,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from shutil import copyfile, move
 from openpyxl import load_workbook
+import logging
+import xlcalculator.model as _xlcalc_model
+import xlcalculator.xltypes as _xlcalc_types
+from xlcalculator import ModelCompiler as _ModelCompiler, Evaluator as _Evaluator
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import bcrypt
@@ -19,6 +23,28 @@ from docxtpl import DocxTemplate
 
 from .database import get_db
 from . import models, schemas
+
+
+# Patch xlcalculator: skip external-workbook references in defined names
+def _safe_link_cells_to_defined_names(self):
+    for name in self.model.defined_names:
+        defn = self.model.defined_names[name]
+        if isinstance(defn, _xlcalc_types.XLCell):
+            try:
+                self.model.cells[defn.address].defined_names.append(name)
+            except KeyError:
+                pass
+        elif isinstance(defn, _xlcalc_types.XLRange):
+            if any(isinstance(el, list) for el in defn.cells):
+                for column in defn.cells:
+                    for row_address in column:
+                        try:
+                            self.model.cells[row_address].defined_names.append(name)
+                        except KeyError:
+                            pass
+
+
+_xlcalc_model.ModelCompiler.link_cells_to_defined_names = _safe_link_cells_to_defined_names
 
 
 # ==============================
@@ -65,6 +91,7 @@ INDICES_CELLS = {
     "primary": {"IEE": "B43", "IC": "B44", "iSER": "B45"},
     "secondary": {"AEE": "B49", "iCO2": "B50", "ACO2": "B51"},
 }
+EXCEL_CHART_SHEETS = ["G_Indices", "G_Emissions", "G_Consommations"]
 
 
 # ==============================
@@ -315,28 +342,31 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
 
 
 def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
-    wb = load_workbook(excel_path, data_only=True)
-    ws = _get_sheet(wb)
+    logging.disable(logging.WARNING)
+    try:
+        compiler = _ModelCompiler()
+        model = compiler.read_and_parse_archive(
+            str(excel_path),
+            ignore_sheets=EXCEL_CHART_SHEETS,
+        )
+        ev = _Evaluator(model)
+    finally:
+        logging.disable(logging.NOTSET)
 
-    def clean(v: Any):
-        if v is None:
-            return None
-        if isinstance(v, (int, float)):
-            return v
-        s = str(v).strip()
-        s2 = s.replace(" ", "").replace(",", ".")
+    def evaluate(addr: str):
         try:
-            return float(s2)
+            val = ev.evaluate(f"2023!{addr}")
+            v = val.value if hasattr(val, "value") else val
+            return v if isinstance(v, (int, float)) else None
         except Exception:
-            return s
+            return None
 
-    primary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["primary"].items()}
-    secondary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["secondary"].items()}
-    formulas_calculated = any(v is not None for v in list(primary.values()) + list(secondary.values()))
+    primary = {k: evaluate(addr) for k, addr in INDICES_CELLS["primary"].items()}
+    secondary = {k: evaluate(addr) for k, addr in INDICES_CELLS["secondary"].items()}
     return {
         "primary": primary,
         "secondary": secondary,
-        "formulas_calculated": formulas_calculated,
+        "formulas_calculated": True,
     }
 
 
@@ -558,11 +588,6 @@ def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Sess
     audit_data = _audit_to_data(audit)
 
     write_audit_to_excel(project, audit_data)
-    excel_path = EXCEL_DIR / project.excel_file
-    try:
-        recalc_excel_in_place(excel_path)
-    except Exception:
-        pass
 
     return {"status": "ok", "audit_data": audit_data}
 
@@ -594,11 +619,6 @@ def get_indices(project_id: str, db: Session = Depends(get_db), current_user: mo
 
     _ensure_excel(project, db)
     excel_path = EXCEL_DIR / project.excel_file
-
-    try:
-        recalc_excel_in_place(excel_path)
-    except Exception:
-        pass
 
     return read_indices_from_excel(excel_path)
 

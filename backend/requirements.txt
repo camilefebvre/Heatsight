@@ -1,6 +1,7 @@
 fastapi
 uvicorn
-openpyxl
+openpyxl>=3.1
+xlcalculator
 docxtpl
 python-docx
 pydantic[email]
