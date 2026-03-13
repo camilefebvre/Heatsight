@@ -394,7 +394,14 @@ export default function ProjectAudit() {
               </div>
             )}
 
-            {!indicesError && (
+            {!indicesError && indices && !indices.formulas_calculated && (
+              <div style={{ marginTop: 12, background: "#fef9c3", color: "#854d0e", padding: 12, borderRadius: 12, fontWeight: 600, fontSize: 14 }}>
+                Les indices ne peuvent pas être calculés directement sur le serveur (formules Excel non exécutées).
+                Téléchargez l'Excel ci-dessous et ouvrez-le dans Excel ou LibreOffice pour voir les indices calculés.
+              </div>
+            )}
+
+            {!indicesError && indices?.formulas_calculated && (
               <div style={{ marginTop: 12, display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
                 <MiniCard title="Indices principaux">
                   <IndexRow label="IEE" value={indices?.primary?.IEE} format={formatPercent} />
@@ -410,10 +417,6 @@ export default function ProjectAudit() {
 
               </div>
             )}
-
-            <div style={{ marginTop: 12, color: "#6b7280", fontSize: 12 }}>
-              Remarque : si ces cellules proviennent de formules, il faut que l'Excel ait été calculé et sauvegardé pour que la valeur apparaisse ici.
-            </div>
           </div>
         )}
 

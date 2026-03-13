@@ -309,6 +309,8 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
     _set_cell(ws, "H19", invoice.get("util2", None), numeric=True)
     _set_cell(ws, "I19", invoice.get("process", None), numeric=True)
 
+    wb.calculation.calcMode = "auto"
+    wb.calculation.fullCalcOnLoad = True
     wb.save(excel_path)
 
 
@@ -318,7 +320,7 @@ def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
 
     def clean(v: Any):
         if v is None:
-            return ""
+            return None
         if isinstance(v, (int, float)):
             return v
         s = str(v).strip()
@@ -328,9 +330,13 @@ def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
         except Exception:
             return s
 
+    primary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["primary"].items()}
+    secondary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["secondary"].items()}
+    formulas_calculated = any(v is not None for v in list(primary.values()) + list(secondary.values()))
     return {
-        "primary": {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["primary"].items()},
-        "secondary": {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["secondary"].items()},
+        "primary": primary,
+        "secondary": secondary,
+        "formulas_calculated": formulas_calculated,
     }
 
 
