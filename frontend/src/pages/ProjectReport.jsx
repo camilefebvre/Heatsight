@@ -114,8 +114,16 @@ export default function ProjectReport() {
         throw new Error(txt || "Save failed");
       }
 
-      // 2) Ensuite déclenche le téléchargement
-      window.open(`${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/projects/${projectId}/report/docx`, "_blank");
+      // 2) Téléchargement via fetch (token JWT dans le header)
+      const dlRes = await apiFetch(`/projects/${projectId}/report/docx`);
+      if (!dlRes.ok) throw new Error(`Génération échouée (${dlRes.status})`);
+      const blob = await dlRes.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `rapport_${projectId}.docx`;
+      a.click();
+      window.URL.revokeObjectURL(url);
       setOkMsg("Rapport sauvegardé et téléchargé ✅");
     } catch (e) {
       setError(e.message || "Erreur lors de la génération du rapport");
