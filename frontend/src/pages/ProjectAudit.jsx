@@ -419,12 +419,23 @@ export default function ProjectAudit() {
 
         {/* Actions (always visible) */}
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 18, gap: 12, flexWrap: "wrap" }}>
-          <a href={`${import.meta.env.VITE_API_URL || "http://127.0.0.1:8000"}/projects/${projectId}/excel`} target="_blank" rel="noreferrer" style={{ textDecoration: "none" }}>
-            <button style={{ ...secondaryBtn, display: "inline-flex", alignItems: "center", gap: 7 }}>
-              <Download size={15} strokeWidth={2} />
-              Télécharger Excel
-            </button>
-          </a>
+          <button
+            onClick={async () => {
+              const res = await apiFetch(`/projects/${projectId}/excel`);
+              if (!res.ok) return;
+              const blob = await res.blob();
+              const url = window.URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `audit_${projectId}.xlsx`;
+              a.click();
+              window.URL.revokeObjectURL(url);
+            }}
+            style={{ ...secondaryBtn, display: "inline-flex", alignItems: "center", gap: 7 }}
+          >
+            <Download size={15} strokeWidth={2} />
+            Télécharger Excel
+          </button>
 
           <button onClick={save} disabled={saving} style={{ ...primaryBtn, opacity: saving ? 0.7 : 1 }}>
             {saving ? "Sauvegarde…" : "Sauvegarder"}
