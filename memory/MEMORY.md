@@ -5,7 +5,7 @@ MVP logiciel d'audit énergétique pour bureaux d'audit. Projet académique/entr
 Monorepo: FastAPI backend + React frontend (Vite).
 
 ## Stack technique
-- **Backend:** Python FastAPI, uvicorn, openpyxl>=3.1, xlcalculator, docxtpl, pydantic[email]
+- **Backend:** Python FastAPI, uvicorn, openpyxl, docxtpl, pydantic[email], LibreOffice (via Dockerfile)
 - **Frontend:** React 18, React Router v6, Vite, inline styles (pas de CSS framework), SVG charts custom
 - **Stockage:** data.json local (MVP single-user)
 - **Templates:** audit_template.xlsx + report_template.docx
@@ -23,7 +23,7 @@ Monorepo: FastAPI backend + React frontend (Vite).
 
 ## Architecture backend (main.py - 625 lignes)
 - CRUD projets (GET/POST/PATCH/DELETE /projects)
-- Audit: PATCH /projects/:id/audit (écrit dans Excel via openpyxl) + GET /projects/:id/indices (évalue formules via xlcalculator)
+- Audit: PATCH /projects/:id/audit (écrit dans Excel via openpyxl) + GET /projects/:id/indices (recalc LibreOffice headless → data_only=True)
 - Energy accounting: CRUD + import depuis audit
 - Rapport: CRUD + génération .docx (docxtpl)
 

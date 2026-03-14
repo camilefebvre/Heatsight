@@ -6,12 +6,8 @@ from typing import List, Dict, Any, Optional
 from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from shutil import copyfile, move
+from shutil import copyfile, move, which
 from openpyxl import load_workbook
-import logging
-import xlcalculator.model as _xlcalc_model
-import xlcalculator.xltypes as _xlcalc_types
-from xlcalculator import ModelCompiler as _ModelCompiler, Evaluator as _Evaluator
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import bcrypt
@@ -25,32 +21,13 @@ from .database import get_db
 from . import models, schemas
 
 
-# Patch xlcalculator: skip external-workbook references in defined names
-def _safe_link_cells_to_defined_names(self):
-    for name in self.model.defined_names:
-        defn = self.model.defined_names[name]
-        if isinstance(defn, _xlcalc_types.XLCell):
-            try:
-                self.model.cells[defn.address].defined_names.append(name)
-            except KeyError:
-                pass
-        elif isinstance(defn, _xlcalc_types.XLRange):
-            if any(isinstance(el, list) for el in defn.cells):
-                for column in defn.cells:
-                    for row_address in column:
-                        try:
-                            self.model.cells[row_address].defined_names.append(name)
-                        except KeyError:
-                            pass
-
-
-_xlcalc_model.ModelCompiler.link_cells_to_defined_names = _safe_link_cells_to_defined_names
-
-
 # ==============================
 # CONFIG
 # ==============================
-SOFFICE = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+_SOFFICE_MACOS = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
+SOFFICE = which("libreoffice") or (
+    _SOFFICE_MACOS if Path(_SOFFICE_MACOS).exists() else None
+)
 
 BASE_DIR = Path(__file__).parent
 
@@ -91,7 +68,6 @@ INDICES_CELLS = {
     "primary": {"IEE": "B43", "IC": "B44", "iSER": "B45"},
     "secondary": {"AEE": "B49", "iCO2": "B50", "ACO2": "B51"},
 }
-EXCEL_CHART_SHEETS = ["G_Indices", "G_Emissions", "G_Consommations"]
 
 
 # ==============================
@@ -221,7 +197,7 @@ def _get_sheet(wb):
 def recalc_excel_in_place(excel_path: Path) -> None:
     if not excel_path.exists():
         return
-    if not Path(SOFFICE).exists():
+    if not SOFFICE:
         return
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -342,31 +318,32 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
 
 
 def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
-    logging.disable(logging.WARNING)
-    try:
-        compiler = _ModelCompiler()
-        model = compiler.read_and_parse_archive(
-            str(excel_path),
-            ignore_sheets=EXCEL_CHART_SHEETS,
-        )
-        ev = _Evaluator(model)
-    finally:
-        logging.disable(logging.NOTSET)
+    recalc_excel_in_place(excel_path)
 
-    def evaluate(addr: str):
-        try:
-            val = ev.evaluate(f"2023!{addr}")
-            v = val.value if hasattr(val, "value") else val
-            return v if isinstance(v, (int, float)) else None
-        except Exception:
+    wb = load_workbook(excel_path, data_only=True)
+    ws = _get_sheet(wb)
+
+    def clean(v: Any):
+        if v is None:
             return None
+        if isinstance(v, (int, float)):
+            return v
+        s = str(v).strip()
+        if s.startswith("#"):  # Excel errors: #DIV/0!, #REF!, etc.
+            return None
+        s2 = s.replace(" ", "").replace(",", ".")
+        try:
+            return float(s2)
+        except Exception:
+            return s
 
-    primary = {k: evaluate(addr) for k, addr in INDICES_CELLS["primary"].items()}
-    secondary = {k: evaluate(addr) for k, addr in INDICES_CELLS["secondary"].items()}
+    primary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["primary"].items()}
+    secondary = {k: clean(ws[addr].value) for k, addr in INDICES_CELLS["secondary"].items()}
+    formulas_calculated = any(v is not None for v in list(primary.values()) + list(secondary.values()))
     return {
         "primary": primary,
         "secondary": secondary,
-        "formulas_calculated": True,
+        "formulas_calculated": formulas_calculated,
     }
 
 
