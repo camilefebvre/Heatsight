@@ -9,6 +9,7 @@ from pathlib import Path
 from shutil import copyfile, move, which
 from zipfile import ZipFile, BadZipFile
 from openpyxl import load_workbook
+from openpyxl.reader import workbook as _wb_reader
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import bcrypt
@@ -20,6 +21,20 @@ from docxtpl import DocxTemplate
 
 from .database import get_db
 from . import models, schemas
+
+
+# Patch openpyxl: ignore corrupted pivot caches in AMUREBA template
+_orig_pivot_caches = _wb_reader.WorkbookParser.pivot_caches.fget
+
+
+def _safe_pivot_caches(self):
+    try:
+        return _orig_pivot_caches(self)
+    except Exception:
+        return {}
+
+
+_wb_reader.WorkbookParser.pivot_caches = property(_safe_pivot_caches)
 
 
 # ==============================
