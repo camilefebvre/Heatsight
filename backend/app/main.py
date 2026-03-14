@@ -7,6 +7,7 @@ from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from shutil import copyfile, move, which
+from zipfile import ZipFile, BadZipFile
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
@@ -194,8 +195,16 @@ def _get_sheet(wb):
     return wb.active
 
 
+def is_valid_excel(path: Path) -> bool:
+    try:
+        ZipFile(path).close()
+        return True
+    except Exception:
+        return False
+
+
 def recalc_excel_in_place(excel_path: Path) -> None:
-    if not excel_path.exists():
+    if not excel_path.exists() or not is_valid_excel(excel_path):
         return
     if not SOFFICE:
         return
@@ -214,7 +223,7 @@ def recalc_excel_in_place(excel_path: Path) -> None:
             cands = list(tmpdir.glob("*.xlsx"))
             if cands:
                 generated = cands[0]
-        if generated.exists():
+        if generated.exists() and is_valid_excel(generated):
             move(str(generated), str(excel_path))
 
 
@@ -224,9 +233,12 @@ def _ensure_excel(project, db: Session) -> None:
     print(f"[DEBUG] _ensure_excel: excel_path={excel_path}", flush=True)
     print(f"[DEBUG] _ensure_excel: excel_path.exists()={excel_path.exists()}", flush=True)
     print(f"[DEBUG] _ensure_excel: EXCEL_DIR exists={EXCEL_DIR.exists()}, writable={os.access(EXCEL_DIR, os.W_OK)}", flush=True)
-    if excel_path.exists():
+    if excel_path.exists() and is_valid_excel(excel_path):
         return
-    print(f"[DEBUG] _ensure_excel: fichier absent, copie du template...", flush=True)
+    if excel_path.exists():
+        print(f"[DEBUG] _ensure_excel: fichier corrompu, suppression...", flush=True)
+        excel_path.unlink()
+    print(f"[DEBUG] _ensure_excel: fichier absent ou corrompu, copie du template...", flush=True)
     try:
         copyfile(TEMPLATE_FILE, excel_path)
         print(f"[DEBUG] _ensure_excel: copie réussie, fichier créé={excel_path.exists()}", flush=True)
@@ -242,6 +254,9 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
     excel_path = EXCEL_DIR / project.excel_file
     if not excel_path.exists():
         return
+    if not is_valid_excel(excel_path):
+        excel_path.unlink()
+        copyfile(TEMPLATE_FILE, excel_path)
 
     wb = load_workbook(excel_path)
     ws = _get_sheet(wb)
