@@ -252,11 +252,7 @@ def _ensure_excel(project, db: Session) -> None:
 
 def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
     excel_path = EXCEL_DIR / project.excel_file
-    if not excel_path.exists():
-        return
-    if not is_valid_excel(excel_path):
-        excel_path.unlink()
-        copyfile(TEMPLATE_FILE, excel_path)
+    copyfile(TEMPLATE_FILE, excel_path)
 
     wb = load_workbook(excel_path)
     ws = _get_sheet(wb)
