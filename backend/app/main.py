@@ -254,7 +254,7 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
     excel_path = EXCEL_DIR / project.excel_file
     copyfile(TEMPLATE_FILE, excel_path)
 
-    wb = load_workbook(excel_path)
+    wb = load_workbook(excel_path, keep_links=False)
     ws = _get_sheet(wb)
 
     year = (audit_data or {}).get("year2023", {}) or {}
@@ -331,7 +331,7 @@ def write_audit_to_excel(project, audit_data: Dict[str, Any]) -> None:
 def read_indices_from_excel(excel_path: Path) -> Dict[str, Any]:
     recalc_excel_in_place(excel_path)
 
-    wb = load_workbook(excel_path, data_only=True)
+    wb = load_workbook(excel_path, data_only=True, keep_links=False)
     ws = _get_sheet(wb)
 
     def clean(v: Any):
