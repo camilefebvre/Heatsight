@@ -24,9 +24,10 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 | Backend | Python 3.11+, FastAPI, Pydantic v2, openpyxl, docxtpl |
 | Auth | JWT (`python-jose`), hachage mot de passe (`bcrypt`) |
 | Frontend | React 18, React Router v7, Vite |
-| Calcul Excel | LibreOffice headless (recalcul des formules) |
+| Calcul Excel | LibreOffice headless (recalcul des formules, détecté via `shutil.which`) |
 | Persistance | PostgreSQL + SQLAlchemy 2 (ORM) + Alembic (migrations) |
 | Styling | Inline styles (pas de framework CSS) |
+| Déploiement | Docker (`backend/Dockerfile`) — compatible Render |
 
 ---
 
@@ -55,6 +56,8 @@ HeatSight/
 │   │   └── script.py.mako
 │   ├── alembic.ini
 │   ├── requirements.txt
+│   ├── Dockerfile                  # Image Docker (python:3.11-slim + LibreOffice)
+│   ├── start.sh                    # Migrations Alembic + démarrage uvicorn
 │   ├── .env                        # Non versionné — à créer (voir ci-dessous)
 │   └── .env.example
 ├── frontend/
@@ -128,9 +131,10 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - Noms et unités des utilités personnalisables
 - Facteurs d'influence (colonnes L/M/N du template Excel)
 - Ligne Factures / Compteur
-- Écriture automatique dans l'Excel du projet à la sauvegarde
+- Écriture automatique dans l'Excel du projet à la sauvegarde (repart toujours du template propre)
 - Recalcul via LibreOffice headless → lecture des indices calculés (IEE, IC, iSER, AEE, iCO₂, ACO₂)
-- Téléchargement du fichier Excel
+- Si LibreOffice indisponible : les indices non recalculés s'affichent avec "—" et un message invite à télécharger l'Excel
+- Téléchargement du fichier Excel (s'ouvre avec `fullCalcOnLoad` activé)
 
 ### Comptabilité énergétique (`/projects/:id/energy`)
 - Suivi multi-annuel des consommations
@@ -222,9 +226,10 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - **Python 3.11+** avec pip
 - **Node.js 18+** avec npm
 - **PostgreSQL 14+** — base de données `heatsight` créée et accessible
-- **LibreOffice** (pour le recalcul des formules Excel)
-  - macOS : `/Applications/LibreOffice.app/Contents/MacOS/soffice`
-  - Le path est configuré dans `backend/app/main.py` — à adapter selon ton OS
+- **LibreOffice** (pour le recalcul des formules Excel — optionnel en local)
+  - macOS : installez LibreOffice, le path `/Applications/LibreOffice.app/...` est détecté automatiquement
+  - Linux : `apt install libreoffice` — la commande `libreoffice` est détectée via `shutil.which`
+  - Sans LibreOffice, l'app fonctionne mais les indices affichent "—" (les formules ne sont pas recalculées)
 
 ---
 
@@ -278,8 +283,44 @@ Application disponible sur : `http://localhost:5173`
 
 ---
 
+## Déploiement (Render)
+
+Le backend est conteneurisé via `backend/Dockerfile` :
+
+```dockerfile
+FROM python:3.11-slim
+RUN apt-get update && apt-get install -y libreoffice --no-install-recommends
+WORKDIR /app
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+CMD ["bash", "start.sh"]
+```
+
+Sur Render, configurer le service Web avec :
+- **Environment** : Docker
+- **Root Directory** : `backend`
+- **Variables d'environnement** : `DATABASE_URL`, `SECRET_KEY`
+
+`start.sh` exécute automatiquement `alembic upgrade head` avant de démarrer uvicorn.
+
+> Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template à chaque redémarrage via `_ensure_excel()`. Les données audit restent en base PostgreSQL.
+
+---
+
+## Robustesse Excel
+
+Le template AMUREBA contient des **pivot caches** et des **références externes** qui peuvent corrompre la lecture openpyxl. Trois protections sont en place :
+
+1. **Monkey-patch `WorkbookParser.pivot_caches`** — au démarrage du module, les erreurs de lecture des pivot caches sont silencieusement ignorées (retourne `{}`)
+2. **`keep_links=False`** — passé à tous les appels `load_workbook` pour ignorer les liens externes
+3. **`is_valid_excel()`** — vérifie l'intégrité ZIP avant tout accès ; `_ensure_excel` et `recalc_excel_in_place` suppriment et recréent le fichier si corrompu
+4. **Template propre à chaque écriture** — `write_audit_to_excel` recopie systématiquement le template avant d'écrire les données
+
+---
+
 ## Limitations connues du MVP
 
 - **Template Excel** : limité à 2 lignes par section (Activité op., Bâtiments, Transport, Utilité) — un avertissement s'affiche si dépassé
-- **LibreOffice** : path hardcodé pour macOS — à adapter pour Windows/Linux
+- **Indices IEE / AEE** : nécessitent la colonne "surface" (M) du template Excel, non saisie dans l'app — s'affichent "—"
 - **Année d'audit** : fixée à `2023` dans le template Excel
