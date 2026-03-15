@@ -188,16 +188,19 @@ function UserSection() {
 
 export default function Sidebar() {
   const { selectedProjectId } = useProject();
+  const { user } = useAuth();
   const [projectName, setProjectName] = useState("");
 
   useEffect(() => {
     async function loadName() {
-      if (!selectedProjectId) {
+      if (!selectedProjectId || !user?.token) {
         setProjectName("");
         return;
       }
       try {
-        const res = await fetch(`${API_URL}/projects`);
+        const res = await fetch(`${API_URL}/projects`, {
+          headers: { Authorization: `Bearer ${user.token}` },
+        });
         const list = await res.json();
         const p = list.find((x) => x.id === selectedProjectId);
         setProjectName(p?.project_name || "");
@@ -206,7 +209,7 @@ export default function Sidebar() {
       }
     }
     loadName();
-  }, [selectedProjectId]);
+  }, [selectedProjectId, user?.token]);
 
   return (
     <aside
@@ -256,24 +259,27 @@ export default function Sidebar() {
             style={{
               margin: "20px 0 6px",
               borderTop: "1px solid #1e2235",
-              paddingTop: 20,
+              paddingTop: 16,
             }}
           >
-            <div style={{ color: "#4b5063", fontSize: 11, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", marginBottom: 4, marginLeft: 4 }}>
-              Collecte de données
+            <div
+              style={{
+                color: "#a78bfa",
+                fontSize: 12,
+                fontWeight: 700,
+                marginLeft: 4,
+                marginBottom: 6,
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+                whiteSpace: "nowrap",
+              }}
+              title={projectName}
+            >
+              {projectName || "Projet"}
             </div>
-            {projectName && (
-              <div style={{ color: "#6d28d9", fontSize: 12, fontWeight: 600, marginLeft: 4, marginBottom: 6, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                {projectName}
-              </div>
-            )}
           </div>
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
-          </nav>
-
-          <SectionLabel label="Support & Automatisation" />
-          <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
             <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
           </nav>
