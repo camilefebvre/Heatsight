@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer, UniqueConstraint, ForeignKey
+from sqlalchemy import Column, String, Float, Integer, UniqueConstraint, ForeignKey, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB
 
 from .database import Base
@@ -99,6 +99,23 @@ class Audit(Base):
     energies = Column(JSONB, nullable=True)           # sections (operational, buildings, …)
     influence_factors = Column(JSONB, nullable=True)  # facteurs d'influence
     invoices = Column(JSONB, nullable=True)            # factures / compteur
+
+
+class ProjectDocument(Base):
+    """Fichiers uploadés par projet (stockés en bytea pour Render)."""
+    __tablename__ = "project_documents"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    filename = Column(String, nullable=False)
+    original_name = Column(String, nullable=False)
+    file_type = Column(String, nullable=False)       # mimetype
+    doc_type = Column(String, nullable=False, default="autre")
+    file_data = Column(LargeBinary, nullable=False)  # bytea
+    status = Column(String, nullable=False, default="pending")
+    extracted_data = Column(JSONB, nullable=True)
+    created_at = Column(String, nullable=False)
 
 
 class Report(Base):

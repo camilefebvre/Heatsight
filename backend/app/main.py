@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -17,7 +17,14 @@ from jose import JWTError, jwt
 import subprocess
 import os
 import tempfile
+import json
+import base64
+import traceback
+import anthropic
 from docxtpl import DocxTemplate
+
+from dotenv import load_dotenv
+load_dotenv()
 
 from .database import get_db
 from . import models, schemas
@@ -612,6 +619,80 @@ def download_project_excel(project_id: str, db: Session = Depends(get_db), curre
 
 
 # ==============================
+# ROUTES: DOCUMENT EXTRACTION
+# ==============================
+@app.post("/projects/{project_id}/extract-document")
+async def extract_document(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    content_type = file.content_type or ""
+    if content_type not in ("application/pdf", "image/jpeg", "image/png"):
+        raise HTTPException(
+            status_code=400,
+            detail="Type de fichier non supporté. Utilisez PDF, JPEG ou PNG.",
+        )
+
+    file_bytes = await file.read()
+    b64_data = base64.standard_b64encode(file_bytes).decode("utf-8")
+
+    if content_type == "application/pdf":
+        content_block = {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": b64_data},
+        }
+    else:
+        content_block = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": content_type, "data": b64_data},
+        }
+
+    prompt = (
+        "Tu es un assistant spécialisé en audit énergétique belge. "
+        "Analyse ce document et extrait les informations suivantes :\n"
+        "- type d'énergie (electricite/gaz/fuel/biogas)\n"
+        "- consommation (nombre)\n"
+        "- unite (kWh/litres/m3)\n"
+        "- annee (nombre)\n"
+        "- cout_total (nombre en euros)\n"
+        "Retourne UNIQUEMENT un JSON valide sans markdown."
+    )
+
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[
+                {
+                    "role": "user",
+                    "content": [
+                        content_block,
+                        {"type": "text", "text": prompt},
+                    ],
+                }
+            ],
+        )
+        raw = message.content[0].text.strip()
+        extracted = json.loads(raw)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=422, detail="Claude n'a pas retourné un JSON valide.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+    return extracted
+
+
+# ==============================
 # ROUTES: INDICES
 # ==============================
 @app.get("/projects/{project_id}/indices")
@@ -887,3 +968,247 @@ def delete_client_request(request_id: str, db: Session = Depends(get_db), curren
     db.delete(cr)
     db.commit()
     return {"status": "deleted", "id": request_id}
+
+
+# ==============================
+# ROUTES: PROJECT DOCUMENTS
+# ==============================
+
+_ANALYZE_PROMPT = (
+    "Tu es un assistant spécialisé en audit énergétique belge. "
+    "Analyse ce document et extrait TOUTES les informations pertinentes. "
+    "Retourne UNIQUEMENT un JSON valide sans markdown avec cette structure :\n"
+    '{"type_document":"facture_electricite|facture_gaz|facture_fuel|releve|contrat|autre",'
+    '"energie":"electricite|gaz|fuel|biogas|null",'
+    '"annee":nombre_ou_null,'
+    '"consommation":nombre_ou_null,'
+    '"unite":"kWh|m3|litres|null",'
+    '"cout_total":nombre_ou_null,'
+    '"periode_debut":"YYYY-MM ou null",'
+    '"periode_fin":"YYYY-MM ou null",'
+    '"fournisseur":"string ou null",'
+    '"adresse_site":"string ou null",'
+    '"nom_client":"string ou null",'
+    '"type_batiment":"string ou null",'
+    '"surface":nombre_ou_null,'
+    '"auditeur":"string ou null",'
+    '"notes":"string ou null"}'
+)
+
+
+def _doc_to_dict(doc: models.ProjectDocument) -> Dict[str, Any]:
+    return {
+        "id": doc.id,
+        "project_id": doc.project_id,
+        "owner_id": doc.owner_id,
+        "filename": doc.filename,
+        "original_name": doc.original_name,
+        "file_type": doc.file_type,
+        "doc_type": doc.doc_type,
+        "status": doc.status,
+        "extracted_data": doc.extracted_data,
+        "created_at": doc.created_at,
+    }
+
+
+def _analyze_one(doc: models.ProjectDocument) -> None:
+    """Analyse un document avec Claude et met à jour doc.status / doc.extracted_data (sans commit)."""
+    b64 = base64.standard_b64encode(doc.file_data).decode("utf-8")
+    if doc.file_type == "application/pdf":
+        content_block = {
+            "type": "document",
+            "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
+        }
+    else:
+        content_block = {
+            "type": "image",
+            "source": {"type": "base64", "media_type": doc.file_type, "data": b64},
+        }
+    print(f"[analyze] envoi à Claude, media_type: {doc.file_type}, doc_id: {doc.id}", flush=True)
+    try:
+        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        message = client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            messages=[{
+                "role": "user",
+                "content": [content_block, {"type": "text", "text": _ANALYZE_PROMPT}],
+            }],
+        )
+        print(f"[analyze] réponse brute: {message.content}", flush=True)
+        raw = message.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        raw = raw.strip()
+        doc.extracted_data = json.loads(raw)
+        doc.status = "analyzed"
+        flag_modified(doc, "extracted_data")
+    except json.JSONDecodeError as e:
+        print(f"[analyze] ERREUR JSONDecodeError: {str(e)}", flush=True)
+        traceback.print_exc()
+        doc.status = "error"
+    except Exception as e:
+        print(f"[analyze] ERREUR: {str(e)}", flush=True)
+        traceback.print_exc()
+        doc.status = "error"
+
+
+@app.post("/projects/{project_id}/documents")
+async def upload_document(
+    project_id: str,
+    file: UploadFile = File(...),
+    doc_type: str = Form("autre"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    content_type = file.content_type or ""
+    if content_type not in ("application/pdf", "image/jpeg", "image/png"):
+        raise HTTPException(status_code=400, detail="Type non supporté. Utilisez PDF, JPEG ou PNG.")
+
+    file_bytes = await file.read()
+    doc = models.ProjectDocument(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        filename=file.filename or "document",
+        original_name=file.filename or "document",
+        file_type=content_type,
+        doc_type=doc_type,
+        file_data=file_bytes,
+        status="pending",
+        created_at=datetime.now(timezone.utc).isoformat(),
+    )
+    db.add(doc)
+    db.commit()
+    db.refresh(doc)
+    return _doc_to_dict(doc)
+
+
+@app.get("/projects/{project_id}/documents")
+def list_documents(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    docs = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.project_id == project_id
+    ).order_by(models.ProjectDocument.created_at.desc()).all()
+    return [_doc_to_dict(d) for d in docs]
+
+
+@app.delete("/projects/{project_id}/documents/{doc_id}")
+def delete_document(
+    project_id: str,
+    doc_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.id == doc_id,
+        models.ProjectDocument.project_id == project_id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    db.delete(doc)
+    db.commit()
+    return {"status": "deleted", "id": doc_id}
+
+
+@app.post("/projects/{project_id}/documents/analyze-all")
+def analyze_all_documents(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    docs = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.project_id == project_id,
+        models.ProjectDocument.status.in_(["pending", "error"]),
+    ).all()
+
+    for doc in docs:
+        _analyze_one(doc)
+
+    db.commit()
+    return {"analyzed": len(docs), "documents": [_doc_to_dict(d) for d in docs]}
+
+
+@app.get("/projects/{project_id}/documents/{doc_id}/file")
+def get_document_file(
+    project_id: str,
+    doc_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.id == doc_id,
+        models.ProjectDocument.project_id == project_id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return Response(content=bytes(doc.file_data), media_type=doc.file_type)
+
+
+@app.post("/projects/{project_id}/documents/{doc_id}/analyze")
+def analyze_document(
+    project_id: str,
+    doc_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    doc = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.id == doc_id,
+        models.ProjectDocument.project_id == project_id,
+    ).first()
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    _analyze_one(doc)
+    db.commit()
+    db.refresh(doc)
+    return _doc_to_dict(doc)

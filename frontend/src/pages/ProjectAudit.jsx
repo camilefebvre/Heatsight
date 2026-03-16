@@ -33,8 +33,11 @@ export default function ProjectAudit() {
   const [project, setProject] = useState(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [extractMsg, setExtractMsg] = useState("");
   const isDirty = useRef(false);
   const saveTimer = useRef(null);
+  const fileInputRef = useRef(null);
 
   const [tab, setTab] = useState("energies"); // energies | influence | invoices | indices
 
@@ -212,6 +215,37 @@ export default function ProjectAudit() {
       next.year2023.invoice_meter[field] = value;
       return next;
     });
+  }
+
+  async function handleExtractFile(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = "";
+    setExtracting(true);
+    setExtractMsg("");
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await apiFetch(`/projects/${projectId}/extract-document`, {
+        method: "POST",
+        body: formData,
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || "Extraction échouée");
+      }
+      const data = await res.json();
+      const typeMap = { electricite: "electricity", gaz: "gas", fuel: "fuel", biogas: "biogas" };
+      const field = typeMap[data.type_energie];
+      if (field && data.consommation != null) {
+        updateInvoice(field, String(data.consommation));
+      }
+      setExtractMsg("✅ Données extraites — vérifiez et sauvegardez");
+    } catch (err) {
+      setExtractMsg(`❌ ${err.message || "Extraction échouée"}`);
+    } finally {
+      setExtracting(false);
+    }
   }
 
   // Auto-save : déclenché 1.5s après la dernière modification

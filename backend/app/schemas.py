@@ -133,3 +133,21 @@ class ClientRequestPatch(BaseModel):
     documents: Optional[List[Dict[str, Any]]] = None
     feedback: Optional[str] = None
     received_files: Optional[List[Dict[str, Any]]] = None
+
+
+# ──────────────────────────────────────────
+# Project Documents
+# ──────────────────────────────────────────
+class ProjectDocumentOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    owner_id: str
+    filename: str
+    original_name: str
+    file_type: str
+    doc_type: str
+    status: str
+    extracted_data: Optional[Dict[str, Any]] = None
+    created_at: str
