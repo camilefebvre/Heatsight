@@ -1,6 +1,6 @@
 # HeatSight
 
-**HeatSight** est un logiciel modulaire destiné aux **bureaux d'audit énergétique**, conçu pour assister les auditeurs à chaque étape de leur mission : de la **saisie des données de consommation** jusqu'à la **génération de rapports Word**, en passant par l'analyse énergétique multi-annuelle et le calcul d'indices (IEE, IC, iSER…).
+**HeatSight** est un logiciel modulaire destiné aux **bureaux d'audit énergétique**, conçu pour assister les auditeurs à chaque étape de leur mission : de la **saisie des données de consommation** jusqu'à la **génération de rapports Word**, en passant par l'analyse IA de documents, la comptabilité énergétique multi-annuelle et le calcul d'indices (IEE, IC, iSER…).
 
 Ce dépôt correspond à un **MVP technique** servant de base de développement et d'expérimentation.
 
@@ -9,10 +9,11 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 ## Objectif du MVP
 
 - Mettre en place une **architecture monorepo claire** (frontend React + backend FastAPI)
-- Couvrir le **workflow complet d'un audit** : création projet → saisie audit → comptabilité énergétique → rapport
+- Couvrir le **workflow complet d'un audit** : création projet → saisie audit → documents IA → comptabilité énergétique → rapport
 - Intégrer un **template Excel** avec calcul automatique d'indices via LibreOffice
 - Générer des **rapports Word** à partir d'un template `.docx`
-- Persister toutes les données en **base de données PostgreSQL**
+- Analyser automatiquement les factures et relevés via **Claude API** (Anthropic)
+- Persister toutes les données (y compris les fichiers) en **base de données PostgreSQL**
 - Servir de support pour un projet académique / entrepreneurial
 
 ---
@@ -23,9 +24,11 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 |---|---|
 | Backend | Python 3.11+, FastAPI, Pydantic v2, openpyxl, docxtpl |
 | Auth | JWT (`python-jose`), hachage mot de passe (`bcrypt`) |
+| IA | Claude API (Anthropic SDK `anthropic>=0.40.0`) — modèle `claude-sonnet-4-20250514` |
 | Frontend | React 18, React Router v7, Vite |
 | Calcul Excel | LibreOffice headless (recalcul des formules, détecté via `shutil.which`) |
 | Persistance | PostgreSQL + SQLAlchemy 2 (ORM) + Alembic (migrations) |
+| Fichiers | Stockés en `BYTEA` dans PostgreSQL (pas de filesystem — compatible Render) |
 | Styling | Inline styles (pas de framework CSS) |
 | Déploiement | Docker (`backend/Dockerfile`) — compatible Render |
 
@@ -37,9 +40,9 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 HeatSight/
 ├── backend/
 │   ├── app/
-│   │   ├── main.py                 # API FastAPI — toutes les routes (auth + métier)
+│   │   ├── main.py                 # API FastAPI — toutes les routes (auth + métier + IA)
 │   │   ├── database.py             # Engine SQLAlchemy + get_db()
-│   │   ├── models.py               # Modèles ORM (7 tables dont users)
+│   │   ├── models.py               # Modèles ORM (8 tables dont project_documents)
 │   │   ├── schemas.py              # Schémas Pydantic (validation / sérialisation)
 │   │   ├── templates/
 │   │   │   ├── audit_template.xlsx # Template Excel avec formules d'indices
@@ -51,7 +54,8 @@ HeatSight/
 │   │   │   ├── 001_create_projects_table.py    # Table projects
 │   │   │   ├── 002_add_module_tables.py        # Tables events, client_requests,
 │   │   │   │                                   #   energy_accounting, audits, reports
-│   │   │   └── 003_add_users_and_owner_id.py   # Table users + owner_id sur projects
+│   │   │   ├── 003_add_users_and_owner_id.py   # Table users + owner_id sur projects
+│   │   │   └── 004_add_project_documents.py    # Table project_documents (bytea)
 │   │   ├── env.py
 │   │   └── script.py.mako
 │   ├── alembic.ini
@@ -73,6 +77,7 @@ HeatSight/
 │   │   │   ├── ClientRequests.jsx  # Requêtes client (persisté en base)
 │   │   │   ├── ShareAccess.jsx     # Partage & Accès
 │   │   │   ├── ProjectAudit.jsx    # Saisie audit (4 onglets, mapping Excel)
+│   │   │   ├── ProjectDocuments.jsx# Gestion documentaire + analyse IA par projet
 │   │   │   ├── ProjectEnergy.jsx   # Comptabilité énergétique multi-annuelle + graphes
 │   │   │   └── ProjectReport.jsx   # Génération rapport Word
 │   │   ├── state/
@@ -105,6 +110,7 @@ HeatSight/
 | `energy_accounting` | Comptabilité énergétique annuelle par projet |
 | `audits` | Données audit par projet (énergies, facteurs d'influence, factures) |
 | `reports` | Données rapport par projet (type, thème, auditeur, compétences) |
+| `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec statut IA et données extraites |
 
 Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `backend/migrations/versions/`.
 
@@ -114,7 +120,7 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 
 ### Authentification
 - Inscription avec email, nom complet et mot de passe (haché avec bcrypt)
-- Connexion par email/mot de passe → retourne un token JWT (validité 8h)
+- Connexion par email/mot de passe → retourne un token JWT (validité 7 jours)
 - Toutes les routes métier sont protégées (`Authorization: Bearer <token>`)
 - Isolation complète des données : chaque utilisateur ne voit que ses propres projets
 - Déconnexion via la TopBar (purge du localStorage)
@@ -136,11 +142,27 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - Si LibreOffice indisponible : les indices non recalculés s'affichent avec "—" et un message invite à télécharger l'Excel
 - Téléchargement du fichier Excel (s'ouvre avec `fullCalcOnLoad` activé)
 
+### Module Documents (`/projects/:id/documents`)
+- Upload de fichiers PDF, JPEG ou PNG associés à un projet
+- Types de documents : facture électricité / gaz / fuel, relevé compteur, contrat, autre
+- Fichiers stockés en **bytea PostgreSQL** (pas de filesystem — robuste sur Render)
+- **Visualisation** : double-clic sur un document → modale plein écran (`<img>` pour les images, `<iframe>` pour les PDF)
+- **Analyse IA individuelle** : bouton "🤖 Analyser" par document → appel Claude API
+- **Analyse IA globale** : "Tout analyser" → traite tous les documents en attente / en erreur
+- Données extraites par Claude : énergie, consommation, unité, année, coût total, fournisseur, période, adresse, client, auditeur…
+- Statuts IA : `pending` (en attente) · `analyzed` (analysé) · `error` (erreur)
+- Boutons **"→ Audit"**, **"→ Comptabilité"**, **"→ Rapport"** par document analysé :
+  - **→ Audit** : pré-remplit la ligne Factures/Compteur de l'onglet Audit
+  - **→ Comptabilité** : injecte la consommation dans la comptabilité énergétique pour l'année extraite
+  - **→ Rapport** : pré-remplit fournisseur et auditeur dans le rapport
+- Affiche les fichiers reçus via les requêtes client (métadonnées uniquement)
+
 ### Comptabilité énergétique (`/projects/:id/energy`)
 - Suivi multi-annuel des consommations
 - Import automatique depuis les données audit (somme de toutes les sections)
 - Ajout d'années via un champ inline
 - Graphes SVG : barres empilées (toutes énergies) + barres individuelles (électricité, gaz, process)
+- Analyse financière : coûts calculés à partir des prix unitaires configurables, graphes de coûts, donut de répartition
 
 ### Rapport (`/projects/:id/report`)
 - Formulaire : type d'audit, thématique, prestataire, auditeur, compétences AMUREBA
@@ -194,6 +216,17 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 | PATCH | `/projects/{id}/energy-accounting` | Sauvegarde la comptabilité |
 | POST | `/projects/{id}/energy-accounting/import-from-audit` | Importe et somme depuis l'audit |
 
+### Documents
+
+| Méthode | Route | Description |
+|---|---|---|
+| POST | `/projects/{id}/documents` | Upload un fichier (multipart, stocké en bytea) |
+| GET | `/projects/{id}/documents` | Liste les documents (sans le binaire) |
+| DELETE | `/projects/{id}/documents/{doc_id}` | Supprime un document |
+| GET | `/projects/{id}/documents/{doc_id}/file` | Télécharge le fichier brut (avec bon Content-Type) |
+| POST | `/projects/{id}/documents/{doc_id}/analyze` | Analyse un document avec Claude API |
+| POST | `/projects/{id}/documents/analyze-all` | Analyse tous les documents pending/error |
+
 ### Rapport
 
 | Méthode | Route | Description |
@@ -208,6 +241,7 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 |---|---|---|
 | GET | `/events` | Liste tous les événements |
 | POST | `/events` | Crée un événement |
+| PATCH | `/events/{id}` | Met à jour un événement |
 | DELETE | `/events/{id}` | Supprime un événement |
 
 ### Requêtes client
@@ -226,6 +260,7 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - **Python 3.11+** avec pip
 - **Node.js 18+** avec npm
 - **PostgreSQL 14+** — base de données `heatsight` créée et accessible
+- **Clé API Anthropic** — pour l'analyse IA des documents ([console.anthropic.com](https://console.anthropic.com))
 - **LibreOffice** (pour le recalcul des formules Excel — optionnel en local)
   - macOS : installez LibreOffice, le path `/Applications/LibreOffice.app/...` est détecté automatiquement
   - Linux : `apt install libreoffice` — la commande `libreoffice` est détectée via `shutil.which`
@@ -250,6 +285,7 @@ cp backend/.env.example backend/.env
 # puis éditer backend/.env :
 # DATABASE_URL=postgresql://user:password@localhost:5432/heatsight
 # SECRET_KEY=une-clé-secrète-aléatoire-longue
+# ANTHROPIC_API_KEY=sk-ant-api03-...
 ```
 
 ### 2. Backend (FastAPI)
@@ -259,7 +295,7 @@ cp backend/.env.example backend/.env
 conda activate heatsight   # ou ton environnement Python
 pip install -r backend/requirements.txt
 
-# Appliquer les migrations (crée les tables)
+# Appliquer les migrations (crée les tables, dont project_documents)
 cd backend
 alembic upgrade head
 cd ..
@@ -300,11 +336,11 @@ CMD ["bash", "start.sh"]
 Sur Render, configurer le service Web avec :
 - **Environment** : Docker
 - **Root Directory** : `backend`
-- **Variables d'environnement** : `DATABASE_URL`, `SECRET_KEY`
+- **Variables d'environnement** : `DATABASE_URL`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 
 `start.sh` exécute automatiquement `alembic upgrade head` avant de démarrer uvicorn.
 
-> Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template à chaque redémarrage via `_ensure_excel()`. Les données audit restent en base PostgreSQL.
+> Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template à chaque redémarrage via `_ensure_excel()`. Les documents uploadés sont stockés en **bytea PostgreSQL** et ne dépendent pas du filesystem.
 
 ---
 
@@ -324,3 +360,5 @@ Le template AMUREBA contient des **pivot caches** et des **références externes
 - **Template Excel** : limité à 2 lignes par section (Activité op., Bâtiments, Transport, Utilité) — un avertissement s'affiche si dépassé
 - **Indices IEE / AEE** : nécessitent la colonne "surface" (M) du template Excel, non saisie dans l'app — s'affichent "—"
 - **Année d'audit** : fixée à `2023` dans le template Excel
+- **Analyse IA** : traitement synchrone (séquentiel) sur `analyze-all` — pour un grand nombre de documents, l'appel peut prendre plusieurs secondes
+- **PDF dans la modale** : l'affichage via `<iframe>` dépend du support du navigateur (Chrome/Edge : OK, Safari : OK, Firefox : OK)
