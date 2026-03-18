@@ -19,7 +19,10 @@ import os
 import tempfile
 import json
 import base64
+import re
+import sys
 import traceback
+import unicodedata
 import anthropic
 from docxtpl import DocxTemplate
 
@@ -48,8 +51,12 @@ _wb_reader.WorkbookParser.pivot_caches = property(_safe_pivot_caches)
 # CONFIG
 # ==============================
 _SOFFICE_MACOS = "/Applications/LibreOffice.app/Contents/MacOS/soffice"
-SOFFICE = which("libreoffice") or (
-    _SOFFICE_MACOS if Path(_SOFFICE_MACOS).exists() else None
+_SOFFICE_WIN  = r"C:\Program Files\LibreOffice\program\soffice.exe"
+SOFFICE = (
+    which("libreoffice")
+    or which("soffice")
+    or (_SOFFICE_WIN  if Path(_SOFFICE_WIN).exists()  else None)
+    or (_SOFFICE_MACOS if Path(_SOFFICE_MACOS).exists() else None)
 )
 
 BASE_DIR = Path(__file__).parent
@@ -91,6 +98,13 @@ INDICES_CELLS = {
     "primary": {"IEE": "B43", "IC": "B44", "iSER": "B45"},
     "secondary": {"AEE": "B49", "iCO2": "B50", "ACO2": "B51"},
 }
+
+
+def _safe_filename(name: str) -> str:
+    name = unicodedata.normalize('NFKD', name).encode('ascii', 'ignore').decode('ascii')
+    name = re.sub(r'\s+', '_', name)
+    name = re.sub(r'[^\w\-]', '', name)
+    return name or 'projet'
 
 
 # ==============================
@@ -233,12 +247,16 @@ def recalc_excel_in_place(excel_path: Path) -> None:
 
     with tempfile.TemporaryDirectory() as tmpdir:
         tmpdir = Path(tmpdir)
+        _kwargs = {}
+        if sys.platform == "win32":
+            _kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
         subprocess.run(
             [SOFFICE, "--headless", "--nologo", "--nolockcheck", "--norestore",
              "--convert-to", "xlsx", "--outdir", str(tmpdir), str(excel_path)],
             check=True,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            **_kwargs,
         )
         generated = tmpdir / excel_path.name
         if not generated.exists():
@@ -246,7 +264,8 @@ def recalc_excel_in_place(excel_path: Path) -> None:
             if cands:
                 generated = cands[0]
         if generated.exists() and is_valid_excel(generated):
-            move(str(generated), str(excel_path))
+            copyfile(str(generated), str(excel_path))
+            generated.unlink()
 
 
 def _ensure_excel(project, db: Session) -> None:
@@ -613,7 +632,7 @@ def download_project_excel(project_id: str, db: Session = Depends(get_db), curre
 
     return FileResponse(
         path=str(excel_path),
-        filename=f"HeatSight_{project.project_name}.xlsx",
+        filename=f"{_safe_filename(project.project_name)}.xlsx",
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     )
 
@@ -873,7 +892,7 @@ def download_project_report_docx(project_id: str, db: Session = Depends(get_db),
 
     return FileResponse(
         path=str(out_path),
-        filename=f"HeatSight_{project.project_name}_rapport.docx",
+        filename=f"{_safe_filename(project.project_name)}_rapport.docx",
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     )
 

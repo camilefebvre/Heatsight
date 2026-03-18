@@ -121,7 +121,11 @@ export default function ProjectReport() {
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
-      a.download = `rapport_${projectId}.docx`;
+      const safeName = (project.project_name || "projet")
+        .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+        .replace(/\s+/g, "_")
+        .replace(/[^\w\-]/g, "");
+      a.download = `${safeName}_rapport.docx`;
       a.click();
       window.URL.revokeObjectURL(url);
       setOkMsg("Rapport sauvegardé et téléchargé ✅");

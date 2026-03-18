@@ -464,7 +464,11 @@ export default function ProjectAudit() {
               const url = window.URL.createObjectURL(blob);
               const a = document.createElement("a");
               a.href = url;
-              a.download = `audit_${projectId}.xlsx`;
+              const safeName = (project.project_name || "projet")
+                .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
+                .replace(/\s+/g, "_")
+                .replace(/[^\w\-]/g, "");
+              a.download = `${safeName}.xlsx`;
               a.click();
               window.URL.revokeObjectURL(url);
             }}
