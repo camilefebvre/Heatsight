@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 
@@ -88,6 +88,7 @@ function YearButton({ active, label, onClick }) {
 
 export default function ProjectEnergy() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { setSelectedProjectId } = useProject();
 
   useEffect(() => {
@@ -107,6 +108,17 @@ export default function ProjectEnergy() {
   const [error, setError] = useState("");
   const [addingYear, setAddingYear] = useState(false);
   const [newYearInput, setNewYearInput] = useState("");
+  const [importingDocs, setImportingDocs] = useState(false);
+  const [importDocsMsg, setImportDocsMsg] = useState("");
+  const [analyzedDocsCount, setAnalyzedDocsCount] = useState(0);
+
+  useEffect(() => {
+    apiFetch(`/projects/${projectId}/documents`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((docs) => setAnalyzedDocsCount(docs.filter((d) => d.status === "analyzed").length))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   async function loadProjectAndEnergy() {
     try {
@@ -264,6 +276,79 @@ export default function ProjectEnergy() {
     }
   }
 
+  const ENERGY_FIELD_MAP = { electricite: "electricity", gaz: "gas", fuel: "fuel", biogas: "biogas" };
+
+  async function importFromDocuments() {
+    try {
+      setImportingDocs(true);
+      setImportDocsMsg("");
+      setError("");
+
+      const docsRes = await apiFetch(`/projects/${projectId}/documents`);
+      if (!docsRes.ok) throw new Error("Impossible de charger les documents");
+      const docs = await docsRes.json();
+      const analyzed = docs.filter((d) => d.status === "analyzed" && d.extracted_data);
+
+      if (!analyzed.length) {
+        setImportDocsMsg("ℹ️ Aucun document analysé disponible");
+        return;
+      }
+
+      const energyRes = await apiFetch(`/projects/${projectId}/energy-accounting`);
+      const energyData = energyRes.ok ? await energyRes.json() : { years: {} };
+      const years = JSON.parse(JSON.stringify(energyData.years || {}));
+
+      let updated = 0, skipped = 0;
+
+      for (const doc of analyzed) {
+        const ext = doc.extracted_data;
+        const field = ENERGY_FIELD_MAP[ext.energie];
+        if (!field) continue;
+        const yr = String(ext.annee || "2023");
+        if (!years[yr]) years[yr] = { year: yr, totals: {}, notes: "" };
+        const totals = years[yr].totals || {};
+
+        if (ext.consommation != null) {
+          const existing = totals[field];
+          if (!existing || existing === "" || existing === "0" || Number(existing) === 0) {
+            totals[field] = String(ext.consommation);
+            updated++;
+          } else {
+            skipped++;
+          }
+        }
+        if (ext.cout_total != null) {
+          const costKey = `${field}_cost`;
+          const existing = totals[costKey];
+          if (!existing || existing === "" || existing === "0" || Number(existing) === 0) {
+            totals[costKey] = String(ext.cout_total);
+            updated++;
+          } else {
+            skipped++;
+          }
+        }
+        years[yr].totals = totals;
+      }
+
+      const res = await apiFetch(`/projects/${projectId}/energy-accounting`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ energy_accounting: { ...energyData, years } }),
+      });
+      if (!res.ok) throw new Error("Sauvegarde échouée");
+      await loadProjectAndEnergy();
+
+      const parts = [];
+      if (updated > 0) parts.push(`${updated} champ${updated > 1 ? "s" : ""} mis à jour`);
+      if (skipped > 0) parts.push(`${skipped} ignoré${skipped > 1 ? "s" : ""} (déjà rempli${skipped > 1 ? "s" : ""})`);
+      setImportDocsMsg(`✅ ${analyzed.length} document${analyzed.length > 1 ? "s" : ""} traité${analyzed.length > 1 ? "s" : ""} · ${parts.join(" · ")}`);
+    } catch (e) {
+      setImportDocsMsg(`❌ ${e.message}`);
+    } finally {
+      setImportingDocs(false);
+    }
+  }
+
   async function importFromAudit() {
     try {
       setSaving(true);
@@ -315,6 +400,19 @@ export default function ProjectEnergy() {
         Ajoute des années, saisis les totaux et visualise les graphes globaux.
       </div>
 
+      {analyzedDocsCount > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 14px", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, fontSize: 13, color: "#4c1d95", display: "flex", alignItems: "center", gap: 8 }}>
+          📄 {analyzedDocsCount} document{analyzedDocsCount > 1 ? "s" : ""} analysé{analyzedDocsCount > 1 ? "s" : ""} disponible{analyzedDocsCount > 1 ? "s" : ""}
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/documents`)}
+            style={{ background: "none", border: "none", color: "#7c3aed", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
+          >
+            → Voir les documents
+          </button>
+        </div>
+      )}
+
       {error && <div style={errorBox}>{error}</div>}
 
       <div style={card}>
@@ -361,11 +459,19 @@ export default function ProjectEnergy() {
               )}
             </div>
 
-            <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap" }}>
-              <button type="button" onClick={importFromAudit} style={importBtn} disabled={saving}>
+            <div style={{ marginTop: 14, display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
+              <button type="button" onClick={importFromAudit} style={importBtn} disabled={saving || importingDocs}>
                 {saving ? "..." : `Importer depuis Audit (${activeYear})`}
               </button>
             </div>
+            {importDocsMsg && (
+              <div style={{
+                marginTop: 8, fontSize: 13, fontWeight: 700,
+                color: importDocsMsg.startsWith("✅") ? "#166534" : importDocsMsg.startsWith("ℹ") ? "#1e40af" : "#991b1b",
+              }}>
+                {importDocsMsg}
+              </div>
+            )}
 
             {/* Totals */}
             <div style={{ marginTop: 18 }}>
@@ -374,18 +480,22 @@ export default function ProjectEnergy() {
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
-                <Field label="Électricité (kWh)">
-                  <input value={y.totals.electricity ?? ""} onChange={(e) => updateTotal("electricity", e.target.value)} style={inputStyle} placeholder="0" />
-                </Field>
-                <Field label="Gaz naturel (kWh)">
-                  <input value={y.totals.gas ?? ""} onChange={(e) => updateTotal("gas", e.target.value)} style={inputStyle} placeholder="0" />
-                </Field>
-                <Field label="Fuel léger (litres)">
-                  <input value={y.totals.fuel ?? ""} onChange={(e) => updateTotal("fuel", e.target.value)} style={inputStyle} placeholder="0" />
-                </Field>
-                <Field label="Biogaz (kWh)">
-                  <input value={y.totals.biogas ?? ""} onChange={(e) => updateTotal("biogas", e.target.value)} style={inputStyle} placeholder="0" />
-                </Field>
+                {[
+                  { key: "electricity", label: "Électricité (kWh)" },
+                  { key: "gas",         label: "Gaz naturel (kWh)" },
+                  { key: "fuel",        label: "Fuel léger (litres)" },
+                  { key: "biogas",      label: "Biogaz (kWh)" },
+                ].map(({ key, label }) => (
+                  <Field key={key} label={label}>
+                    <SourcedInput
+                      value={y.totals[key] ?? ""}
+                      onChange={(e) => updateTotal(key, e.target.value)}
+                      style={inputStyle}
+                      placeholder="0"
+                      fieldSource={y.field_sources?.[key]}
+                    />
+                  </Field>
+                ))}
                 <Field label={util1Name}>
                   <input value={y.totals.util1 ?? ""} onChange={(e) => updateTotal("util1", e.target.value)} style={inputStyle} placeholder="0" />
                 </Field>
@@ -564,6 +674,33 @@ export default function ProjectEnergy() {
 }
 
 /* ── UI helpers ─────────────────────────────────────────────────────────────── */
+
+function SourcedInput({ value, onChange, style, placeholder, fieldSource }) {
+  const [showTip, setShowTip] = useState(false);
+  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #7c3aed" } : style;
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        value={value}
+        onChange={onChange}
+        style={inputSt}
+        placeholder={placeholder}
+        onMouseEnter={() => fieldSource && setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+      />
+      {showTip && fieldSource && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 4px)", left: 0,
+          background: "#1f2937", color: "white", padding: "4px 8px",
+          borderRadius: 6, fontSize: 11, whiteSpace: "nowrap", zIndex: 100,
+          fontWeight: 500, pointerEvents: "none",
+        }}>
+          📄 Rempli depuis : {fieldSource.doc_name}
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Field({ label, children }) {
   return (

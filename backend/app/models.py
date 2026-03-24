@@ -78,7 +78,8 @@ class EnergyRecord(Base):
     utility2 = Column(Float, nullable=True)
     process = Column(Float, nullable=True)
     notes = Column(String, nullable=True)
-    details = Column(JSONB, nullable=True)   # breakdown by section (operational, buildings, …)
+    details = Column(JSONB, nullable=True)        # breakdown by section (operational, buildings, …)
+    field_sources = Column(JSONB, nullable=True)  # { field: { source, doc_name, doc_id } }
 
     __table_args__ = (
         UniqueConstraint("project_id", "year", name="uq_energy_project_year"),
@@ -99,6 +100,7 @@ class Audit(Base):
     energies = Column(JSONB, nullable=True)           # sections (operational, buildings, …)
     influence_factors = Column(JSONB, nullable=True)  # facteurs d'influence
     invoices = Column(JSONB, nullable=True)            # factures / compteur
+    field_sources = Column(JSONB, nullable=True)      # { "invoice_meter.field": { source, doc_name, doc_id } }
 
 
 class ProjectDocument(Base):
@@ -134,3 +136,4 @@ class Report(Base):
     provider_name = Column(String, nullable=True)
     auditor_name = Column(String, nullable=True)
     competences = Column(String, nullable=True)
+    field_sources = Column(JSONB, nullable=True)  # { field: { source, doc_name, doc_id } }

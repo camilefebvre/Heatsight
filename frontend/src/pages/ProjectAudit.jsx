@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Download } from "lucide-react";
 import { apiFetch } from "../api";
@@ -23,6 +23,7 @@ function safeClone(obj) {
 
 export default function ProjectAudit() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { setSelectedProjectId } = useProject();
 
   // Sync le context sidebar si on arrive directement sur l'URL
@@ -142,6 +143,15 @@ export default function ProjectAudit() {
     if (tab === "indices") loadIndices();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
+
+  const [analyzedDocsCount, setAnalyzedDocsCount] = useState(0);
+  useEffect(() => {
+    apiFetch(`/projects/${projectId}/documents`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((docs) => setAnalyzedDocsCount(docs.filter((d) => d.status === "analyzed").length))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   function updateHeader(key, value) {
     isDirty.current = true;
@@ -306,6 +316,19 @@ export default function ProjectAudit() {
         Les données ci-dessous mettent à jour le template Excel (sheet 2023).
       </div>
 
+      {analyzedDocsCount > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 14px", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, fontSize: 13, color: "#4c1d95", display: "flex", alignItems: "center", gap: 8 }}>
+          📄 {analyzedDocsCount} document{analyzedDocsCount > 1 ? "s" : ""} analysé{analyzedDocsCount > 1 ? "s" : ""} disponible{analyzedDocsCount > 1 ? "s" : ""}
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/documents`)}
+            style={{ background: "none", border: "none", color: "#7c3aed", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
+          >
+            → Voir les documents
+          </button>
+        </div>
+      )}
+
       <div style={card}>
         {/* Tabs */}
         <div style={tabsRow}>
@@ -386,29 +409,25 @@ export default function ProjectAudit() {
           <div style={{ marginTop: 14 }}>
             <h3 style={h3}>Factures / Compteur entrée</h3>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
-              <Field label="Électricité">
-                <input value={audit.year2023.invoice_meter.electricity} onChange={(e) => updateInvoice("electricity", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-              <Field label="Gaz naturel">
-                <input value={audit.year2023.invoice_meter.gas} onChange={(e) => updateInvoice("gas", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-              <Field label="Fuel léger">
-                <input value={audit.year2023.invoice_meter.fuel} onChange={(e) => updateInvoice("fuel", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-
-              <Field label="Biogaz">
-                <input value={audit.year2023.invoice_meter.biogas} onChange={(e) => updateInvoice("biogas", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-              <Field label={util1Name}>
-                <input value={audit.year2023.invoice_meter.util1} onChange={(e) => updateInvoice("util1", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-              <Field label={util2Name}>
-                <input value={audit.year2023.invoice_meter.util2} onChange={(e) => updateInvoice("util2", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
-
-              <Field label="Process">
-                <input value={audit.year2023.invoice_meter.process} onChange={(e) => updateInvoice("process", e.target.value)} style={inputStyle} placeholder="0" />
-              </Field>
+              {[
+                { key: "electricity", label: "Électricité" },
+                { key: "gas",         label: "Gaz naturel" },
+                { key: "fuel",        label: "Fuel léger" },
+                { key: "biogas",      label: "Biogaz" },
+                { key: "util1",       label: util1Name },
+                { key: "util2",       label: util2Name },
+                { key: "process",     label: "Process" },
+              ].map(({ key, label }) => (
+                <Field key={key} label={label}>
+                  <SourcedInput
+                    value={audit.year2023.invoice_meter[key] ?? ""}
+                    onChange={(e) => updateInvoice(key, e.target.value)}
+                    style={inputStyle}
+                    placeholder="0"
+                    fieldSource={audit.field_sources?.[`invoice_meter.${key}`]}
+                  />
+                </Field>
+              ))}
             </div>
           </div>
         )}
@@ -643,6 +662,33 @@ function IndexRow({ label, value, format }) {
 }
 
 
+
+function SourcedInput({ value, onChange, style, placeholder, fieldSource }) {
+  const [showTip, setShowTip] = useState(false);
+  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #7c3aed" } : style;
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        value={value}
+        onChange={onChange}
+        style={inputSt}
+        placeholder={placeholder}
+        onMouseEnter={() => fieldSource && setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+      />
+      {showTip && fieldSource && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 4px)", left: 0,
+          background: "#1f2937", color: "white", padding: "4px 8px",
+          borderRadius: 6, fontSize: 11, whiteSpace: "nowrap", zIndex: 100,
+          fontWeight: 500, pointerEvents: "none",
+        }}>
+          📄 Rempli depuis : {fieldSource.doc_name}
+        </div>
+      )}
+    </div>
+  );
+}
 
 /* ---------------- Styles ---------------- */
 

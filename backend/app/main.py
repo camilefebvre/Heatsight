@@ -416,11 +416,12 @@ def _audit_to_data(audit: models.Audit) -> Dict[str, Any]:
             **year_energy,
             "influence_factors": inf.get("year2023", []),
             "invoice_meter": inv.get("year2023", {}),
-        }
+        },
+        "field_sources": audit.field_sources or {},
     }
 
 
-def _upsert_audit(project_id: str, audit_data: Dict[str, Any], db: Session) -> models.Audit:
+def _upsert_audit(project_id: str, audit_data: Dict[str, Any], db: Session, field_sources: Dict[str, Any] = None) -> models.Audit:
     """Crée ou met à jour la ligne audits pour ce projet."""
     year2023 = (audit_data or {}).get("year2023", {}) or {}
 
@@ -444,6 +445,10 @@ def _upsert_audit(project_id: str, audit_data: Dict[str, Any], db: Session) -> m
         flag_modified(audit, "energies")
         flag_modified(audit, "influence_factors")
         flag_modified(audit, "invoices")
+        if field_sources:
+            merged = {**(audit.field_sources or {}), **field_sources}
+            audit.field_sources = merged
+            flag_modified(audit, "field_sources")
     else:
         audit = models.Audit(
             id=str(uuid4()),
@@ -451,6 +456,7 @@ def _upsert_audit(project_id: str, audit_data: Dict[str, Any], db: Session) -> m
             energies=energies,
             influence_factors=influence_factors,
             invoices=invoices,
+            field_sources=field_sources or {},
         )
         db.add(audit)
     db.commit()
@@ -476,8 +482,9 @@ def _reconstruct_energy(project_id: str, db: Session) -> Dict[str, Any]:
                 "util2":       r.utility2,
                 "process":     r.process,
             },
-            "details": r.details or {},
-            "notes":   r.notes or "",
+            "details":      r.details or {},
+            "notes":        r.notes or "",
+            "field_sources": r.field_sources or {},
         }
     return {"years": years}
 
@@ -499,6 +506,8 @@ def _upsert_energy_year(
     details = year_data.get("details") or {}
     notes = year_data.get("notes", "") or ""
 
+    incoming_fs = year_data.get("field_sources") or {}
+
     record = db.query(models.EnergyRecord).filter(
         models.EnergyRecord.project_id == project_id,
         models.EnergyRecord.year == year_str,
@@ -515,6 +524,10 @@ def _upsert_energy_year(
         record.notes       = notes
         record.details     = details
         flag_modified(record, "details")
+        if incoming_fs:
+            merged_fs = {**(record.field_sources or {}), **incoming_fs}
+            record.field_sources = merged_fs
+            flag_modified(record, "field_sources")
     else:
         record = models.EnergyRecord(
             id=str(uuid4()),
@@ -529,6 +542,7 @@ def _upsert_energy_year(
             process=_to_float(totals.get("process")),
             notes=notes,
             details=details,
+            field_sources=incoming_fs or {},
         )
         db.add(record)
 
@@ -613,7 +627,7 @@ def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Sess
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    audit = _upsert_audit(project_id, payload.audit_data, db)
+    audit = _upsert_audit(project_id, payload.audit_data, db, field_sources=payload.field_sources)
     audit_data = _audit_to_data(audit)
 
     write_audit_to_excel(project, audit_data)
@@ -819,6 +833,7 @@ def get_project_report(project_id: str, db: Session = Depends(get_db), current_u
         "provider_company": report.provider_name or "",
         "auditor_name":     report.auditor_name or "",
         "amureba_skills":   report.competences or "",
+        "field_sources":    report.field_sources or {},
     }
 
 
@@ -849,6 +864,10 @@ def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Se
         )
         db.add(report)
 
+    if payload.field_sources:
+        merged_fs = {**(report.field_sources or {}), **payload.field_sources}
+        report.field_sources = merged_fs
+
     db.commit()
     db.refresh(report)
 
@@ -858,6 +877,7 @@ def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Se
         "provider_company": report.provider_name or "",
         "auditor_name":     report.auditor_name or "",
         "amureba_skills":   report.competences or "",
+        "field_sources":    report.field_sources or {},
     }
     return {"status": "ok", "report_data": report_data}
 

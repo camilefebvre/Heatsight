@@ -55,7 +55,9 @@ HeatSight/
 │   │   │   ├── 002_add_module_tables.py        # Tables events, client_requests,
 │   │   │   │                                   #   energy_accounting, audits, reports
 │   │   │   ├── 003_add_users_and_owner_id.py   # Table users + owner_id sur projects
-│   │   │   └── 004_add_project_documents.py    # Table project_documents (bytea)
+│   │   │   ├── 004_add_project_documents.py    # Table project_documents (bytea)
+│   │   │   └── 005_add_field_sources.py        # Colonne field_sources (JSONB) sur audits,
+│   │   │                                       #   energy_accounting et reports
 │   │   ├── env.py
 │   │   └── script.py.mako
 │   ├── alembic.ini
@@ -107,9 +109,9 @@ HeatSight/
 | `projects` | Projets d'audit (métadonnées, statut, fichier Excel associé, `owner_id`) |
 | `events` | Événements agenda (visites, appels, deadlines) |
 | `client_requests` | Demandes de documents envoyées aux clients |
-| `energy_accounting` | Comptabilité énergétique annuelle par projet |
-| `audits` | Données audit par projet (énergies, facteurs d'influence, factures) |
-| `reports` | Données rapport par projet (type, thème, auditeur, compétences) |
+| `energy_accounting` | Comptabilité énergétique annuelle par projet — inclut `field_sources` (traçabilité IA) |
+| `audits` | Données audit par projet (énergies, facteurs d'influence, factures) — inclut `field_sources` |
+| `reports` | Données rapport par projet (type, thème, auditeur, compétences) — inclut `field_sources` |
 | `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec statut IA et données extraites |
 
 Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `backend/migrations/versions/`.
@@ -151,10 +153,13 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - **Analyse IA globale** : "Tout analyser" → traite tous les documents en attente / en erreur
 - Données extraites par Claude : énergie, consommation, unité, année, coût total, fournisseur, période, adresse, client, auditeur…
 - Statuts IA : `pending` (en attente) · `analyzed` (analysé) · `error` (erreur)
-- Boutons **"→ Audit"**, **"→ Comptabilité"**, **"→ Rapport"** par document analysé :
-  - **→ Audit** : pré-remplit la ligne Factures/Compteur de l'onglet Audit
-  - **→ Comptabilité** : injecte la consommation dans la comptabilité énergétique pour l'année extraite
-  - **→ Rapport** : pré-remplit fournisseur et auditeur dans le rapport
+- **Logique non-overwrite** : l'injection ne remplace jamais un champ déjà rempli (≠ 0) — affiche "X valeurs ignorées"
+- Bouton **"✨ Appliquer partout"** par document analysé : applique Audit + Comptabilité + Rapport en une seule action avec résumé ("X modules · Y champs mis à jour · Z ignorés")
+- Boutons individuels **"→ Audit"**, **"→ Comptabilité"**, **"→ Rapport"** par document :
+  - **→ Audit** : pré-remplit la ligne Factures/Compteur (consommation)
+  - **→ Comptabilité** : injecte consommation + coût total pour l'année extraite
+  - **→ Rapport** : pré-remplit fournisseur et auditeur
+- **Traçabilité `field_sources`** : chaque champ rempli depuis un document enregistre en base `{ source, doc_name, doc_id }` — utilisé pour l'affichage visuel dans les autres modules
 - Affiche les fichiers reçus via les requêtes client (métadonnées uniquement)
 
 ### Comptabilité énergétique (`/projects/:id/energy`)
@@ -163,11 +168,18 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - Ajout d'années via un champ inline
 - Graphes SVG : barres empilées (toutes énergies) + barres individuelles (électricité, gaz, process)
 - Analyse financière : coûts calculés à partir des prix unitaires configurables, graphes de coûts, donut de répartition
+- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
+- **Highlighting** : les champs remplis depuis un document affichent une bordure gauche violette + tooltip "📄 Rempli depuis : nom_du_fichier" au survol
 
 ### Rapport (`/projects/:id/report`)
 - Formulaire : type d'audit, thématique, prestataire, auditeur, compétences AMUREBA
 - Génération d'un `.docx` à partir d'un template Word (variables `{{ }}`)
 - Bouton "Sauvegarder + Télécharger" — sauvegarde automatique avant génération
+- **Bandeau** + **highlighting** identiques à la Comptabilité (traçabilité IA)
+
+### Audit (`/projects/:id/audit`)
+- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
+- **Highlighting** : les champs de la ligne Factures/Compteur remplis depuis un document affichent une bordure gauche violette + tooltip au survol
 
 ### Dashboard
 - Compteurs : total projets, en cours, en attente, terminés, nouveaux ce mois

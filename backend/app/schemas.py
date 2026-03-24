@@ -70,6 +70,7 @@ class ProjectUpdate(BaseModel):
 # ──────────────────────────────────────────
 class AuditUpdate(BaseModel):
     audit_data: Dict[str, Any]
+    field_sources: Optional[Dict[str, Any]] = None
 
 
 # ──────────────────────────────────────────
@@ -88,6 +89,7 @@ class EnergyYearImportRequest(BaseModel):
 # ──────────────────────────────────────────
 class ReportUpdate(BaseModel):
     report_data: Dict[str, Any]
+    field_sources: Optional[Dict[str, Any]] = None
 
 
 # ──────────────────────────────────────────

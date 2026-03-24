@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Download, Save } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 
 export default function ProjectReport() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { setSelectedProjectId } = useProject();
 
   // Sync le context sidebar si on arrive directement sur l'URL
@@ -15,6 +16,15 @@ export default function ProjectReport() {
 
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [analyzedDocsCount, setAnalyzedDocsCount] = useState(0);
+
+  useEffect(() => {
+    apiFetch(`/projects/${projectId}/documents`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((docs) => setAnalyzedDocsCount(docs.filter((d) => d.status === "analyzed").length))
+      .catch(() => {});
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId]);
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -149,6 +159,19 @@ export default function ProjectReport() {
         Remplis la page de garde, sauvegarde, puis télécharge le document Word.
       </div>
 
+      {analyzedDocsCount > 0 && (
+        <div style={{ marginTop: 10, padding: "8px 14px", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, fontSize: 13, color: "#4c1d95", display: "flex", alignItems: "center", gap: 8 }}>
+          📄 {analyzedDocsCount} document{analyzedDocsCount > 1 ? "s" : ""} analysé{analyzedDocsCount > 1 ? "s" : ""} disponible{analyzedDocsCount > 1 ? "s" : ""}
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/documents`)}
+            style={{ background: "none", border: "none", color: "#7c3aed", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
+          >
+            → Voir les documents
+          </button>
+        </div>
+      )}
+
       {error && <div style={errorBox}>{error}</div>}
       {okMsg && <div style={okBox}>{okMsg}</div>}
 
@@ -175,20 +198,22 @@ export default function ProjectReport() {
           </Field>
 
           <Field label="Nom du prestataire (entreprise)">
-            <input
+            <SourcedInput
               value={report.provider_company}
               onChange={(e) => updateField("provider_company", e.target.value)}
               style={inputStyle}
               placeholder="Ex: Heat Sight SRL"
+              fieldSource={report.field_sources?.provider_company}
             />
           </Field>
 
           <Field label="Nom / prénom de l'auditeur(trice) responsable">
-            <input
+            <SourcedInput
               value={report.auditor_name}
               onChange={(e) => updateField("auditor_name", e.target.value)}
               style={inputStyle}
               placeholder="Ex: Camille ..."
+              fieldSource={report.field_sources?.auditor_name}
             />
           </Field>
 
@@ -265,6 +290,33 @@ export default function ProjectReport() {
 }
 
 /* UI */
+function SourcedInput({ value, onChange, style, placeholder, fieldSource }) {
+  const [showTip, setShowTip] = useState(false);
+  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #7c3aed" } : style;
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        value={value}
+        onChange={onChange}
+        style={inputSt}
+        placeholder={placeholder}
+        onMouseEnter={() => fieldSource && setShowTip(true)}
+        onMouseLeave={() => setShowTip(false)}
+      />
+      {showTip && fieldSource && (
+        <div style={{
+          position: "absolute", bottom: "calc(100% + 4px)", left: 0,
+          background: "#1f2937", color: "white", padding: "4px 8px",
+          borderRadius: 6, fontSize: 11, whiteSpace: "nowrap", zIndex: 100,
+          fontWeight: 500, pointerEvents: "none",
+        }}>
+          📄 Rempli depuis : {fieldSource.doc_name}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Field({ label, children }) {
   return (
     <label style={{ display: "grid", gap: 6 }}>
