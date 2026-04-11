@@ -29,8 +29,18 @@ from docxtpl import DocxTemplate
 from dotenv import load_dotenv
 load_dotenv()
 
+from pydantic import BaseModel as _PydanticBase
 from .database import get_db
 from . import models, schemas
+
+
+class _LcaMaterialEditPayload(_PydanticBase):
+    """Payload étendu pour PATCH /lca/materials/{id} (nom et catégorie inclus)."""
+    name: Optional[str] = None
+    category: Optional[str] = None
+    prix: Optional[float] = None
+    valeur_r: Optional[float] = None
+    flux_reference: Optional[float] = None
 
 
 # Patch openpyxl: ignore corrupted pivot caches in AMUREBA template
@@ -158,8 +168,13 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=False,
+    allow_origins=[
+        "http://localhost:5173",
+        "http://localhost:5174",
+        "http://127.0.0.1:5173",
+        "http://127.0.0.1:5174",
+    ],
+    allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -1251,3 +1266,328 @@ def analyze_document(
     db.commit()
     db.refresh(doc)
     return _doc_to_dict(doc)
+
+
+# ==============================
+# ROUTES: LCA
+# ==============================
+@app.get("/lca/materials", response_model=List[schemas.LcaMaterialOut])
+def list_lca_materials(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    return db.query(models.LcaMaterial).order_by(models.LcaMaterial.category, models.LcaMaterial.name).all()
+
+
+@app.get("/projects/{project_id}/lca")
+def get_project_lca(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
+    return {
+        "batiments": lca.batiments if lca else [],
+        # legacy fields kept for backward compatibility
+        "elements": lca.elements if lca else [],
+        "parois":   lca.parois   if lca else [],
+        "batiment": lca.batiment if lca else {},
+    }
+
+
+@app.patch("/projects/{project_id}/lca")
+def update_project_lca(
+    project_id: str,
+    payload: schemas.LcaProjectUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Legacy route — sauvegarde uniquement les éléments ACV (ancien format)."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    elements = [e.model_dump() for e in payload.elements]
+
+    lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
+    if lca:
+        lca.elements = elements
+        lca.updated_at = now
+        flag_modified(lca, "elements")
+    else:
+        lca = models.LcaProject(
+            id=str(uuid4()),
+            project_id=project_id,
+            elements=elements,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(lca)
+
+    db.commit()
+    db.refresh(lca)
+    return {"elements": lca.elements}
+
+
+class _LcaBatimentsPayload(_PydanticBase):
+    batiments: List[Dict[str, Any]]
+
+
+@app.patch("/projects/{project_id}/lca/batiments")
+def update_project_lca_batiments(
+    project_id: str,
+    payload: _LcaBatimentsPayload,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Sauvegarde le tableau complet des bâtiments avec parois, composants et paramètres."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+    lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
+    if lca:
+        lca.batiments = payload.batiments
+        lca.updated_at = now
+        flag_modified(lca, "batiments")
+    else:
+        lca = models.LcaProject(
+            id=str(uuid4()),
+            project_id=project_id,
+            elements=[],
+            parois=[],
+            batiment={},
+            batiments=payload.batiments,
+            created_at=now,
+            updated_at=now,
+        )
+        db.add(lca)
+
+    db.commit()
+    db.refresh(lca)
+    return {"batiments": lca.batiments}
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPER : parseur LCIA-results.xlsx → dict d'impacts EF v3.0
+# ──────────────────────────────────────────────────────────────────────────────
+
+# Patterns ordonnés du plus spécifique au plus général.
+# On cherche chaque sous-chaîne dans le nom de colonne normalisé (lowercase, espaces normalisés).
+# Les sous-catégories (biogenic, fossil…) doivent précéder leur catégorie parente (climate change).
+_EF_COLUMN_PATTERNS: list = [
+    # Climate change — sous-catégories d'abord
+    ("climate change: biogenic",                        "climate_biogenic"),
+    ("climate change: fossil",                          "climate_fossil"),
+    ("climate change: land use",                        "climate_landuse"),
+    # Human toxicity — carcinogène avant non-carcinogène (évite faux positif sur "non")
+    ("human toxicity: carcinogenic",                    "human_tox_carc"),
+    ("human toxicity: non-carcinogenic",                "human_tox_noncarc"),
+    # Ecotoxicity freshwater
+    ("ecotoxicity: freshwater",                         "ecotoxicity_fw"),
+    # Eutrophication
+    ("eutrophication: freshwater",                      "eutrophication_fw"),
+    ("eutrophication: marine",                          "eutrophication_marine"),
+    ("eutrophication: terrestrial",                     "eutrophication_terrestrial"),
+    # Autres indicateurs spécifiques
+    ("ionising radiation",                              "ionising_radiation"),
+    ("ionizing radiation",                              "ionising_radiation"),
+    ("photochemical oxidant",                           "photochemical_oxidant"),
+    ("particulate matter",                              "particulate_matter"),
+    ("ozone depletion",                                 "ozone_depletion"),
+    ("energy resources: non-renewable",                 "energy_nonrenewable"),
+    ("material resources: metals/minerals",             "material_resources"),
+    ("material resources",                              "material_resources"),
+    ("| land use |",                                    "land_use"),   # pipes pour éviter collision avec "climate change: land use"
+    ("water use",                                       "water_use"),
+    ("acidification",                                   "acidification"),
+    # Climate change général (GWP100) — en dernier pour ne pas écraser les sous-catégories
+    ("climate change",                                  "gwp100"),
+]
+
+
+def _normalize_col(name: str) -> str:
+    """Normalise un nom de colonne : lowercase + espaces multiples → un seul espace."""
+    import re as _re
+    return _re.sub(r"\s+", " ", name.lower().strip())
+
+
+def _parse_lcia_xlsx(file_bytes: bytes) -> Dict[str, float]:
+    """Lit un fichier LCIA-results.xlsx (colonnes EF v3.0) et retourne {clé_ef: valeur}."""
+    import math
+    import io
+    import pandas as pd
+
+    impacts: Dict[str, float] = {}
+    xl = pd.ExcelFile(io.BytesIO(file_bytes))
+
+    for sheet_name in xl.sheet_names:
+        # Essaie de trouver la ligne d'en-tête qui contient "EF v3.0"
+        df = None
+        for header_row in range(6):
+            candidate = xl.parse(sheet_name, header=header_row)
+            ef_cols = [
+                c for c in candidate.columns
+                if isinstance(c, str) and "EF v3.0" in c
+            ]
+            if ef_cols:
+                df = candidate
+                break
+
+        if df is None or df.empty:
+            continue
+
+        ef_cols = [c for c in df.columns if isinstance(c, str) and "EF v3.0" in c]
+
+        for col in ef_cols:
+            col_norm = _normalize_col(col)
+            key = None
+            for substr, k in _EF_COLUMN_PATTERNS:
+                if substr in col_norm:
+                    key = k
+                    break
+            if not key:
+                continue
+
+            # Première valeur numérique valide dans la colonne
+            for val in df[col]:
+                if isinstance(val, (int, float)) and not (
+                    isinstance(val, float) and math.isnan(val)
+                ):
+                    impacts[key] = float(val)
+                    break
+
+    return impacts
+
+
+# ==============================
+# ROUTES: LCA ADMIN
+# ==============================
+
+@app.post("/lca/materials/import", response_model=schemas.LcaMaterialOut)
+async def import_lca_material(
+    file: UploadFile = File(...),
+    name: str = Form(...),
+    category: str = Form(...),
+    functional_unit: str = Form(...),
+    unit: str = Form(...),
+    prix: float = Form(...),
+    valeur_r: float = Form(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    if not (file.filename or "").lower().endswith(".xlsx"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers .xlsx sont acceptés.")
+
+    file_bytes = await file.read()
+
+    try:
+        impacts = _parse_lcia_xlsx(file_bytes)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=f"Erreur de lecture du fichier : {str(e)}")
+
+    if not impacts:
+        raise HTTPException(
+            status_code=422,
+            detail="Aucun indicateur EF v3.0 reconnu dans ce fichier. Vérifiez que les noms de catégories d'impact correspondent au standard EF v3.0.",
+        )
+
+    material = models.LcaMaterial(
+        id=str(uuid4()),
+        name=name,
+        category=category,
+        functional_unit=functional_unit,
+        unit=unit,
+        impacts=impacts,
+        prix=prix,
+        valeur_r=valeur_r,
+    )
+    db.add(material)
+    db.commit()
+    db.refresh(material)
+    return material
+
+
+@app.get("/lca/materials/{material_id}", response_model=schemas.LcaMaterialOut)
+def get_lca_material(
+    material_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Matériau introuvable")
+    return material
+
+
+@app.patch("/lca/materials/{material_id}", response_model=schemas.LcaMaterialOut)
+def patch_lca_material(
+    material_id: str,
+    payload: _LcaMaterialEditPayload,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Matériau introuvable")
+    for field, value in payload.model_dump(exclude_none=True).items():
+        setattr(material, field, value)
+    db.commit()
+    db.refresh(material)
+    return material
+
+
+@app.delete("/lca/materials/{material_id}")
+def delete_lca_material(
+    material_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
+    if not material:
+        raise HTTPException(status_code=404, detail="Matériau introuvable")
+    db.delete(material)
+    db.commit()
+    return {"status": "deleted", "id": material_id}
+
+
+@app.post("/lca/materials/{material_id}/duplicate", response_model=schemas.LcaMaterialOut)
+def duplicate_lca_material(
+    material_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    original = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
+    if not original:
+        raise HTTPException(status_code=404, detail="Matériau introuvable")
+    copy = models.LcaMaterial(
+        id=str(uuid4()),
+        name=original.name + " (copie)",
+        category=original.category,
+        functional_unit=original.functional_unit,
+        unit=original.unit,
+        impacts=dict(original.impacts),
+        prix=original.prix,
+        valeur_r=original.valeur_r,
+        is_fixed=False,
+        flux_reference=original.flux_reference,
+    )
+    db.add(copy)
+    db.commit()
+    db.refresh(copy)
+    return copy

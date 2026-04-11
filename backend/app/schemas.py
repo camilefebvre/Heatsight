@@ -138,6 +138,53 @@ class ClientRequestPatch(BaseModel):
 
 
 # ──────────────────────────────────────────
+# LCA
+# ──────────────────────────────────────────
+class LcaMaterialOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    name: str
+    category: str
+    functional_unit: str
+    unit: str
+    impacts: Dict[str, float]
+    prix: Optional[float] = None
+    valeur_r: Optional[float] = None
+    is_fixed: bool = False
+    flux_reference: Optional[float] = None
+
+
+class LcaMaterialPatch(BaseModel):
+    prix: Optional[float] = None
+    valeur_r: Optional[float] = None
+    is_fixed: Optional[bool] = None
+    flux_reference: Optional[float] = None
+
+
+class LcaElement(BaseModel):
+    material_id: str
+    material_name: str
+    category: str
+    quantity: float
+    unit: str
+    impacts: Dict[str, float]   # valeurs par unité fonctionnelle (copiées du matériau)
+    is_fixed: bool = False
+
+
+class LcaProjectUpdate(BaseModel):
+    elements: List[LcaElement]
+
+
+class LcaParoisUpdate(BaseModel):
+    parois: List[Dict[str, Any]]
+
+
+class LcaBatimentUpdate(BaseModel):
+    batiment: Dict[str, Any]
+
+
+# ──────────────────────────────────────────
 # Project Documents
 # ──────────────────────────────────────────
 class ProjectDocumentOut(BaseModel):

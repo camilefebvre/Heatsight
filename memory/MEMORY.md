@@ -1,4 +1,4 @@
-# HeatSight - Mémoire projet
+*# HeatSight - Mémoire projet
 
 ## Contexte
 MVP logiciel d'audit énergétique pour bureaux d'audit. Projet académique/entrepreneurial.
