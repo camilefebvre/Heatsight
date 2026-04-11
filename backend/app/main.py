@@ -1,19 +1,21 @@
 from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Response
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
 from typing import List, Dict, Any, Optional
 from uuid import uuid4
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from shutil import copyfile, move, which
-from zipfile import ZipFile, BadZipFile
+from zipfile import ZipFile, BadZipFile, ZIP_DEFLATED
+import xml.etree.ElementTree as ET
 from openpyxl import load_workbook
 from openpyxl.reader import workbook as _wb_reader
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import bcrypt
 from jose import JWTError, jwt
+import io
 import subprocess
 import os
 import tempfile
@@ -31,6 +33,7 @@ load_dotenv()
 
 from .database import get_db
 from . import models, schemas
+from .amureba_mapper import AmurebaMappingService
 
 
 # Patch openpyxl: ignore corrupted pivot caches in AMUREBA template
@@ -107,6 +110,222 @@ def _safe_filename(name: str) -> str:
     return name or 'projet'
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# ZIPFILE-BASED XLSX WRITER (fixes named-range corruption from openpyxl)
+# ──────────────────────────────────────────────────────────────────────────────
+
+_NS_MAIN  = "http://schemas.openxmlformats.org/spreadsheetml/2006/main"
+_NS_R     = "http://schemas.openxmlformats.org/officeDocument/2006/relationships"
+_NS_MC    = "http://schemas.openxmlformats.org/markup-compatibility/2006"
+_NS_RELS  = "http://schemas.openxmlformats.org/package/2006/relationships"
+_NS_X14AC = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/ac"
+_NS_XR    = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
+_NS_XR2   = "http://schemas.microsoft.com/office/spreadsheetml/2015/revision2"
+_NS_XR3   = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision3"
+
+for _pfx, _uri in [
+    ("",      _NS_MAIN),
+    ("r",     _NS_R),
+    ("mc",    _NS_MC),
+    ("x14ac", _NS_X14AC),
+    ("xr",    _NS_XR),
+    ("xr2",   _NS_XR2),
+    ("xr3",   _NS_XR3),
+]:
+    ET.register_namespace(_pfx, _uri)
+
+
+def _build_sheet_path_map(zf: ZipFile) -> Dict[str, str]:
+    """Return {sheet_name: 'xl/worksheets/sheetN.xml'} from workbook.xml + rels."""
+    wb_root = ET.fromstring(zf.read("xl/workbook.xml"))
+    name_to_rid: Dict[str, str] = {}
+    for el in wb_root.iter(f"{{{_NS_MAIN}}}sheet"):
+        name = el.get("name")
+        rid  = el.get(f"{{{_NS_R}}}id")
+        if name and rid:
+            name_to_rid[name] = rid
+
+    rels_root = ET.fromstring(zf.read("xl/_rels/workbook.xml.rels"))
+    rid_to_path: Dict[str, str] = {}
+    for rel in rels_root.iter(f"{{{_NS_RELS}}}Relationship"):
+        rid    = rel.get("Id")
+        target = rel.get("Target", "")
+        if rid:
+            path = target if target.startswith("xl/") else f"xl/{target}"
+            rid_to_path[rid] = path
+
+    return {n: rid_to_path[r] for n, r in name_to_rid.items() if r in rid_to_path}
+
+
+def _col_num(col: str) -> int:
+    """'A'→1, 'B'→2, 'AA'→27"""
+    n = 0
+    for c in col.upper():
+        n = n * 26 + (ord(c) - 64)
+    return n
+
+
+def _cell_col_num(ref: str) -> int:
+    m = re.match(r'([A-Z]+)', str(ref).upper())
+    return _col_num(m.group(1)) if m else 0
+
+
+def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
+    """
+    Write cell values into a worksheet XML using ElementTree.
+    - Numbers  → plain <v>N</v>, t attribute removed (default numeric type).
+    - Strings  → t="inlineStr" + <is><t>text</t></is>  (no sharedStrings.xml change).
+    - Formulas on targeted cells are removed so our constants are not overwritten.
+    - Style (s=) attribute on existing cells is preserved.
+    - ET auto-escapes &, <, > in text content.
+    """
+    root = ET.fromstring(xml_bytes)
+    NS = _NS_MAIN
+
+    sheet_data = root.find(f"{{{NS}}}sheetData")
+    if sheet_data is None:
+        return xml_bytes
+
+    # Build row_num → element map
+    row_map: Dict[int, ET.Element] = {}
+    for row_el in sheet_data:
+        try:
+            row_map[int(row_el.get("r", 0))] = row_el
+        except (ValueError, TypeError):
+            pass
+
+    for cell_ref, value in changes.items():
+        m = re.match(r'([A-Z]+)(\d+)', str(cell_ref).upper())
+        if not m:
+            continue
+        row_num = int(m.group(2))
+
+        # Find or create row
+        if row_num not in row_map:
+            row_el = ET.SubElement(sheet_data, f"{{{NS}}}row")
+            row_el.set("r", str(row_num))
+            row_map[row_num] = row_el
+        else:
+            row_el = row_map[row_num]
+
+        # Find or create cell
+        cell_el: Optional[ET.Element] = None
+        for c in row_el:
+            if c.get("r") == cell_ref:
+                cell_el = c
+                break
+        if cell_el is None:
+            cell_el = ET.SubElement(row_el, f"{{{NS}}}c")
+            cell_el.set("r", cell_ref)
+
+        # Remove ALL existing children (formulas + cached values)
+        for child in list(cell_el):
+            cell_el.remove(child)
+
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            # Numeric constant — remove t so Excel treats cell as number
+            cell_el.attrib.pop("t", None)
+            ET.SubElement(cell_el, f"{{{NS}}}v").text = str(value)
+        elif value is not None and str(value).strip():
+            # String — inline string (no sharedStrings.xml involvement)
+            cell_el.set("t", "inlineStr")
+            is_el = ET.SubElement(cell_el, f"{{{NS}}}is")
+            ET.SubElement(is_el, f"{{{NS}}}t").text = str(value)
+        else:
+            # Empty cell — clear type, leave no value child
+            cell_el.attrib.pop("t", None)
+
+    # Re-sort rows by r, and cells within each row by column index
+    sorted_rows = sorted(list(sheet_data), key=lambda e: int(e.get("r") or 0))
+    for child in list(sheet_data):
+        sheet_data.remove(child)
+    for row_el in sorted_rows:
+        cells = sorted(list(row_el), key=lambda e: _cell_col_num(e.get("r") or "A0"))
+        for child in list(row_el):
+            row_el.remove(child)
+        for cell in cells:
+            row_el.append(cell)
+        sheet_data.append(row_el)
+
+    body = ET.tostring(root, encoding="unicode")
+    return b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' + body.encode("utf-8")
+
+
+def _apply_changes_to_template(
+    template_path: Path,
+    sheet_changes: Dict[str, Dict[str, Any]],
+) -> bytes:
+    """
+    Low-level: copy template zip, patch only the listed worksheet cells, return bytes.
+    workbook.xml and sharedStrings.xml are copied byte-for-byte (no corruption).
+    """
+    with ZipFile(template_path, "r") as zf_in:
+        sheet_path_map = _build_sheet_path_map(zf_in)
+        path_to_sheet  = {v: k for k, v in sheet_path_map.items()}
+
+        out_buf = io.BytesIO()
+        with ZipFile(out_buf, "w", compression=ZIP_DEFLATED) as zf_out:
+            for item in zf_in.infolist():
+                data = zf_in.read(item.filename)
+                sheet_name = path_to_sheet.get(item.filename)
+                if sheet_name and sheet_name in sheet_changes:
+                    try:
+                        data = _patch_sheet_xml(data, sheet_changes[sheet_name])
+                    except Exception as exc:
+                        print(f"[WARN] _patch_sheet_xml({item.filename}): {exc}", flush=True)
+                zf_out.writestr(item, data)
+
+    return out_buf.getvalue()
+
+
+def _write_template_zipfile(
+    template_path: Path,
+    entity_name: str,
+    actions: List[Dict[str, Any]],
+) -> bytes:
+    """
+    High-level: build sheet_changes from entity_name + Claude actions list,
+    then delegate to _apply_changes_to_template.
+    Both text (inlineStr) and numeric values are injected.
+    workbook.xml / sharedStrings.xml remain byte-identical to template.
+    """
+    sheet_changes: Dict[str, Dict[str, Any]] = {}
+
+    def _s(sheet: str, cell: str, val: Any) -> None:
+        sheet_changes.setdefault(sheet, {})[cell] = val
+
+    if entity_name:
+        _s("Paramètres", "B3", entity_name)
+        _s("Entête", "C15", entity_name)
+
+    for i, action in enumerate(actions[:9], start=1):
+        sh = f"AA{i}"
+        _s(sh, "B1",  entity_name or "")
+        _s(sh, "B9",  action.get("intitule") or "")
+        _s(sh, "B13", action.get("type_amelioration") or "")
+        _s(sh, "F27", action.get("classification") or "B")
+        _s(sh, "K22", action.get("ets") or "NON")
+        _s(sh, "K23", action.get("deduction_fiscale") or "OUI")
+        if action.get("situation_existante"):
+            _s(sh, "B16", str(action["situation_existante"]))
+        if action.get("description"):
+            _s(sh, "B20", str(action["description"]))
+        for cell, key in [
+            ("G61", "investissement_k_eur"),
+            ("G77", "economie_energie_mwh_an"),
+            ("G87", "economie_co2_kg_an"),
+            ("K18", "duree_amortissement"),
+        ]:
+            val = action.get(key)
+            if val is not None:
+                try:
+                    _s(sh, cell, float(val))
+                except (TypeError, ValueError):
+                    pass
+
+    return _apply_changes_to_template(template_path, sheet_changes)
+
+
 # ==============================
 # AUTH CONFIG
 # ==============================
@@ -163,6 +382,32 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.on_event("startup")
+def _ensure_extra_project_columns():
+    """Ajoute les colonnes optionnelles sur projects si elles n'existent pas encore."""
+    from sqlalchemy import text
+    from .database import engine
+    stmts = [
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS excel_summary JSONB",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefill_summary JSONB",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_excel BYTEA",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_at TEXT",
+        # Nouvelle table historique (idempotent)
+        """CREATE TABLE IF NOT EXISTS plan_amelioration_history (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            action_type TEXT NOT NULL,
+            changes JSONB,
+            created_at TEXT NOT NULL
+        )""",
+    ]
+    with engine.connect() as conn:
+        for stmt in stmts:
+            conn.execute(text(stmt))
+        conn.commit()
 
 
 # ==============================
@@ -1251,3 +1496,828 @@ def analyze_document(
     db.commit()
     db.refresh(doc)
     return _doc_to_dict(doc)
+
+
+# ==============================
+# ROUTES: PLAN D'AMÉLIORATION
+# ==============================
+
+@app.get("/projects/{project_id}/improvement-actions", response_model=List[schemas.ImprovementActionSchema])
+def list_improvement_actions(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    return (
+        db.query(models.ImprovementAction)
+        .filter(models.ImprovementAction.project_id == project_id)
+        .order_by(models.ImprovementAction.created_at)
+        .all()
+    )
+
+
+@app.post("/projects/{project_id}/improvement-actions", response_model=schemas.ImprovementActionSchema, status_code=201)
+def create_improvement_action(
+    project_id: str,
+    payload: schemas.ImprovementActionCreate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    action = models.ImprovementAction(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        created_at=datetime.now(timezone.utc).isoformat(),
+        **payload.model_dump(),
+    )
+    db.add(action)
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@app.put("/projects/{project_id}/improvement-actions/{action_id}", response_model=schemas.ImprovementActionSchema)
+def update_improvement_action(
+    project_id: str,
+    action_id: str,
+    payload: schemas.ImprovementActionUpdate,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    action = db.query(models.ImprovementAction).filter(
+        models.ImprovementAction.id == action_id,
+        models.ImprovementAction.project_id == project_id,
+    ).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(action, field, value)
+    db.commit()
+    db.refresh(action)
+    return action
+
+
+@app.delete("/projects/{project_id}/improvement-actions/{action_id}", status_code=204)
+def delete_improvement_action(
+    project_id: str,
+    action_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    action = db.query(models.ImprovementAction).filter(
+        models.ImprovementAction.id == action_id,
+        models.ImprovementAction.project_id == project_id,
+    ).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+    db.delete(action)
+    db.commit()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# HELPERS — Plan d'amélioration Excel
+# ──────────────────────────────────────────────────────────────────────────────
+
+_IMPROVEMENT_TYPE_MAP = [
+    (["ser ", "pv", "éolien", "eolien", "géothermie", "geothermie", "solaire"], "SER_PV"),
+    (["electrif", "électrif"], "ELECTRIFICATION"),
+    (["efficac"], "EFFICACITE_ENERGETIQUE"),
+    (["ccu"], "CCU"),
+    (["ppa"], "PPA"),
+    (["fluide", "frigorif"], "FLUIDE_FRIGORIGENE"),
+]
+
+
+def _normalize_improvement_type(raw: str) -> Optional[str]:
+    if not raw:
+        return None
+    lower = raw.lower()
+    for keywords, enum_val in _IMPROVEMENT_TYPE_MAP:
+        if any(k in lower for k in keywords):
+            return enum_val
+    return raw  # keep raw string if nothing matched
+
+
+def _parse_aa_sheet(ws) -> Optional[Dict[str, Any]]:
+    """Extrait les données d'une feuille AAx. Retourne None si la feuille est vide."""
+    intitule = ws["B9"].value
+    if not intitule or not str(intitule).strip():
+        return None
+
+    def _oui_non(v) -> Optional[bool]:
+        if v is None:
+            return None
+        return str(v).strip().upper() == "OUI"
+
+    # Conditions préalables (C31, C33, C35)
+    conds = []
+    for r in [31, 33, 35]:
+        v = ws[f"C{r}"].value
+        if v and str(v).strip() and str(v).strip().upper() not in ("NA", "N/A", ""):
+            conds.append(str(v).strip())
+
+    ref = ws["F5"].value
+    type_raw = ws["B13"].value
+    classif = ws["F27"].value
+    duree_raw = _to_number(ws["K18"].value)
+
+    return {
+        "reference": str(ref).strip() if ref else None,
+        "intitule": str(intitule).strip(),
+        "type_amelioration": _normalize_improvement_type(str(type_raw) if type_raw else ""),
+        "classification": str(classif).strip() if classif else None,
+        "conditions_prealables": "\n".join(conds) if conds else None,
+        "investissement": _to_number(ws["G61"].value),
+        "economie_energie": _to_number(ws["G77"].value),
+        "economie_co2": _to_number(ws["G87"].value),
+        "duree_amortissement": int(duree_raw) if duree_raw is not None else None,
+        "irr_avant_impot": _to_number(ws["N10"].value),
+        "pbt_avant_impot": _to_number(ws["N15"].value),
+        "irr_apres_impot": _to_number(ws["N17"].value),
+        "pbt_apres_impot": _to_number(ws["N18"].value),
+        "entreprise_ets": _oui_non(ws["K22"].value),
+        "deduction_fiscale": _oui_non(ws["K23"].value),
+        "description": None,
+        "situation_existante": None,
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# ROUTES — Export / Import / Prefill Excel AMUREBA
+# ──────────────────────────────────────────────────────────────────────────────
+
+_PREFILL_SYSTEM = """\
+Tu es un expert en audit énergétique industriel (méthode AMUREBA belge).
+Tu reçois des données extraites de factures énergétiques d'un bâtiment/entreprise.
+Tu dois proposer des actions d'amélioration énergétique concrètes et chiffrées,
+adaptées aux consommations détectées, en JSON uniquement — aucun texte autour.
+"""
+
+_PREFILL_USER_TPL = """\
+Données extraites des documents du projet "{project_name}" :
+
+{extracted_json}
+
+Génère entre 1 et 5 actions d'amélioration énergétique réalistes.
+Réponds UNIQUEMENT avec un tableau JSON de la forme :
+[
+  {{
+    "intitule": "...",
+    "type_amelioration": "...",   // ex: Efficacité Energétique, SER PV, Electrification…
+    "classification": "A",        // A ou B
+    "investissement_k_eur": 0,    // en k€ (nombre)
+    "economie_energie_mwh_an": 0, // MWh/an
+    "economie_co2_kg_an": 0,      // kg CO2/an
+    "duree_amortissement": 8,     // années
+    "ets": "NON",                 // OUI ou NON
+    "deduction_fiscale": "OUI",   // OUI ou NON
+    "situation_existante": "...",
+    "description": "...",
+    "sources": {{
+      "investissement_k_eur":    {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
+      "economie_energie_mwh_an": {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": false}},
+      "economie_co2_kg_an":      {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
+      "classification":          {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
+      "type_amelioration":       {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}}
+    }}
+  }}
+]
+Règles pour "sources" :
+- Si la valeur est directement issue d'un document fourni : "document" = nom exact du fichier,
+  "field" = nom du champ extrait utilisé (ex: "consommation_electricite"), "estimated": false.
+- Si la valeur est estimée / calculée par l'IA sans source directe : "document": null, "field": null, "estimated": true.
+Si les données sont insuffisantes pour chiffrer, utilise 0 pour les valeurs numériques
+et indique des ordres de grandeur raisonnables basés sur le secteur.
+"""
+
+
+async def _get_prefill_actions(
+    project_id: str,
+    db: Session,
+    current_user: models.User,
+) -> tuple:
+    """
+    Shared helper: fetch extracted_data from project documents, call Claude,
+    return (project, entity_name, actions_list).
+    Raises HTTPException on error.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    docs = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.project_id == project_id,
+        models.ProjectDocument.extracted_data.isnot(None),
+    ).all()
+
+    extracted_parts = [
+        {"document": d.original_name, "type": d.doc_type, "data": d.extracted_data}
+        for d in docs if d.extracted_data
+    ]
+
+    if not extracted_parts:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                "Aucun document analysé trouvé pour ce projet. "
+                "Uploadez et analysez des factures dans le module Documents d'abord."
+            ),
+        )
+
+    entity_name = project.client_name or project.project_name or ""
+    extracted_json = json.dumps(extracted_parts, ensure_ascii=False, indent=2)
+    user_msg = _PREFILL_USER_TPL.format(
+        project_name=entity_name,
+        extracted_json=extracted_json,
+    )
+
+    try:
+        claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        msg = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=4096,
+            system=_PREFILL_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        raw_text = msg.content[0].text.strip()
+        json_match = re.search(r"\[.*\]", raw_text, re.DOTALL)
+        if not json_match:
+            raise ValueError("Aucun tableau JSON trouvé dans la réponse Claude")
+        actions: List[Dict[str, Any]] = json.loads(json_match.group(0))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
+
+    return project, entity_name, actions
+
+
+
+@app.post("/projects/{project_id}/improvement-actions/prefill-preview")
+async def prefill_preview(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Appelle Claude et retourne le JSON des actions proposées sans générer de fichier.
+    Utilisé pour afficher un aperçu avant téléchargement.
+    """
+    _, entity_name, actions = await _get_prefill_actions(project_id, db, current_user)
+    return {
+        "entity_name": entity_name,
+        "nb_actions": len(actions),
+        "actions": [
+            {
+                "sheet": f"AA{i + 1}",
+                "intitule": a.get("intitule"),
+                "type_amelioration": a.get("type_amelioration"),
+                "classification": a.get("classification"),
+                "investissement_k_eur": a.get("investissement_k_eur"),
+                "economie_energie_mwh_an": a.get("economie_energie_mwh_an"),
+                "economie_co2_kg_an": a.get("economie_co2_kg_an"),
+                "duree_amortissement": a.get("duree_amortissement"),
+                # sources: dict {field: {document, field, estimated}} — peut être absent si Claude ne le fournit pas
+                "sources": a.get("sources") or {},
+            }
+            for i, a in enumerate(actions[:9])
+        ],
+    }
+
+
+@app.post("/projects/{project_id}/improvement-actions/prefill-excel")
+async def prefill_improvement_actions_excel(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Appelle Claude, pré-remplit le template AMUREBA, persiste en base et retourne le .xlsx.
+    """
+    project, entity_name, actions = await _get_prefill_actions(project_id, db, current_user)
+
+    if not TEMPLATE_FILE.exists():
+        raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
+    try:
+        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, actions)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la génération du fichier: {e}")
+
+    # ── Persistance ───────────────────────────────────────────────────────────
+    now = datetime.now(timezone.utc).isoformat()
+    summary = {
+        "entity_name": entity_name,
+        "nb_actions": len(actions),
+        "actions": [
+            {
+                "sheet": f"AA{i + 1}",
+                "intitule": a.get("intitule"),
+                "type_amelioration": a.get("type_amelioration"),
+                "classification": a.get("classification"),
+                "investissement_k_eur": a.get("investissement_k_eur"),
+                "economie_energie_mwh_an": a.get("economie_energie_mwh_an"),
+                "economie_co2_kg_an": a.get("economie_co2_kg_an"),
+                "duree_amortissement": a.get("duree_amortissement"),
+                "sources": a.get("sources") or {},
+            }
+            for i, a in enumerate(actions[:9])
+        ],
+    }
+    project.prefill_summary = summary
+    project.prefilled_excel = file_bytes
+    project.prefilled_at = now
+    flag_modified(project, "prefill_summary")
+    db.commit()
+
+    safe_name = _safe_filename(entity_name or project.project_name)
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
+    )
+
+
+@app.get("/projects/{project_id}/improvement-actions/prefill-status")
+def get_prefill_status(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retourne le statut du pré-remplissage IA pour ce projet."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return {
+        "has_prefilled_excel": project.prefilled_excel is not None,
+        "prefilled_at": project.prefilled_at,
+        "prefill_summary": project.prefill_summary,
+    }
+
+
+@app.get("/projects/{project_id}/improvement-actions/export-excel")
+def export_improvement_actions_excel(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Retourne le fichier xlsx pré-rempli par l'IA s'il existe,
+    sinon le template vierge avec le nom de l'entité.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    safe_name = _safe_filename(project.project_name)
+
+    # Retourner le fichier pré-rempli s'il est sauvegardé
+    if project.prefilled_excel:
+        return StreamingResponse(
+            io.BytesIO(project.prefilled_excel),
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
+        )
+
+    # Sinon : template vierge avec le nom de l'entité
+    if not TEMPLATE_FILE.exists():
+        raise HTTPException(status_code=500, detail="Template AMUREBA introuvable côté serveur")
+
+    entity_name = project.client_name or project.project_name or ""
+    try:
+        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, [])
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur lors de la génération du fichier: {e}")
+
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="AMUREBA_{safe_name}.xlsx"'},
+    )
+
+
+@app.post("/projects/{project_id}/improvement-actions/apply-prefill")
+async def apply_prefill(
+    project_id: str,
+    payload: schemas.ApplyPrefillRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Reçoit la liste des changements sélectionnés/rejetés par l'auditeur.
+    - Injecte uniquement les items numériques sélectionnés dans le xlsx.
+    - Sauvegarde le fichier + tous les items (avec statut) en base + historique.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not TEMPLATE_FILE.exists():
+        raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
+
+    # Construire sheet_changes depuis les items numériques sélectionnés
+    sheet_changes: Dict[str, Dict[str, Any]] = {}
+    for item in payload.changes:
+        if item.selected and item.is_numeric:
+            try:
+                sheet_changes.setdefault(item.sheet, {})[item.cell] = float(item.value)
+            except (TypeError, ValueError):
+                pass
+
+    try:
+        file_bytes = _apply_changes_to_template(TEMPLATE_FILE, sheet_changes)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Erreur génération xlsx : {e}")
+
+    now = datetime.now(timezone.utc).isoformat()
+    all_items = [item.model_dump() for item in payload.changes]
+    summary = {"items": all_items}
+
+    project.prefilled_excel = file_bytes
+    project.prefill_summary = summary
+    project.prefilled_at = now
+    flag_modified(project, "prefill_summary")
+
+    db.add(models.PlanAmeliorationHistory(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        action_type="AI_PREFILL",
+        changes=summary,
+        created_at=now,
+    ))
+    db.commit()
+
+    safe_name = _safe_filename(project.project_name)
+    return StreamingResponse(
+        io.BytesIO(file_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
+    )
+
+
+@app.get("/projects/{project_id}/improvement-actions/history")
+def get_prefill_history(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retourne l'historique complet des modifications du plan d'amélioration."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    entries = (
+        db.query(models.PlanAmeliorationHistory)
+        .filter(models.PlanAmeliorationHistory.project_id == project_id)
+        .order_by(models.PlanAmeliorationHistory.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id": e.id,
+            "action_type": e.action_type,
+            "changes": e.changes,
+            "created_at": e.created_at,
+        }
+        for e in entries
+    ]
+
+
+@app.post("/projects/{project_id}/improvement-actions/import-excel")
+async def import_improvement_actions_excel(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Lit un Excel AMUREBA complété et upsert les actions dans la base."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    content = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(content), data_only=True, keep_links=False)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Fichier Excel invalide: {e}")
+
+    parsed: List[Dict[str, Any]] = []
+    for i in range(1, 10):
+        sheet_name = f"AA{i}"
+        if sheet_name not in wb.sheetnames:
+            continue
+        try:
+            data = _parse_aa_sheet(wb[sheet_name])
+        except Exception:
+            continue
+        if data:
+            parsed.append(data)
+
+    # Supprimer les anciennes actions et réinsérer
+    db.query(models.ImprovementAction).filter(
+        models.ImprovementAction.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    now = datetime.now(timezone.utc).isoformat()
+    for data in parsed:
+        db.add(models.ImprovementAction(
+            id=str(uuid4()),
+            project_id=project_id,
+            owner_id=current_user.id,
+            created_at=now,
+            **data,
+        ))
+
+    # Construire et stocker le résumé dans projects.excel_summary
+    total_invest = sum(
+        (d.get("investissement") or 0) for d in parsed if isinstance(d.get("investissement"), (int, float))
+    )
+    total_energie = sum(
+        (d.get("economie_energie") or 0) for d in parsed if isinstance(d.get("economie_energie"), (int, float))
+    )
+    total_co2 = sum(
+        (d.get("economie_co2") or 0) for d in parsed if isinstance(d.get("economie_co2"), (int, float))
+    )
+    excel_summary = {
+        "imported_at": now,
+        "nb_actions": len(parsed),
+        "total_investissement_k_eur": round(total_invest, 2),
+        "total_economie_energie_mwh_an": round(total_energie, 2),
+        "total_economie_co2_kg_an": round(total_co2, 2),
+        "actions": [
+            {
+                "reference": d.get("reference"),
+                "intitule": d.get("intitule"),
+                "classification": d.get("classification"),
+                "type_amelioration": d.get("type_amelioration"),
+                "investissement": d.get("investissement"),
+                "economie_energie": d.get("economie_energie"),
+                "economie_co2": d.get("economie_co2"),
+            }
+            for d in parsed
+        ],
+    }
+    project.excel_summary = excel_summary
+    flag_modified(project, "excel_summary")
+
+    # Historique
+    db.add(models.PlanAmeliorationHistory(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        action_type="MANUAL_UPLOAD",
+        changes={"excel_summary": excel_summary},
+        created_at=now,
+    ))
+
+    db.commit()
+    return {"imported": len(parsed), "actions": [d["intitule"] for d in parsed]}
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# ROUTES: Plan d'amélioration — import / preview  (AmurebaMappingService)
+# ══════════════════════════════════════════════════════════════════════════════
+
+_ALL_SEMANTIC_FIELDS = [
+    "titre_action", "cout_investissement", "economie_energie_kwh",
+    "economie_energie_euro", "taux_reduction_co2", "temps_retour_brut", "priorite",
+]
+
+
+async def _parse_uploaded_workbook(file: UploadFile):
+    """
+    Shared helper: read the uploaded .xlsx file and map all sheets.
+
+    Returns (wb, mapped_sheets, filename) where mapped_sheets is the
+    dict returned by AmurebaMappingService.map_workbook().
+
+    Raises HTTPException 400 if the file is not a valid xlsx.
+    """
+    content = await file.read()
+    try:
+        wb = load_workbook(io.BytesIO(content), data_only=True, keep_links=False)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fichier xlsx invalide ou corrompu : {exc}",
+        )
+    svc = AmurebaMappingService()
+    mapped = svc.map_workbook(wb)
+    return wb, mapped, file.filename or "fichier.xlsx"
+
+
+@app.get(
+    "/projects/{project_id}/plan-amelioration",
+    response_model=list[schemas.AmeliorationActionOut],
+    summary="Lister les actions d'amélioration importées (JSONB)",
+)
+def list_plan_amelioration(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    return db.query(models.AmeliorationAction).filter(
+        models.AmeliorationAction.project_id == project_id
+    ).order_by(models.AmeliorationAction.sheet_name).all()
+
+
+@app.delete(
+    "/projects/{project_id}/plan-amelioration/{action_id}",
+    status_code=204,
+    summary="Supprimer une action d'amélioration importée",
+)
+def delete_amelioration_action(
+    project_id: str,
+    action_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    action = db.query(models.AmeliorationAction).filter(
+        models.AmeliorationAction.id == action_id,
+        models.AmeliorationAction.project_id == project_id,
+    ).first()
+    if not action:
+        raise HTTPException(status_code=404, detail="Action not found")
+
+    db.delete(action)
+    db.commit()
+
+
+@app.post(
+    "/projects/{project_id}/plan-amelioration/preview",
+    response_model=schemas.ImportPreviewResponse,
+    summary="Prévisualiser un import AMUREBA sans sauvegarder",
+)
+async def preview_plan_amelioration(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Read an AMUREBA xlsx and return a structured preview — nothing is saved.
+
+    Use this endpoint to let the frontend show the user which sheets were
+    detected, which semantic fields were mapped, and what data will be
+    imported before asking for confirmation.
+
+    Returns:
+        ImportPreviewResponse with per-sheet summaries.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    _, mapped, filename = await _parse_uploaded_workbook(file)
+
+    sheets_out = []
+    total_rows = 0
+    for sheet_name, sheet_data in mapped.items():
+        kv = sheet_data.get("key_values", {})
+        rows = sheet_data.get("raw_rows", [])
+        headers = sheet_data.get("detected_headers", [])
+        unmapped = sheet_data.get("unmapped_headers", [])
+        missing = [f for f in _ALL_SEMANTIC_FIELDS if f not in kv]
+        total_rows += len(rows)
+        sheets_out.append(schemas.ImportPreviewSheet(
+            sheet_name=sheet_name,
+            row_count=len(rows),
+            detected_headers=headers,
+            key_values=kv,
+            unmapped_headers=unmapped,
+            missing_semantic_fields=missing,
+        ))
+
+    return schemas.ImportPreviewResponse(
+        filename=filename,
+        sheet_names=list(mapped.keys()),
+        sheets=sheets_out,
+        total_rows=total_rows,
+    )
+
+
+@app.post(
+    "/projects/{project_id}/plan-amelioration/import",
+    response_model=schemas.ImportResponse,
+    status_code=201,
+    summary="Importer un Excel AMUREBA et sauvegarder en base",
+)
+async def import_plan_amelioration(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Import an AMUREBA xlsx: parse all sheets, map semantic fields,
+    then **replace** all existing amelioration_actions for this project.
+
+    Workflow:
+        1. Validate xlsx (400 if invalid)
+        2. Map all non-empty sheets via AmurebaMappingService
+        3. Delete previous amelioration_actions for this project
+        4. Insert one AmeliorationAction row per mapped sheet
+        5. Return import summary
+
+    The full AmurebaMappingService result is stored as-is in action_data
+    (JSONB), so no information is lost and the schema can evolve without
+    a migration.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    _, mapped, filename = await _parse_uploaded_workbook(file)
+
+    if not mapped:
+        raise HTTPException(
+            status_code=422,
+            detail="Aucune feuille avec des données n'a été trouvée dans ce fichier.",
+        )
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    # Replace previous import
+    db.query(models.AmeliorationAction).filter(
+        models.AmeliorationAction.project_id == project_id
+    ).delete(synchronize_session=False)
+
+    for sheet_name, sheet_data in mapped.items():
+        db.add(models.AmeliorationAction(
+            id=str(uuid4()),
+            project_id=project_id,
+            sheet_name=sheet_name,
+            action_data=sheet_data,
+            created_at=now,
+            updated_at=now,
+        ))
+
+    db.commit()
+
+    return schemas.ImportResponse(
+        imported_sheets=len(mapped),
+        sheet_names=list(mapped.keys()),
+        filename=filename,
+        imported_at=now,
+    )

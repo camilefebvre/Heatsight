@@ -12,6 +12,7 @@ import {
   MessageSquare,
   Users2,
   Files,
+  TrendingUp,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -282,6 +283,7 @@ export default function Sidebar() {
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
             <SidebarLink to={`/projects/${selectedProjectId}/documents`} icon={Files} label="Documents" />
+            <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" />
             <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
             <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
           </nav>

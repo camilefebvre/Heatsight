@@ -153,3 +153,123 @@ class ProjectDocumentOut(BaseModel):
     status: str
     extracted_data: Optional[Dict[str, Any]] = None
     created_at: str
+
+
+# ──────────────────────────────────────────
+# Improvement Actions (Plan d'Amélioration)
+# ──────────────────────────────────────────
+class ImprovementActionCreate(BaseModel):
+    reference: Optional[str] = None
+    intitule: str
+    type_amelioration: Optional[str] = None
+    classification: Optional[str] = None
+    conditions_prealables: Optional[str] = None
+    investissement: Optional[float] = None
+    economie_energie: Optional[float] = None
+    economie_co2: Optional[float] = None
+    duree_amortissement: Optional[int] = None
+    irr_avant_impot: Optional[float] = None
+    pbt_avant_impot: Optional[float] = None
+    irr_apres_impot: Optional[float] = None
+    pbt_apres_impot: Optional[float] = None
+    entreprise_ets: Optional[bool] = None
+    deduction_fiscale: Optional[bool] = None
+    description: Optional[str] = None
+    situation_existante: Optional[str] = None
+
+
+class ImprovementActionUpdate(BaseModel):
+    reference: Optional[str] = None
+    intitule: Optional[str] = None
+    type_amelioration: Optional[str] = None
+    classification: Optional[str] = None
+    conditions_prealables: Optional[str] = None
+    investissement: Optional[float] = None
+    economie_energie: Optional[float] = None
+    economie_co2: Optional[float] = None
+    duree_amortissement: Optional[int] = None
+    irr_avant_impot: Optional[float] = None
+    pbt_avant_impot: Optional[float] = None
+    irr_apres_impot: Optional[float] = None
+    pbt_apres_impot: Optional[float] = None
+    entreprise_ets: Optional[bool] = None
+    deduction_fiscale: Optional[bool] = None
+    description: Optional[str] = None
+    situation_existante: Optional[str] = None
+
+
+class ImprovementActionSchema(ImprovementActionCreate):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    owner_id: str
+    created_at: str
+
+
+# ──────────────────────────────────────────
+# Amelioration Actions (JSONB flexible store)
+# ──────────────────────────────────────────
+class AmeliorationActionOut(BaseModel):
+    """Response schema for one imported AA sheet."""
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    sheet_name: str
+    action_data: Optional[Dict[str, Any]] = None
+    created_at: str
+    updated_at: Optional[str] = None
+
+
+class ChangeItem(BaseModel):
+    """Un changement proposé par le pré-remplissage IA (texte ou numérique)."""
+    sheet: str                           # ex: "AA1"
+    cell: str                            # ex: "G61"
+    field: str                           # ex: "investissement_k_eur"
+    label: str                           # ex: "AA1 → Investissement (k€)"
+    value: Any
+    is_numeric: bool
+    source: Optional[Dict[str, Any]] = None
+    selected: bool = True
+
+
+class ApplyPrefillRequest(BaseModel):
+    changes: List[ChangeItem]
+
+
+class HistoryEntryOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    owner_id: str
+    action_type: str
+    changes: Optional[Dict[str, Any]] = None
+    created_at: str
+
+
+class ImportPreviewSheet(BaseModel):
+    """Summary for one sheet in a preview response."""
+    sheet_name: str
+    row_count: int
+    detected_headers: List[str]
+    key_values: Dict[str, Any]
+    unmapped_headers: List[str]
+    missing_semantic_fields: List[str]
+
+
+class ImportPreviewResponse(BaseModel):
+    """Full preview response before confirming an import."""
+    filename: str
+    sheet_names: List[str]          # all non-empty sheets found
+    sheets: List[ImportPreviewSheet]
+    total_rows: int
+
+
+class ImportResponse(BaseModel):
+    """Response after a successful import (data saved to DB)."""
+    imported_sheets: int
+    sheet_names: List[str]
+    filename: str
+    imported_at: str

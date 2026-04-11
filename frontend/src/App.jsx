@@ -10,6 +10,7 @@ import ProjectAudit from "./pages/ProjectAudit";
 import ProjectDocuments from "./pages/ProjectDocuments";
 import ProjectEnergy from "./pages/ProjectEnergy";
 import ProjectReport from "./pages/ProjectReport";
+import ProjectPlanAmelioration from "./pages/ProjectPlanAmelioration";
 import ClientRequests from "./pages/ClientRequests";
 import ShareAccess from "./pages/ShareAccess";
 
@@ -33,6 +34,7 @@ export default function App() {
           <Route path="/projects/:projectId/documents" element={<ProjectDocuments />} />
           <Route path="/projects/:projectId/energy" element={<ProjectEnergy />} />
           <Route path="/projects/:projectId/report" element={<ProjectReport />} />
+          <Route path="/projects/:projectId/plan-amelioration" element={<ProjectPlanAmelioration />} />
         </Route>
       </Route>
     </Routes>

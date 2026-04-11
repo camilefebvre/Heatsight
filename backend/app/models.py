@@ -1,4 +1,4 @@
-from sqlalchemy import Column, String, Float, Integer, UniqueConstraint, ForeignKey, LargeBinary
+from sqlalchemy import Column, String, Float, Integer, Boolean, UniqueConstraint, ForeignKey, LargeBinary
 from sqlalchemy.dialects.postgresql import JSONB
 
 from .database import Base
@@ -28,6 +28,10 @@ class Project(Base):
     status = Column(String, nullable=False, default="draft")
     excel_file = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
+    excel_summary = Column(JSONB, nullable=True)      # résumé importé depuis AMUREBA (import-excel)
+    prefill_summary = Column(JSONB, nullable=True)    # actions proposées par Claude (prefill-excel)
+    prefilled_excel = Column(LargeBinary, nullable=True)  # fichier xlsx généré par prefill-excel
+    prefilled_at = Column(String, nullable=True)      # ISO datetime du dernier prefill
     # audit_data, energy_accounting, report_data → tables dédiées
 
 
@@ -137,3 +141,58 @@ class Report(Base):
     auditor_name = Column(String, nullable=True)
     competences = Column(String, nullable=True)
     field_sources = Column(JSONB, nullable=True)  # { field: { source, doc_name, doc_id } }
+
+
+class ImprovementAction(Base):
+    """Une action du plan d'amélioration énergétique (PA)."""
+    __tablename__ = "improvement_actions"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    reference = Column(String, nullable=True)            # ex: AA1, AA2
+    intitule = Column(String, nullable=False)
+    type_amelioration = Column(String, nullable=True)    # SER_PV, ELECTRIFICATION, …
+    classification = Column(String, nullable=True)       # A ou B
+    conditions_prealables = Column(String, nullable=True)
+    investissement = Column(Float, nullable=True)
+    economie_energie = Column(Float, nullable=True)      # MWh/an
+    economie_co2 = Column(Float, nullable=True)          # kg/an
+    duree_amortissement = Column(Integer, nullable=True) # années
+    irr_avant_impot = Column(Float, nullable=True)
+    pbt_avant_impot = Column(Float, nullable=True)
+    irr_apres_impot = Column(Float, nullable=True)
+    pbt_apres_impot = Column(Float, nullable=True)
+    entreprise_ets = Column(Boolean, nullable=True)
+    deduction_fiscale = Column(Boolean, nullable=True)
+    description = Column(String, nullable=True)
+    situation_existante = Column(String, nullable=True)
+    created_at = Column(String, nullable=False)
+
+
+class PlanAmeliorationHistory(Base):
+    """Un event du plan d'amélioration : pré-remplissage IA ou upload manuel."""
+    __tablename__ = "plan_amelioration_history"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action_type = Column(String, nullable=False)  # "AI_PREFILL" | "MANUAL_UPLOAD"
+    changes = Column(JSONB, nullable=True)         # { items:[...] } ou { excel_summary:{...} }
+    created_at = Column(String, nullable=False)
+
+
+class AmeliorationAction(Base):
+    """
+    Flexible JSONB store for AMUREBA Excel import results.
+    One row = one AA sheet (AA1…AA9) extracted from an uploaded workbook.
+    action_data holds the full AmurebaMappingService.map_sheet() output.
+    """
+    __tablename__ = "amelioration_actions"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    sheet_name = Column(String, nullable=False)        # e.g. "AA1", "AA3"
+    action_data = Column(JSONB, nullable=True)         # full mapped result (flexible)
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)
