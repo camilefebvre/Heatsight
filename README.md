@@ -1,6 +1,6 @@
 # HeatSight
 
-**HeatSight** est un logiciel modulaire destiné aux **bureaux d'audit énergétique**, conçu pour assister les auditeurs à chaque étape de leur mission : de la **saisie des données de consommation** jusqu'à la **génération de rapports Word**, en passant par l'analyse IA de documents, la comptabilité énergétique multi-annuelle et le calcul d'indices (IEE, IC, iSER…).
+**HeatSight** est un logiciel modulaire destiné aux **bureaux d'audit énergétique**, conçu pour assister les auditeurs à chaque étape de leur mission : de la **saisie des données de consommation** jusqu'à la **génération de rapports Word**, en passant par l'analyse IA de documents, la comptabilité énergétique multi-annuelle, le **plan d'amélioration AMUREBA** pré-rempli par IA, et l'**analyse du cycle de vie (ACV/LCA)** des bâtiments.
 
 Ce dépôt correspond à un **MVP technique** servant de base de développement et d'expérimentation.
 
@@ -9,10 +9,12 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 ## Objectif du MVP
 
 - Mettre en place une **architecture monorepo claire** (frontend React + backend FastAPI)
-- Couvrir le **workflow complet d'un audit** : création projet → saisie audit → documents IA → comptabilité énergétique → rapport
-- Intégrer un **template Excel** avec calcul automatique d'indices via LibreOffice
+- Couvrir le **workflow complet d'un audit** : création projet → saisie audit → documents IA → comptabilité énergétique → plan d'amélioration → rapport
+- Intégrer un **template Excel AMUREBA** avec pré-remplissage IA et export sans corruption
 - Générer des **rapports Word** à partir d'un template `.docx`
 - Analyser automatiquement les factures et relevés via **Claude API** (Anthropic)
+- Proposer des **actions d'amélioration chiffrées** via Claude à partir des documents analysés
+- Calculer les **impacts environnementaux ACV** des parois et bâtiments (méthode EF v3.0)
 - Persister toutes les données (y compris les fichiers) en **base de données PostgreSQL**
 - Servir de support pour un projet académique / entrepreneurial
 
@@ -27,7 +29,8 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 | IA | Claude API (Anthropic SDK `anthropic>=0.40.0`) — modèle `claude-sonnet-4-20250514` |
 | Frontend | React 18, React Router v7, Vite |
 | Calcul Excel | LibreOffice headless (recalcul des formules, détecté via `shutil.which`) |
-| Persistance | PostgreSQL + SQLAlchemy 2 (ORM) + Alembic (migrations) |
+| Génération xlsx | `zipfile` + `xml.etree.ElementTree` (patch chirurgical des cellules — évite la corruption openpyxl) |
+| Persistance | PostgreSQL + SQLAlchemy 2 (ORM) — migrations via `ALTER TABLE IF NOT EXISTS` au démarrage |
 | Fichiers | Stockés en `BYTEA` dans PostgreSQL (pas de filesystem — compatible Render) |
 | Styling | Inline styles (pas de framework CSS) |
 | Déploiement | Docker (`backend/Dockerfile`) — compatible Render |
@@ -42,28 +45,16 @@ HeatSight/
 │   ├── app/
 │   │   ├── main.py                 # API FastAPI — toutes les routes (auth + métier + IA)
 │   │   ├── database.py             # Engine SQLAlchemy + get_db()
-│   │   ├── models.py               # Modèles ORM (8 tables dont project_documents)
+│   │   ├── models.py               # Modèles ORM (13 tables)
 │   │   ├── schemas.py              # Schémas Pydantic (validation / sérialisation)
-│   │   ├── templates/
-│   │   │   ├── audit_template.xlsx # Template Excel avec formules d'indices
-│   │   │   └── report_template.docx# Template Word (variables docxtpl)
-│   │   ├── excel/                  # Fichiers Excel générés par projet (UUID.xlsx)
-│   │   └── reports/                # Rapports Word générés (UUID_report.docx)
-│   ├── migrations/
-│   │   ├── versions/
-│   │   │   ├── 001_create_projects_table.py    # Table projects
-│   │   │   ├── 002_add_module_tables.py        # Tables events, client_requests,
-│   │   │   │                                   #   energy_accounting, audits, reports
-│   │   │   ├── 003_add_users_and_owner_id.py   # Table users + owner_id sur projects
-│   │   │   ├── 004_add_project_documents.py    # Table project_documents (bytea)
-│   │   │   └── 005_add_field_sources.py        # Colonne field_sources (JSONB) sur audits,
-│   │   │                                       #   energy_accounting et reports
-│   │   ├── env.py
-│   │   └── script.py.mako
-│   ├── alembic.ini
+│   │   ├── amureba_mapping.py      # Service de mapping des feuilles AMUREBA
+│   │   └── templates/
+│   │       ├── audit_template.xlsx # Template Excel avec formules d'indices
+│   │       ├── audit_template.xlsx # Template AMUREBA (feuilles AA0–AA9)
+│   │       └── report_template.docx# Template Word (variables docxtpl)
 │   ├── requirements.txt
 │   ├── Dockerfile                  # Image Docker (python:3.11-slim + LibreOffice)
-│   ├── start.sh                    # Migrations Alembic + démarrage uvicorn
+│   ├── start.sh                    # Démarrage uvicorn (tables créées au startup via ALTER TABLE)
 │   ├── .env                        # Non versionné — à créer (voir ci-dessous)
 │   └── .env.example
 ├── frontend/
@@ -81,7 +72,11 @@ HeatSight/
 │   │   │   ├── ProjectAudit.jsx    # Saisie audit (4 onglets, mapping Excel)
 │   │   │   ├── ProjectDocuments.jsx# Gestion documentaire + analyse IA par projet
 │   │   │   ├── ProjectEnergy.jsx   # Comptabilité énergétique multi-annuelle + graphes
-│   │   │   └── ProjectReport.jsx   # Génération rapport Word
+│   │   │   ├── ProjectReport.jsx   # Génération rapport Word
+│   │   │   ├── ProjectPlanAmelioration.jsx  # Plan d'amélioration AMUREBA + IA
+│   │   │   ├── ProjectLCA.jsx      # Analyse du cycle de vie (ACV) par projet
+│   │   │   ├── LCAAdmin.jsx        # Administration de la bibliothèque ACV
+│   │   │   └── LCALibrary.jsx      # Bibliothèque de matériaux ACV
 │   │   ├── state/
 │   │   │   ├── AuthContext.jsx     # Contexte auth (token JWT + user courant)
 │   │   │   └── ProjectContext.jsx  # Context React — projet sélectionné (persisté localStorage)
@@ -106,15 +101,22 @@ HeatSight/
 | Table | Description |
 |---|---|
 | `users` | Comptes utilisateurs (email, mot de passe haché, nom) |
-| `projects` | Projets d'audit (métadonnées, statut, fichier Excel associé, `owner_id`) |
+| `projects` | Projets d'audit (métadonnées, statut, fichier Excel, `excel_summary`, `prefill_summary`, `prefilled_excel`) |
 | `events` | Événements agenda (visites, appels, deadlines) |
 | `client_requests` | Demandes de documents envoyées aux clients |
 | `energy_accounting` | Comptabilité énergétique annuelle par projet — inclut `field_sources` (traçabilité IA) |
 | `audits` | Données audit par projet (énergies, facteurs d'influence, factures) — inclut `field_sources` |
 | `reports` | Données rapport par projet (type, thème, auditeur, compétences) — inclut `field_sources` |
 | `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec statut IA et données extraites |
+| `improvement_actions` | Actions du plan d'amélioration (référence AA1–AA9, investissement, économies, IRR, PBT…) |
+| `plan_amelioration_history` | Historique des pré-remplissages IA et uploads manuels AMUREBA |
+| `amelioration_actions` | Import AMUREBA flexible (JSONB) — une ligne par feuille AAx importée |
+| `lca_materials` | Bibliothèque partagée de matériaux ACV (impacts EF v3.0, prix, valeur R) |
+| `lca_projects` | Données ACV par projet (bâtiments, parois, composants) |
 
-Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `backend/migrations/versions/`.
+### Migrations
+
+Les tables sont créées/mises à jour au **démarrage du serveur** via des instructions `CREATE TABLE IF NOT EXISTS` et `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` dans `main.py`. Aucun outil de migration externe (pas d'Alembic en production).
 
 ---
 
@@ -139,47 +141,81 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - Noms et unités des utilités personnalisables
 - Facteurs d'influence (colonnes L/M/N du template Excel)
 - Ligne Factures / Compteur
-- Écriture automatique dans l'Excel du projet à la sauvegarde (repart toujours du template propre)
+- Écriture automatique dans l'Excel du projet à la sauvegarde
 - Recalcul via LibreOffice headless → lecture des indices calculés (IEE, IC, iSER, AEE, iCO₂, ACO₂)
-- Si LibreOffice indisponible : les indices non recalculés s'affichent avec "—" et un message invite à télécharger l'Excel
-- Téléchargement du fichier Excel (s'ouvre avec `fullCalcOnLoad` activé)
+- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
+- **Highlighting** : champs remplis depuis un document → bordure gauche violette + tooltip
 
 ### Module Documents (`/projects/:id/documents`)
 - Upload de fichiers PDF, JPEG ou PNG associés à un projet
 - Types de documents : facture électricité / gaz / fuel, relevé compteur, contrat, autre
 - Fichiers stockés en **bytea PostgreSQL** (pas de filesystem — robuste sur Render)
-- **Visualisation** : double-clic sur un document → modale plein écran (`<img>` pour les images, `<iframe>` pour les PDF)
+- **Visualisation** : double-clic sur un document → modale plein écran
 - **Analyse IA individuelle** : bouton "🤖 Analyser" par document → appel Claude API
 - **Analyse IA globale** : "Tout analyser" → traite tous les documents en attente / en erreur
-- Données extraites par Claude : énergie, consommation, unité, année, coût total, fournisseur, période, adresse, client, auditeur…
-- Statuts IA : `pending` (en attente) · `analyzed` (analysé) · `error` (erreur)
-- **Logique non-overwrite** : l'injection ne remplace jamais un champ déjà rempli (≠ 0) — affiche "X valeurs ignorées"
-- Bouton **"✨ Appliquer partout"** par document analysé : applique Audit + Comptabilité + Rapport en une seule action avec résumé ("X modules · Y champs mis à jour · Z ignorés")
-- Boutons individuels **"→ Audit"**, **"→ Comptabilité"**, **"→ Rapport"** par document :
-  - **→ Audit** : pré-remplit la ligne Factures/Compteur (consommation)
-  - **→ Comptabilité** : injecte consommation + coût total pour l'année extraite
-  - **→ Rapport** : pré-remplit fournisseur et auditeur
-- **Traçabilité `field_sources`** : chaque champ rempli depuis un document enregistre en base `{ source, doc_name, doc_id }` — utilisé pour l'affichage visuel dans les autres modules
-- Affiche les fichiers reçus via les requêtes client (métadonnées uniquement)
+- Données extraites : énergie, consommation, unité, année, coût total, fournisseur, période, adresse, client, auditeur…
+- Statuts IA : `pending` · `analyzed` · `error`
+- **Logique non-overwrite** : ne remplace jamais un champ déjà rempli (≠ 0)
+- Bouton **"✨ Appliquer partout"** : applique Audit + Comptabilité + Rapport en une action
+- Boutons individuels **"→ Audit"**, **"→ Comptabilité"**, **"→ Rapport"**
+- **Traçabilité `field_sources`** : chaque champ rempli enregistre `{ source, doc_name, doc_id }`
 
 ### Comptabilité énergétique (`/projects/:id/energy`)
 - Suivi multi-annuel des consommations
-- Import automatique depuis les données audit (somme de toutes les sections)
-- Ajout d'années via un champ inline
-- Graphes SVG : barres empilées (toutes énergies) + barres individuelles (électricité, gaz, process)
-- Analyse financière : coûts calculés à partir des prix unitaires configurables, graphes de coûts, donut de répartition
-- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
-- **Highlighting** : les champs remplis depuis un document affichent une bordure gauche violette + tooltip "📄 Rempli depuis : nom_du_fichier" au survol
+- Import automatique depuis les données audit
+- Graphes SVG : barres empilées + barres individuelles + donut de répartition des coûts
+- **Highlighting** : champs remplis depuis un document (bordure violette + tooltip)
 
 ### Rapport (`/projects/:id/report`)
 - Formulaire : type d'audit, thématique, prestataire, auditeur, compétences AMUREBA
 - Génération d'un `.docx` à partir d'un template Word (variables `{{ }}`)
-- Bouton "Sauvegarder + Télécharger" — sauvegarde automatique avant génération
-- **Bandeau** + **highlighting** identiques à la Comptabilité (traçabilité IA)
+- **Highlighting** identique à la Comptabilité (traçabilité IA)
 
-### Audit (`/projects/:id/audit`)
-- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
-- **Highlighting** : les champs de la ligne Factures/Compteur remplis depuis un document affichent une bordure gauche violette + tooltip au survol
+### Plan d'amélioration AMUREBA (`/projects/:id/plan-amelioration`)
+
+Workflow en 3 étapes :
+
+**1. Analyse IA → Checklist**
+- Bouton "Analyser les documents" → appel `POST prefill-preview` → Claude propose 1 à 9 actions chiffrées (AA1–AA9)
+- Checklist interactive par champ : cocher/décocher chaque valeur proposée
+- Champs texte (intitulé, type, classification) affichés en lecture seule comme contexte
+- Champs numériques (investissement, économies énergie/CO₂, durée amort.) : checkables → injectés dans l'Excel
+- Source affichée par valeur (`📄 nom_du_fichier` si issue d'un doc, `🤖 IA` si estimée)
+- Bouton "Tout cocher / décocher"
+
+**2. Appliquer les changements sélectionnés**
+- `POST apply-prefill` : génère le template AMUREBA avec uniquement les valeurs numériques sélectionnées
+- Téléchargement immédiat du `.xlsx` pré-rempli
+- Sauvegarde automatique en base (`prefilled_excel`, `prefill_summary`, `prefilled_at`)
+- Entrée ajoutée dans l'historique (`AI_PREFILL`)
+
+**3. Compléter et uploader**
+- L'auditeur complète les feuilles AA1–AA9 dans Excel
+- Upload via "Uploader l'Excel complété" → `POST import-excel` → sauvegarde des actions en base
+- Entrée ajoutée dans l'historique (`MANUAL_UPLOAD`)
+
+**Fonctionnalités supplémentaires :**
+- Onglets : AMUREBA (actif) · PEB · Autre · Mon propre template (bientôt)
+- **Bandeau de statut** si un Excel pré-rempli existe déjà : date + bouton re-télécharger + bouton "Améliorer l'Excel existant"
+- **Résumé sauvegardé** : affiche les valeurs du dernier pré-remplissage par feuille
+- **Historique** (drawer latéral) : liste chronologique des pré-remplissages IA et uploads manuels, avec détail par feuille
+- **Tableau des actions importées** : références AA1–AA9, investissement, économies, PBT, IRR, classification
+
+**Génération Excel sans corruption** : le template AMUREBA contient des named ranges avec `#REF!` et des liens externes. openpyxl les corrompt à l'écriture. Solution : approche `zipfile` + `ElementTree` — seules les cellules cibles sont patchées dans les XMLs des feuilles, `workbook.xml` est copié byte-pour-byte depuis le template.
+
+### Analyse du cycle de vie — ACV (`/projects/:id/lca`)
+- Saisie des bâtiments, parois et composants
+- Calcul des impacts environnementaux selon la méthode **EF v3.0** (22 indicateurs : GWP100, acidification, eutrophisation, toxicité humaine…)
+- Bibliothèque de matériaux partagée entre tous les projets
+
+### Bibliothèque ACV (`/lca/library`)
+- Consultation de tous les matériaux disponibles par catégorie (mur, toiture, plancher, fenêtre, fondation…)
+- Affichage des 22 indicateurs EF v3.0 par matériau
+
+### Administration ACV (`/lca/admin`)
+- Import de matériaux depuis un fichier **LCIA-results.xlsx** (format EF v3.0)
+- Modification des propriétés : nom, catégorie, prix, valeur R, unité fonctionnelle
+- Duplication et suppression de matériaux
 
 ### Dashboard
 - Compteurs : total projets, en cours, en attente, terminés, nouveaux ce mois
@@ -188,13 +224,10 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 ### Agenda
 - Création / suppression d'événements (titre, date, durée, lieu, projet lié, notes)
 - Détection automatique du type : Visite · Call · Deadline · Autre
-- Persisté en base de données (table `events`)
 
 ### Requêtes client
 - Envoi et suivi des demandes de documents aux clients
-- Liste des documents demandés avec statut reçu/en attente
 - Feedback et fichiers reçus
-- Persisté en base de données (table `client_requests`)
 
 ---
 
@@ -204,7 +237,7 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 
 | Méthode | Route | Description |
 |---|---|---|
-| POST | `/auth/register` | Crée un compte (email, full_name, password) |
+| POST | `/auth/register` | Crée un compte |
 | POST | `/auth/login` | Connexion → retourne `access_token` (JWT) |
 
 ### Projets
@@ -212,9 +245,9 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 | Méthode | Route | Description |
 |---|---|---|
 | GET | `/projects` | Liste tous les projets |
-| POST | `/projects` | Crée un projet (génère l'Excel) |
+| POST | `/projects` | Crée un projet |
 | PATCH | `/projects/{id}` | Modifie les métadonnées |
-| DELETE | `/projects/{id}` | Supprime le projet + fichier Excel |
+| DELETE | `/projects/{id}` | Supprime le projet |
 
 ### Audit & Énergie
 
@@ -223,20 +256,20 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 | GET | `/projects/{id}/audit` | Récupère les données audit |
 | PATCH | `/projects/{id}/audit` | Sauvegarde audit + écrit dans Excel + recalcule |
 | GET | `/projects/{id}/excel` | Télécharge le fichier Excel |
-| GET | `/projects/{id}/indices` | Lit les indices calculés depuis l'Excel |
+| GET | `/projects/{id}/indices` | Lit les indices calculés |
 | GET | `/projects/{id}/energy-accounting` | Récupère la comptabilité énergétique |
 | PATCH | `/projects/{id}/energy-accounting` | Sauvegarde la comptabilité |
-| POST | `/projects/{id}/energy-accounting/import-from-audit` | Importe et somme depuis l'audit |
+| POST | `/projects/{id}/energy-accounting/import-from-audit` | Importe depuis l'audit |
 
 ### Documents
 
 | Méthode | Route | Description |
 |---|---|---|
 | POST | `/projects/{id}/documents` | Upload un fichier (multipart, stocké en bytea) |
-| GET | `/projects/{id}/documents` | Liste les documents (sans le binaire) |
+| GET | `/projects/{id}/documents` | Liste les documents |
 | DELETE | `/projects/{id}/documents/{doc_id}` | Supprime un document |
-| GET | `/projects/{id}/documents/{doc_id}/file` | Télécharge le fichier brut (avec bon Content-Type) |
-| POST | `/projects/{id}/documents/{doc_id}/analyze` | Analyse un document avec Claude API |
+| GET | `/projects/{id}/documents/{doc_id}/file` | Télécharge le fichier brut |
+| POST | `/projects/{id}/documents/{doc_id}/analyze` | Analyse avec Claude API |
 | POST | `/projects/{id}/documents/analyze-all` | Analyse tous les documents pending/error |
 
 ### Rapport
@@ -246,6 +279,40 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 | GET | `/projects/{id}/report` | Récupère les données rapport |
 | PATCH | `/projects/{id}/report` | Sauvegarde les données rapport |
 | GET | `/projects/{id}/report/docx` | Génère et télécharge le rapport Word |
+
+### Plan d'amélioration AMUREBA
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/projects/{id}/improvement-actions` | Liste les actions importées |
+| POST | `/projects/{id}/improvement-actions` | Crée une action manuellement |
+| PUT | `/projects/{id}/improvement-actions/{action_id}` | Met à jour une action |
+| DELETE | `/projects/{id}/improvement-actions/{action_id}` | Supprime une action |
+| POST | `/projects/{id}/improvement-actions/prefill-preview` | Claude propose des actions (JSON — pas de fichier) |
+| POST | `/projects/{id}/improvement-actions/apply-prefill` | Applique la sélection → génère xlsx + historique |
+| POST | `/projects/{id}/improvement-actions/prefill-excel` | Génère xlsx pré-rempli (flux complet) |
+| GET | `/projects/{id}/improvement-actions/prefill-status` | Statut du dernier pré-remplissage |
+| GET | `/projects/{id}/improvement-actions/export-excel` | Télécharge le xlsx sauvegardé (ou template vierge) |
+| POST | `/projects/{id}/improvement-actions/import-excel` | Importe un AMUREBA complété → sauvegarde en base |
+| GET | `/projects/{id}/improvement-actions/history` | Historique des pré-remplissages et uploads |
+| GET | `/projects/{id}/plan-amelioration` | Liste les actions importées (JSONB flexible) |
+| POST | `/projects/{id}/plan-amelioration/preview` | Prévisualise un import AMUREBA sans sauvegarder |
+| POST | `/projects/{id}/plan-amelioration/import` | Importe et sauvegarde un AMUREBA (format JSONB) |
+| DELETE | `/projects/{id}/plan-amelioration/{action_id}` | Supprime une action importée |
+
+### ACV / LCA
+
+| Méthode | Route | Description |
+|---|---|---|
+| GET | `/lca/materials` | Liste tous les matériaux de la bibliothèque |
+| GET | `/lca/materials/{id}` | Détail d'un matériau |
+| POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx |
+| PATCH | `/lca/materials/{id}` | Modifie un matériau |
+| DELETE | `/lca/materials/{id}` | Supprime un matériau |
+| POST | `/lca/materials/{id}/duplicate` | Duplique un matériau |
+| GET | `/projects/{id}/lca` | Récupère les données ACV du projet |
+| PATCH | `/projects/{id}/lca` | Sauvegarde les éléments ACV (legacy) |
+| PATCH | `/projects/{id}/lca/batiments` | Sauvegarde les bâtiments avec parois et composants |
 
 ### Agenda
 
@@ -276,15 +343,12 @@ Les migrations sont gérées avec **Alembic**. Les scripts se trouvent dans `bac
 - **LibreOffice** (pour le recalcul des formules Excel — optionnel en local)
   - macOS : installez LibreOffice, le path `/Applications/LibreOffice.app/...` est détecté automatiquement
   - Linux : `apt install libreoffice` — la commande `libreoffice` est détectée via `shutil.which`
-  - Sans LibreOffice, l'app fonctionne mais les indices affichent "—" (les formules ne sont pas recalculées)
 
 ---
 
 ## Lancer le projet en local
 
 ### 1. Configurer la base de données
-
-Créer la base PostgreSQL si ce n'est pas encore fait :
 
 ```bash
 createdb heatsight
@@ -303,16 +367,10 @@ cp backend/.env.example backend/.env
 ### 2. Backend (FastAPI)
 
 ```bash
-# Depuis la racine du projet
 conda activate heatsight   # ou ton environnement Python
 pip install -r backend/requirements.txt
 
-# Appliquer les migrations (crée les tables, dont project_documents)
-cd backend
-alembic upgrade head
-cd ..
-
-# Lancer le serveur
+# Lancer le serveur (les tables sont créées automatiquement au démarrage)
 uvicorn app.main:app --reload --app-dir backend
 ```
 
@@ -350,27 +408,37 @@ Sur Render, configurer le service Web avec :
 - **Root Directory** : `backend`
 - **Variables d'environnement** : `DATABASE_URL`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 
-`start.sh` exécute automatiquement `alembic upgrade head` avant de démarrer uvicorn.
+`start.sh` démarre uvicorn directement — les tables sont créées/mises à jour au démarrage via `ALTER TABLE IF NOT EXISTS` (pas d'Alembic).
 
-> Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template à chaque redémarrage via `_ensure_excel()`. Les documents uploadés sont stockés en **bytea PostgreSQL** et ne dépendent pas du filesystem.
+> Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template. Les documents uploadés et les xlsx pré-remplis sont stockés en **bytea PostgreSQL**.
 
 ---
 
 ## Robustesse Excel
 
-Le template AMUREBA contient des **pivot caches** et des **références externes** qui peuvent corrompre la lecture openpyxl. Trois protections sont en place :
+### Template d'audit
+- **Monkey-patch `WorkbookParser.pivot_caches`** — erreurs des pivot caches silencieusement ignorées
+- **`keep_links=False`** — passé à tous les appels `load_workbook`
+- **`is_valid_excel()`** — vérifie l'intégrité ZIP avant tout accès
+- **Template propre à chaque écriture** — `write_audit_to_excel` recopie le template avant d'écrire
 
-1. **Monkey-patch `WorkbookParser.pivot_caches`** — au démarrage du module, les erreurs de lecture des pivot caches sont silencieusement ignorées (retourne `{}`)
-2. **`keep_links=False`** — passé à tous les appels `load_workbook` pour ignorer les liens externes
-3. **`is_valid_excel()`** — vérifie l'intégrité ZIP avant tout accès ; `_ensure_excel` et `recalc_excel_in_place` suppriment et recréent le fichier si corrompu
-4. **Template propre à chaque écriture** — `write_audit_to_excel` recopie systématiquement le template avant d'écrire les données
+### Template AMUREBA (Plan d'amélioration)
+Le template contient des **named ranges avec `#REF!`** et des **références externes** — openpyxl les corrompt à l'écriture ("Removed Records: Named range").
+
+Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_template()` :
+- `workbook.xml` est copié **byte-pour-byte** depuis le template (aucun named range perdu)
+- Seuls les XMLs des feuilles cibles (AA1–AA9) sont patchés via ElementTree
+- Cellules numériques → `<v>N</v>` (formule supprimée pour éviter recalcul à 0)
+- Cellules texte → `t="inlineStr"` + `<is><t>texte</t></is>` (pas de sharedStrings modifié)
+- Tous les namespaces OOXML sont enregistrés avec `ET.register_namespace()` pour éviter le mangling `ns0:`
 
 ---
 
-## Limitations connues du MVP
+## Limitations connues
 
-- **Template Excel** : limité à 2 lignes par section (Activité op., Bâtiments, Transport, Utilité) — un avertissement s'affiche si dépassé
-- **Indices IEE / AEE** : nécessitent la colonne "surface" (M) du template Excel, non saisie dans l'app — s'affichent "—"
+- **Template Excel audit** : limité à 2 lignes par section — un avertissement s'affiche si dépassé
+- **Indices IEE / AEE** : nécessitent la colonne "surface" du template Excel — s'affichent "—" si non renseignée
 - **Année d'audit** : fixée à `2023` dans le template Excel
-- **Analyse IA** : traitement synchrone (séquentiel) sur `analyze-all` — pour un grand nombre de documents, l'appel peut prendre plusieurs secondes
-- **PDF dans la modale** : l'affichage via `<iframe>` dépend du support du navigateur (Chrome/Edge : OK, Safari : OK, Firefox : OK)
+- **Analyse IA** : traitement synchrone sur `analyze-all` — peut prendre plusieurs secondes pour de nombreux documents
+- **Plan d'amélioration PEB / Autre / Mon template** : onglets prévus, pas encore implémentés
+- **LCA** : calcul des impacts basé sur la bibliothèque de matériaux — nécessite que les matériaux soient importés via l'admin ACV
