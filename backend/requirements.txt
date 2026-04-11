@@ -12,3 +12,4 @@ python-jose[cryptography]
 bcrypt
 anthropic>=0.40.0
 python-multipart
+pandas

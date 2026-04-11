@@ -1,7 +1,12 @@
 {
   "permissions": {
     "allow": [
-      "mcp__ide__getDiagnostics"
+      "mcp__ide__getDiagnostics",
+      "Bash(grep -n \"VITE_API_URL\\\\|fetch\\\\|baseURL\\\\|api\" /c/Users/merli/Desktop/Heatsight/frontend/src/lib/*.js /c/Users/merli/Desktop/Heatsight/frontend/src/lib/*.ts)",
+      "Bash(python -m alembic merge 005_add_field_sources 006_add_lca_material_fields -m \"merge_heads\")",
+      "Bash(python -m alembic upgrade head)",
+      "Bash(PGPASSWORD=meSQLl11 psql:*)",
+      "Bash(python -c ':*)"
     ]
   }
 }

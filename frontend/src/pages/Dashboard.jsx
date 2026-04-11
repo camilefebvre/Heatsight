@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { FolderOpen, Play, Clock, CheckCircle } from "lucide-react";
 import StatusPill from "../ui/StatusPill";
 import { apiFetch } from "../api";
@@ -50,14 +51,15 @@ function formatDate(iso) {
 }
 
 export default function Dashboard() {
+  const navigate = useNavigate();
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
-    async function fetchProjects() {
+    async function fetchAll() {
       try {
         setLoading(true);
-        const res = await apiFetch(`/projects`);
+        const res  = await apiFetch("/projects");
         const data = await res.json();
         setProjects(Array.isArray(data) ? data : []);
       } catch (e) {
@@ -67,7 +69,7 @@ export default function Dashboard() {
         setLoading(false);
       }
     }
-    fetchProjects();
+    fetchAll();
   }, []);
 
   const stats = useMemo(() => {
@@ -207,6 +209,7 @@ export default function Dashboard() {
           </table>
         )}
       </div>
+
     </div>
   );
 }

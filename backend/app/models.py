@@ -196,3 +196,38 @@ class AmeliorationAction(Base):
     action_data = Column(JSONB, nullable=True)         # full mapped result (flexible)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)
+
+
+class LcaMaterial(Base):
+    """Bibliothèque de matériaux ACV (partagée, indépendante des projets)."""
+    __tablename__ = "lca_materials"
+
+    id = Column(String, primary_key=True)
+    name = Column(String, nullable=False)
+    category = Column(String, nullable=False)       # mur/toiture/plancher/fenetre/fondation/autre
+    functional_unit = Column(String, nullable=False) # ex: "m² de mur"
+    unit = Column(String, nullable=False)            # ex: "m²"
+    impacts = Column(JSONB, nullable=False)          # 22 valeurs EF v3.0 par unité fonctionnelle
+    prix = Column(Float, nullable=True)              # prix moyen €/unité
+    valeur_r = Column(Float, nullable=True)          # résistance thermique m²K/W
+    is_fixed = Column(Boolean, nullable=False, default=False)  # non substituable en optimisation
+    flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) — pour isolants: quantité = R × flux_ref × surface
+
+
+class LcaProject(Base):
+    """Éléments de construction ACV d'un projet (unique par projet)."""
+    __tablename__ = "lca_projects"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(
+        String,
+        ForeignKey("projects.id", ondelete="CASCADE"),
+        nullable=False,
+        unique=True,
+    )
+    elements  = Column(JSONB, nullable=False, default=list)  # liste d'éléments du bâtiment (legacy)
+    parois    = Column(JSONB, nullable=False, default=list)  # liste des parois avec leurs couches (legacy)
+    batiment  = Column(JSONB, nullable=False, default=dict)  # paramètres bâtiment unique (legacy)
+    batiments = Column(JSONB, nullable=False, default=list)  # tableau multi-bâtiments avec parois et composants
+    created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=False)
