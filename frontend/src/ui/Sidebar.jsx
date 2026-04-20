@@ -9,16 +9,16 @@ import {
   ClipboardList,
   Zap,
   FileText,
-  Leaf,
   MessageSquare,
   Users2,
   Files,
   TrendingUp,
+  Leaf,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
 
-function SidebarLink({ to, icon: Icon, emoji, label }) {
+function SidebarLink({ to, icon: Icon, label }) {
   return (
     <NavLink
       to={to}
@@ -36,11 +36,7 @@ function SidebarLink({ to, icon: Icon, emoji, label }) {
         transition: "background 0.15s, color 0.15s",
       })}
     >
-      {emoji ? (
-        <span style={{ width: 16, textAlign: "center", fontSize: 13, lineHeight: 1 }}>{emoji}</span>
-      ) : (
-        <Icon size={16} strokeWidth={2} />
-      )}
+      <Icon size={16} strokeWidth={2} />
       {label}
     </NavLink>
   );
@@ -251,7 +247,6 @@ export default function Sidebar() {
         <SidebarLink to="/projects" icon={FolderOpen} label="Projets" />
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" />
         <SidebarLink to="/share-access" icon={Users2} label="Partage & Accès" />
-        <SidebarLink to="/lca/library" emoji="🌿" label="Bibliothèque ACV" />
       </nav>
 
       {/* Collecte de données — global */}

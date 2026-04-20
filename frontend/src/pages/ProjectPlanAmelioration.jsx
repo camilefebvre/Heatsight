@@ -24,11 +24,10 @@ const TABS = [
 
 /* ── Mapping champ → cellule AMUREBA ─────────────────────────── */
 const FIELD_META = {
-  // Champs texte (inlineStr — pour historique, pas injectés dans le xlsx de apply-prefill)
+  // Tous les champs proposés par l'IA peuvent être cochés individuellement.
   intitule:          { cell: "B9",  label: "Intitulé",             numeric: false },
   type_amelioration: { cell: "B13", label: "Type d'amélioration",  numeric: false },
   classification:    { cell: "F27", label: "Classification",        numeric: false },
-  // Champs numériques → injectés dans le xlsx
   investissement_k_eur:    { cell: "G61", label: "Investissement (k€)",      numeric: true },
   economie_energie_mwh_an: { cell: "G77", label: "Éco. énergie (MWh/an)",    numeric: true },
   economie_co2_kg_an:      { cell: "G87", label: "Réduction CO₂ (kg/an)",    numeric: true },
@@ -308,7 +307,7 @@ export default function ProjectPlanAmelioration() {
   if (loading) return <div style={{ color: "#6b7280" }}>Chargement…</div>;
   if (!project) return <div style={{ color: "#6b7280" }}>Projet introuvable.</div>;
 
-  const numericSelected = checklistItems.filter((i) => i.is_numeric && i.selected).length;
+  const selectedCount = checklistItems.filter((i) => i.selected).length;
 
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
@@ -380,7 +379,7 @@ export default function ProjectPlanAmelioration() {
               <ChecklistPanel
                 items={checklistItems}
                 applying={applying}
-                numericSelected={numericSelected}
+                selectedCount={selectedCount}
                 onToggle={toggleItem}
                 onToggleAll={toggleAll}
                 onApply={handleApply}
@@ -654,9 +653,9 @@ function SavedSummary({ prefillStatus }) {
 }
 
 /* ── Panel checklist ────────────────────────────────────────── */
-function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAll, onApply, onClose, error }) {
+function ChecklistPanel({ items, applying, selectedCount, onToggle, onToggleAll, onApply, onClose, error }) {
   const sheets = [...new Set(items.map((i) => i.sheet))];
-  const allSelected = items.every((i) => i.selected);
+  const allSelected = items.length > 0 && items.every((i) => i.selected);
 
   return (
     <div style={{ border: "1.5px solid #ede9fe", borderRadius: 14, overflow: "hidden", marginBottom: 4 }}>
@@ -670,7 +669,7 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
             ✨ Modifications proposées par IA
           </div>
           <div style={{ fontSize: 12, color: "#6d28d9", marginTop: 2 }}>
-            {numericSelected} valeur{numericSelected !== 1 ? "s" : ""} numérique{numericSelected !== 1 ? "s" : ""} seront injectées dans l'Excel
+            {selectedCount} cellule{selectedCount !== 1 ? "s" : ""} cochée{selectedCount !== 1 ? "s" : ""} seront injectée{selectedCount !== 1 ? "s" : ""} dans l'Excel
           </div>
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -691,11 +690,11 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
       </div>
 
       {/* Corps — groupé par feuille */}
-      <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10, maxHeight: 480, overflowY: "auto" }}>
+      <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
         {sheets.map((sheet) => {
           const sheetItems = items.filter((i) => i.sheet === sheet);
-          const textItems    = sheetItems.filter((i) => !i.is_numeric);
-          const numericItems = sheetItems.filter((i) => i.is_numeric);
+          const textItems = sheetItems.filter((i) => !i.is_numeric);
+          const sheetNumericItems = sheetItems.filter((i) => i.is_numeric);
 
           // Info de contexte depuis les champs texte
           const intitule       = textItems.find((i) => i.field === "intitule")?.value || "";
@@ -729,10 +728,10 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
 
               {/* Champs texte (lecture seule — contexte) */}
               {textItems.map((item) => (
-                <ChecklistRow key={item.id} item={item} onToggle={onToggle} isText />
+                <ChecklistRow key={item.id} item={item} onToggle={onToggle} />
               ))}
-              {/* Champs numériques (checkables, injectés dans xlsx) */}
-              {numericItems.map((item) => (
+              {/* Champs numériques */}
+              {sheetNumericItems.map((item) => (
                 <ChecklistRow key={item.id} item={item} onToggle={onToggle} />
               ))}
             </div>
@@ -747,10 +746,10 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
       }}>
         <button
           onClick={onApply}
-          disabled={applying || numericSelected === 0}
+          disabled={applying || selectedCount === 0}
           style={{
             ...s.primaryBtn,
-            opacity: (applying || numericSelected === 0) ? 0.6 : 1,
+            opacity: (applying || selectedCount === 0) ? 0.6 : 1,
           }}
         >
           {applying
@@ -758,9 +757,9 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
             : <><Download size={14} /> Appliquer les changements sélectionnés</>}
         </button>
         <div style={{ fontSize: 12, color: "#9ca3af" }}>
-          {numericSelected === 0
-            ? "Sélectionnez au moins une valeur numérique pour générer l'Excel."
-            : "Les valeurs texte sont enregistrées dans l'historique uniquement."}
+          {selectedCount === 0
+            ? "Sélectionnez au moins une proposition pour générer l'Excel."
+            : "Chaque cellule proposée par l'IA est cochable individuellement. Seules les cases cochées seront écrites dans le template Excel."}
         </div>
         {error && <div style={{ ...s.errorBox, width: "100%", marginTop: 4 }}>{error}</div>}
       </div>
@@ -769,7 +768,7 @@ function ChecklistPanel({ items, applying, numericSelected, onToggle, onToggleAl
 }
 
 /* ── Ligne de la checklist ──────────────────────────────────── */
-function ChecklistRow({ item, onToggle, isText = false }) {
+function ChecklistRow({ item, onToggle }) {
   const label = item.label.split(" → ")[1] || item.label;
 
   return (
@@ -778,22 +777,27 @@ function ChecklistRow({ item, onToggle, isText = false }) {
         display: "flex", alignItems: "center", gap: 10,
         padding: "7px 14px",
         borderBottom: "1px solid #f9fafb",
-        background: isText ? "#fdfdfe" : (item.selected ? "white" : "#f9fafb"),
-        opacity: isText ? 0.75 : 1,
-        cursor: isText ? "default" : "pointer",
+        background: item.selected ? "white" : "#f9fafb",
+        cursor: "pointer",
       }}
-      onClick={() => !isText && onToggle(item.id)}
+      onClick={() => onToggle(item.id)}
     >
-      {/* Checkbox */}
-      <span style={{ flexShrink: 0, color: item.selected ? "#6d28d9" : "#d1d5db" }}>
-        {isText ? (
-          <span style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>texte</span>
-        ) : item.selected ? (
+      <span style={{ flexShrink: 0, color: item.selected ? "#6d28d9" : "#d1d5db", width: 18, display: "flex", justifyContent: "center" }}>
+        {item.selected ? (
           <CheckSquare size={16} />
         ) : (
           <Square size={16} />
         )}
       </span>
+
+      <input
+        type="checkbox"
+        checked={item.selected}
+        onChange={() => onToggle(item.id)}
+        onClick={(e) => e.stopPropagation()}
+        aria-label={`Sélectionner ${label}`}
+        style={{ width: 18, height: 18, accentColor: "#6d28d9", cursor: "pointer", margin: 0, flexShrink: 0 }}
+      />
 
       {/* Cellule */}
       <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "monospace", flexShrink: 0, minWidth: 36 }}>
@@ -801,7 +805,7 @@ function ChecklistRow({ item, onToggle, isText = false }) {
       </span>
 
       {/* Label */}
-      <span style={{ fontSize: 12, color: "#374151", fontWeight: isText ? 500 : 600, flex: 1 }}>
+      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1 }}>
         {label}
       </span>
 
@@ -812,6 +816,20 @@ function ChecklistRow({ item, onToggle, isText = false }) {
 
       {/* Source */}
       <SourceTag source={item.source} />
+
+      <span
+        style={{
+          fontSize: 10,
+          fontWeight: 700,
+          color: item.is_numeric ? "#6d28d9" : "#6b7280",
+          background: item.is_numeric ? "#f5f3ff" : "#f3f4f6",
+          padding: "2px 7px",
+          borderRadius: 999,
+          flexShrink: 0,
+        }}
+      >
+        {item.is_numeric ? "num" : "texte"}
+      </span>
     </div>
   );
 }

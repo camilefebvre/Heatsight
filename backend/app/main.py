@@ -299,6 +299,19 @@ def _write_template_zipfile(
     Both text (inlineStr) and numeric values are injected.
     workbook.xml / sharedStrings.xml remain byte-identical to template.
     """
+    sheet_changes = _build_prefill_sheet_changes(entity_name, actions)
+    return _apply_changes_to_template(template_path, sheet_changes)
+
+
+def _build_prefill_sheet_changes(
+    entity_name: str,
+    actions: List[Dict[str, Any]],
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Build the exact worksheet patch payload used for AMUREBA prefill.
+    Reused by both the full IA prefill and the checkbox-based apply flow so
+    both routes generate files in the same safe way.
+    """
     sheet_changes: Dict[str, Dict[str, Any]] = {}
 
     def _s(sheet: str, cell: str, val: Any) -> None:
@@ -309,31 +322,48 @@ def _write_template_zipfile(
         _s("Entête", "C15", entity_name)
 
     for i, action in enumerate(actions[:9], start=1):
-        sh = f"AA{i}"
-        _s(sh, "B1",  entity_name or "")
-        _s(sh, "B9",  action.get("intitule") or "")
+        sh = action.get("sheet") or f"AA{i}"
+
+        # Keep the common header injection that already worked with the
+        # original prefill flow.
+        if entity_name:
+            _s(sh, "B1", entity_name)
+
+        # Reapply the old safe defaults that produced stable AMUREBA files,
+        # then let selected user values override them.
+        _s(sh, "B9", action.get("intitule") or "")
         _s(sh, "B13", action.get("type_amelioration") or "")
         _s(sh, "F27", action.get("classification") or "B")
         _s(sh, "K22", action.get("ets") or "NON")
         _s(sh, "K23", action.get("deduction_fiscale") or "OUI")
-        if action.get("situation_existante"):
-            _s(sh, "B16", str(action["situation_existante"]))
-        if action.get("description"):
-            _s(sh, "B20", str(action["description"]))
+
+        optional_text_fields = [
+            ("B16", "situation_existante"),
+            ("B20", "description"),
+        ]
+        for cell, key in optional_text_fields:
+            value = action.get(key)
+            if value is None:
+                continue
+            _s(sh, cell, str(value))
+
         for cell, key in [
             ("G61", "investissement_k_eur"),
             ("G77", "economie_energie_mwh_an"),
             ("G87", "economie_co2_kg_an"),
             ("K18", "duree_amortissement"),
         ]:
+            if key not in action:
+                continue
             val = action.get(key)
-            if val is not None:
-                try:
-                    _s(sh, cell, float(val))
-                except (TypeError, ValueError):
-                    pass
+            if val is None:
+                continue
+            try:
+                _s(sh, cell, float(val))
+            except (TypeError, ValueError):
+                pass
 
-    return _apply_changes_to_template(template_path, sheet_changes)
+    return sheet_changes
 
 
 # ==============================
@@ -419,10 +449,9 @@ def _ensure_extra_project_columns():
             created_at TEXT NOT NULL
         )""",
     ]
-    with engine.connect() as conn:
+    with engine.begin() as conn:
         for stmt in stmts:
             conn.execute(text(stmt))
-        conn.commit()
 
 
 # ==============================
@@ -1740,6 +1769,13 @@ async def _get_prefill_actions(
     return (project, entity_name, actions_list).
     Raises HTTPException on error.
     """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+
     docs = db.query(models.ProjectDocument).filter(
         models.ProjectDocument.project_id == project_id,
         models.ProjectDocument.extracted_data.isnot(None),
@@ -1944,7 +1980,7 @@ async def apply_prefill(
 ):
     """
     Reçoit la liste des changements sélectionnés/rejetés par l'auditeur.
-    - Injecte uniquement les items numériques sélectionnés dans le xlsx.
+    - Injecte uniquement les items sélectionnés dans le xlsx.
     - Sauvegarde le fichier + tous les items (avec statut) en base + historique.
     """
     project = db.query(models.Project).filter(
@@ -1957,17 +1993,31 @@ async def apply_prefill(
     if not TEMPLATE_FILE.exists():
         raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
 
-    # Construire sheet_changes depuis les items numériques sélectionnés
-    sheet_changes: Dict[str, Dict[str, Any]] = {}
+    entity_name = project.client_name or project.project_name or ""
+    actions_by_sheet: Dict[str, Dict[str, Any]] = {}
     for item in payload.changes:
-        if item.selected and item.is_numeric:
-            try:
-                sheet_changes.setdefault(item.sheet, {})[item.cell] = float(item.value)
-            except (TypeError, ValueError):
-                pass
+        if not item.selected:
+            continue
+
+        action = actions_by_sheet.setdefault(item.sheet, {"sheet": item.sheet})
+        action[item.field] = item.value
+
+    selected_actions = [
+        actions_by_sheet[sheet]
+        for sheet in sorted(actions_by_sheet.keys(), key=lambda s: int(re.sub(r"[^0-9]", "", s) or 0))
+    ]
+
+    print("[DEBUG] apply_prefill selected_actions:", flush=True)
+    for action in selected_actions:
+        print(f"  - {action}", flush=True)
+
+    debug_sheet_changes = _build_prefill_sheet_changes(entity_name, selected_actions)
+    print("[DEBUG] apply_prefill sheet_changes:", flush=True)
+    for sheet_name, changes in debug_sheet_changes.items():
+        print(f"  - {sheet_name}: {changes}", flush=True)
 
     try:
-        file_bytes = _apply_changes_to_template(TEMPLATE_FILE, sheet_changes)
+        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, selected_actions)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur génération xlsx : {e}")
 
@@ -2061,6 +2111,12 @@ async def import_improvement_actions_excel(
             continue
         if data:
             parsed.append(data)
+
+    if not parsed:
+        raise HTTPException(
+            status_code=422,
+            detail="Aucune action trouvée dans l'Excel (feuilles AA1–AA9 vides ou non reconnues). Les données existantes n'ont pas été modifiées.",
+        )
 
     # Supprimer les anciennes actions et réinsérer
     db.query(models.ImprovementAction).filter(
