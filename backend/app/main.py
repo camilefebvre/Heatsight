@@ -11,6 +11,7 @@ from zipfile import ZipFile, BadZipFile, ZIP_DEFLATED
 import xml.etree.ElementTree as ET
 from openpyxl import load_workbook
 from openpyxl.reader import workbook as _wb_reader
+from sqlalchemy import text as _sa_text
 from sqlalchemy.orm import Session
 from sqlalchemy.orm.attributes import flag_modified
 import bcrypt
@@ -908,6 +909,42 @@ def get_project_audit(project_id: str, db: Session = Depends(get_db), current_us
 
     audit = db.query(models.Audit).filter(models.Audit.project_id == project_id).first()
     return _audit_to_data(audit)
+
+
+@app.get("/projects/{project_id}/audit/energie-chauffage")
+def get_audit_energie_chauffage(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retourne la consommation totale de chauffage (kWh/an) issue de l'audit :
+    somme des colonnes electricity + gas + fuel sur toutes les sections du template."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    audit = db.query(models.Audit).filter(models.Audit.project_id == project_id).first()
+    if not audit or not audit.energies:
+        return {"consommation_kwh_an": None}
+
+    year = (audit.energies or {}).get("year2023", {}) or {}
+    total = 0.0
+    has_any = False
+    for section_key in ["operational", "buildings", "transport", "utility"]:
+        for row in (year.get(section_key, []) or []):
+            for field in ("electricity", "gas", "fuel"):
+                v = row.get(field)
+                if v is not None:
+                    try:
+                        total += float(v)
+                        has_any = True
+                    except (TypeError, ValueError):
+                        pass
+
+    return {"consommation_kwh_an": round(total, 2) if has_any else None}
 
 
 @app.patch("/projects/{project_id}/audit")
@@ -2412,12 +2449,28 @@ def get_project_lca(
         raise HTTPException(status_code=404, detail="Project not found")
 
     lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
+
+    # Fetch optimisation cache columns (added by migration 010) via raw SQL
+    # so we don't need to modify models.py
+    opt_row = db.execute(
+        _sa_text(
+            "SELECT optimisation_hash, optimisation_cache "
+            "FROM lca_projects WHERE project_id = :pid"
+        ),
+        {"pid": project_id},
+    ).fetchone()
+    opt_hash  = opt_row[0] if opt_row else None
+    opt_cache = opt_row[1] if opt_row else None
+
     return {
         "batiments": lca.batiments if lca else [],
         # legacy fields kept for backward compatibility
         "elements": lca.elements if lca else [],
         "parois":   lca.parois   if lca else [],
         "batiment": lca.batiment if lca else {},
+        # optimisation cache
+        "optimisation_hash":  opt_hash,
+        "optimisation_cache": opt_cache,
     }
 
 
@@ -2500,6 +2553,63 @@ def update_project_lca_batiments(
     db.commit()
     db.refresh(lca)
     return {"batiments": lca.batiments}
+
+
+class _LcaOptCachePayload(_PydanticBase):
+    hash: str
+    cache: Dict[str, Any]
+
+
+@app.patch("/projects/{project_id}/lca/optimisation-cache")
+def patch_lca_optimisation_cache(
+    project_id: str,
+    payload: _LcaOptCachePayload,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Sauvegarde le hash de configuration et les 5 solutions phares après optimisation."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    now = datetime.now(timezone.utc).isoformat()
+
+    existing = db.execute(
+        _sa_text("SELECT id FROM lca_projects WHERE project_id = :pid"),
+        {"pid": project_id},
+    ).fetchone()
+
+    if existing:
+        db.execute(
+            _sa_text(
+                "UPDATE lca_projects "
+                "SET optimisation_hash = :h, optimisation_cache = :c::jsonb, updated_at = :now "
+                "WHERE project_id = :pid"
+            ),
+            {"h": payload.hash, "c": json.dumps(payload.cache), "now": now, "pid": project_id},
+        )
+    else:
+        # No LCA row yet — create a minimal one so the cache isn't lost
+        db.execute(
+            _sa_text(
+                "INSERT INTO lca_projects "
+                "(id, project_id, elements, parois, batiment, batiments, "
+                " optimisation_hash, optimisation_cache, created_at, updated_at) "
+                "VALUES (:id, :pid, '[]'::jsonb, '[]'::jsonb, '{}'::jsonb, '[]'::jsonb, "
+                "        :h, :c::jsonb, :now, :now)"
+            ),
+            {
+                "id": str(uuid4()), "pid": project_id,
+                "h": payload.hash, "c": json.dumps(payload.cache),
+                "now": now,
+            },
+        )
+
+    db.commit()
+    return {"status": "ok"}
 
 
 # ──────────────────────────────────────────────────────────────────────────────

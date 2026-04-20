@@ -6,7 +6,9 @@
       "Bash(python -m alembic merge 005_add_field_sources 006_add_lca_material_fields -m \"merge_heads\")",
       "Bash(python -m alembic upgrade head)",
       "Bash(PGPASSWORD=meSQLl11 psql:*)",
-      "Bash(python -c ':*)"
+      "Bash(python -c ':*)",
+      "Bash(curl -s \"http://127.0.0.1:8000/lca/materials\")",
+      "Bash(curl:*)"
     ]
   }
 }

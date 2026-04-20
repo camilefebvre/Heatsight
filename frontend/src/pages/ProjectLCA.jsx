@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, Fragment } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X } from "lucide-react";
@@ -52,7 +52,222 @@ function extractImpact(impacts, ...keys) {
   return null;
 }
 
-// R of a composant opaque (m²·K/W)
+// Normalise une chaîne : retire les accents, met en minuscules
+function normStr(s) {
+  return (s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+}
+
+// Vrai si la catégorie désigne une fenêtre, quelle que soit la casse/accentuation
+function isFenetreCategory(cat) {
+  return normStr(cat) === "fenetre";
+}
+
+// ─── Optimisation helpers ─────────────────────────────────────────────────────
+
+// Fix 2 — Hash djb2 (pas de dépendance externe)
+function djb2Hash(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = (((h << 5) + h) ^ str.charCodeAt(i)) >>> 0;
+  }
+  return h.toString(16).toUpperCase().padStart(8, "0").slice(0, 6);
+}
+
+function computeConfigHash(bat, materials) {
+  const changeables = [];
+  for (const paroi of bat.parois) {
+    for (const co of paroi.composantsOpaques) {
+      if (!co.is_fixed) changeables.push({ id: co.material_id, q: String(co.surface_m2 ?? "") });
+    }
+    for (const bv of paroi.baiesVitrees) {
+      if (!bv.is_fixed) changeables.push({ id: bv.material_id, q: String(bv.surface_vitree_m2 ?? "") });
+    }
+  }
+  changeables.sort((a, b) => a.id.localeCompare(b.id));
+
+  const matLib = materials.map(m => ({ i: m.id, p: m.prix ?? null, r: m.valeur_r ?? null }));
+  matLib.sort((a, b) => a.i.localeCompare(b.i));
+
+  const ch = CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
+  const energy = { dj: bat.degres_jours, rdt: ch.rendement, co2: ch.co2 };
+
+  return djb2Hash(JSON.stringify({ changeables, matLib, energy }));
+}
+
+// Fix 1 — Génération déterministe des combinaisons (tri coût ASC puis GWP ASC, max 500)
+function buildCombinations(bat, materials) {
+  const MAX_COMBOS = 500;
+  const PER_SLOT   = 5; // max candidats par slot pour éviter l'explosion combinatoire
+
+  const slots = [];
+
+  for (const paroi of bat.parois) {
+    for (const co of paroi.composantsOpaques) {
+      if (co.is_fixed) continue;
+      const curMat = materials.find(m => m.id === co.material_id);
+      const curCat = curMat ? (curMat.category || "Autre") : "Autre";
+
+      let altMats = materials
+        .filter(m => !isFenetreCategory(m.category || "Autre") && (m.category || "Autre") === curCat)
+        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0))
+        .slice(0, PER_SLOT);
+
+      // S'assurer que le matériau courant est inclus
+      if (!altMats.find(m => m.id === co.material_id) && curMat) {
+        altMats = [curMat, ...altMats].slice(0, PER_SLOT);
+      }
+
+      const candidates = altMats.map(m => ({
+        ...co,
+        material_id: m.id,
+        material_name: m.name,
+        lambda_lib: parseFloat(m.valeur_r) ?? null,
+        lambda_local: "",
+        r_local: "",
+        prix_unit: parseFloat(m.prix) || 0,
+        gwp100_unit: extractImpact(m.impacts, "gwp100", "gwp_100") || 0,
+        impacts: m.impacts || {},
+      }));
+
+      if (candidates.length > 0) {
+        slots.push({ paroiId: paroi.id, compId: co.id, type: "opaque", candidates });
+      }
+    }
+
+    for (const bv of paroi.baiesVitrees) {
+      if (bv.is_fixed) continue;
+
+      let altMats = materials
+        .filter(m => isFenetreCategory(m.category || "Autre"))
+        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0))
+        .slice(0, PER_SLOT);
+
+      if (!altMats.find(m => m.id === bv.material_id)) {
+        const curMat = materials.find(m => m.id === bv.material_id);
+        if (curMat) altMats = [curMat, ...altMats].slice(0, PER_SLOT);
+      }
+
+      const candidates = altMats.map(m => ({
+        ...bv,
+        material_id: m.id,
+        material_name: m.name,
+        valeur_r: parseFloat(m.valeur_r) || 0,
+        prix_unit: parseFloat(m.prix) || 0,
+        gwp100_unit: extractImpact(m.impacts, "gwp100", "gwp_100") || 0,
+        impacts: m.impacts || {},
+      }));
+
+      if (candidates.length > 0) {
+        slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree", candidates });
+      }
+    }
+  }
+
+  if (slots.length === 0) return [];
+
+  function applyChoice(b, slot, cand) {
+    return {
+      ...b,
+      parois: b.parois.map(p => {
+        if (p.id !== slot.paroiId) return p;
+        return slot.type === "opaque"
+          ? { ...p, composantsOpaques: p.composantsOpaques.map(c => c.id === slot.compId ? cand : c) }
+          : { ...p, baiesVitrees:      p.baiesVitrees.map(bv => bv.id === slot.compId ? cand : bv) };
+      }),
+    };
+  }
+
+  const combos = [];
+
+  function enumerate(idx, curBat, choices) {
+    if (idx === slots.length) {
+      const st = calcBatimentStats(curBat);
+      combos.push({
+        cost:       st.total_cout ?? 0,
+        gwp:        st.total_gwp  ?? 0,
+        energy_kwh: st.energy_kwh ?? null,
+        dep_wk:     st.dep_wk     ?? null,
+        choices,
+      });
+      return;
+    }
+    const slot = slots[idx];
+    for (const cand of slot.candidates) {
+      enumerate(
+        idx + 1,
+        applyChoice(curBat, slot, cand),
+        [...choices, {
+          paroiId: slot.paroiId, compId: slot.compId, type: slot.type,
+          material_id: cand.material_id, material_name: cand.material_name,
+          prix_unit: cand.prix_unit,
+        }],
+      );
+    }
+  }
+
+  enumerate(0, bat, []);
+
+  // Fix 1 : tri déterministe — coût croissant, puis GWP croissant
+  combos.sort((a, b) => a.cost !== b.cost ? a.cost - b.cost : a.gwp - b.gwp);
+  return combos.slice(0, MAX_COMBOS);
+}
+
+function computePhares(combos, bat) {
+  const sqSt     = calcBatimentStats(bat);
+  const sqCost   = sqSt.total_cout   ?? 0;
+  const sqGwp    = sqSt.total_gwp    ?? 0;
+  const sqEnergy = sqSt.energy_kwh   ?? null;
+
+  const statuQuo = { cost: sqCost, gwp: sqGwp, energy_kwh: sqEnergy, choices: [] };
+
+  if (combos.length === 0) {
+    return { statuQuo, economique: null, ecologique: null, roi: null, topsis: null };
+  }
+
+  const economique = [...combos].sort((a, b) => a.cost - b.cost)[0];
+  const ecologique = [...combos].sort((a, b) => a.gwp  - b.gwp )[0];
+
+  // ROI : (économies énergie sur 20 ans à 0,20 €/kWh) / surcoût
+  const PRICE = 0.20, HORIZON = 20;
+  let roi = null;
+  if (sqEnergy != null) {
+    const cands = combos.filter(c => c.cost > sqCost && c.energy_kwh != null);
+    if (cands.length > 0) {
+      roi = cands.reduce((best, c) => {
+        const r = (sqEnergy - c.energy_kwh) * PRICE * HORIZON / (c.cost - sqCost);
+        const b = (sqEnergy - best.energy_kwh) * PRICE * HORIZON / (best.cost - sqCost);
+        return r > b ? c : best;
+      });
+    }
+  }
+
+  // TOPSIS 3 critères : coût, GWP, énergie (tous à minimiser)
+  const valid = combos.filter(c => c.energy_kwh != null);
+  let topsis = null;
+  if (valid.length > 1) {
+    const vals = k => valid.map(c => c[k]);
+    const mn = k => Math.min(...vals(k));
+    const mx = k => Math.max(...vals(k));
+    const [minC, maxC] = [mn("cost"), mx("cost")];
+    const [minG, maxG] = [mn("gwp"),  mx("gwp")];
+    const [minE, maxE] = [mn("energy_kwh"), mx("energy_kwh")];
+    const n = (v, lo, hi) => hi === lo ? 0 : (v - lo) / (hi - lo);
+    const scored = valid.map(c => {
+      const nc = n(c.cost, minC, maxC), ng = n(c.gwp, minG, maxG), ne = n(c.energy_kwh, minE, maxE);
+      const dI = Math.sqrt(nc*nc + ng*ng + ne*ne);
+      const dA = Math.sqrt((1-nc)**2 + (1-ng)**2 + (1-ne)**2);
+      return { c, score: (dI + dA) > 0 ? dA / (dI + dA) : 0 };
+    });
+    scored.sort((a, b) => b.score - a.score);
+    topsis = scored[0].c;
+  } else if (valid.length === 1) {
+    topsis = valid[0];
+  }
+
+  return { statuQuo, economique, ecologique, roi, topsis };
+}
+
+// ─── R of a composant opaque (m²·K/W) ────────────────────────────────────────
 function getComposantR(comp) {
   const rLocal = parseFloat(comp.r_local);
   if (isFinite(rLocal) && rLocal > 0) return rLocal;
@@ -169,6 +384,10 @@ export default function ProjectLCA() {
   const [compModal,       setCompModal]       = useState(null);
   const [compForm,        setCompForm]        = useState({});
   const [saveStatus,      setSaveStatus]      = useState("idle"); // "idle" | "saving" | "saved"
+  const [auditKwh,        setAuditKwh]        = useState(null);   // kWh/an depuis l'audit, null si absent
+  const [optBatId,        setOptBatId]        = useState(null);   // id du bâtiment dont le panneau optim est ouvert
+  const [optCachedHash,   setOptCachedHash]   = useState(null);   // hash sauvegardé côté serveur
+  const [optCachedResult, setOptCachedResult] = useState(null);   // cache sauvegardé côté serveur
 
   const saveTimerRef  = useRef(null);
   const skipNextSave  = useRef(false);  // bloque la sauvegarde lors de la réhydratation initiale
@@ -193,8 +412,18 @@ export default function ProjectLCA() {
           skipNextSave.current = true;
           setBatiments(data.batiments);
         }
+        setOptCachedHash(data.optimisation_hash   ?? null);
+        setOptCachedResult(data.optimisation_cache ?? null);
       })
       .catch(() => { dataLoaded.current = true; });
+  }, [projectId]);
+
+  // Fetch de la consommation audit (niveau projet, une seule fois)
+  useEffect(() => {
+    apiFetch(`/projects/${projectId}/audit/energie-chauffage`)
+      .then((res) => res.ok ? res.json() : Promise.reject())
+      .then((data) => setAuditKwh(data.consommation_kwh_an ?? null))
+      .catch(() => setAuditKwh(null));
   }, [projectId]);
 
   // Sauvegarde automatique debounce 800ms à chaque modification du state batiments
@@ -299,39 +528,25 @@ export default function ProjectLCA() {
   // ── Composant CRUD ─────────────────────────────────────────────────────────
 
   function openAddComposant(batId, paroiId, type) {
-    setCompForm({ material_id: "", quantite: "1", epaisseur_cm: "", surface_m2: "", surface_vitree_m2: "" });
+    setCompForm({ material_id: "", quantite: "1", epaisseur_cm: "", surface_m2: "", surface_vitree_m2: "", lambda_custom: "", r_custom: "", unite_autre: "" });
     setCompModal({ batId, paroiId, type });
   }
 
   function confirmAddComposant() {
     if (!compModal) return;
-    const { batId, paroiId, type } = compModal;
+    const { batId, paroiId } = compModal;
     const mat = materials.find((m) => m.id === compForm.material_id);
     if (!mat) return;
 
-    if (type === "opaque") {
-      const comp = {
-        id: newId(), material_id: mat.id, material_name: mat.name,
-        epaisseur_cm: compForm.epaisseur_cm,
-        lambda_lib: parseFloat(mat.valeur_r) || null,
-        r_lib: null, lambda_local: "", r_local: "",
-        surface_m2: compForm.surface_m2,
-        is_fixed: false,
-        prix_unit: parseFloat(mat.prix) || 0,
-        gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
-        impacts: mat.impacts || {},
-      };
-      setBatiments((prev) => prev.map((b) =>
-        b.id !== batId ? b : {
-          ...b, parois: b.parois.map((p) =>
-            p.id !== paroiId ? p : { ...p, composantsOpaques: [...p.composantsOpaques, comp] }
-          ),
-        }
-      ));
-    } else {
+    const cat = mat.category || "Autre";
+    const isFenetre = isFenetreCategory(cat);
+
+    if (isFenetre) {
+      const rVal = parseFloat(compForm.r_custom) || parseFloat(mat.valeur_r) || 0;
       const bv = {
         id: newId(), material_id: mat.id, material_name: mat.name,
-        valeur_r: parseFloat(mat.valeur_r) || 0,
+        valeur_r: rVal,
+        r_custom: compForm.r_custom !== "" ? compForm.r_custom : "",
         quantite: parseFloat(compForm.quantite) || 1,
         surface_vitree_m2: compForm.surface_vitree_m2,
         is_fixed: false,
@@ -343,6 +558,29 @@ export default function ProjectLCA() {
         b.id !== batId ? b : {
           ...b, parois: b.parois.map((p) =>
             p.id !== paroiId ? p : { ...p, baiesVitrees: [...p.baiesVitrees, bv] }
+          ),
+        }
+      ));
+    } else {
+      const comp = {
+        id: newId(), material_id: mat.id, material_name: mat.name,
+        epaisseur_cm: compForm.epaisseur_cm,
+        lambda_lib: parseFloat(mat.valeur_r) ?? null,
+        lambda_local: compForm.lambda_custom !== "" ? compForm.lambda_custom : "",
+        r_lib: null, r_local: "",
+        surface_m2: compForm.surface_m2,
+        // for "Autre": store quantite and unite_autre
+        quantite: cat === "Autre" ? (parseFloat(compForm.quantite) || 1) : undefined,
+        unite_autre: cat === "Autre" ? compForm.unite_autre : undefined,
+        is_fixed: false,
+        prix_unit: parseFloat(mat.prix) || 0,
+        gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
+        impacts: mat.impacts || {},
+      };
+      setBatiments((prev) => prev.map((b) =>
+        b.id !== batId ? b : {
+          ...b, parois: b.parois.map((p) =>
+            p.id !== paroiId ? p : { ...p, composantsOpaques: [...p.composantsOpaques, comp] }
           ),
         }
       ));
@@ -406,6 +644,16 @@ export default function ProjectLCA() {
 
   function getParoiTab(paroiId) { return activeParoiTabs[paroiId] || "consommation"; }
   function setParoiTab(paroiId, tab) { setActiveParoiTabs((prev) => ({ ...prev, [paroiId]: tab })); }
+
+  function handleOpenOptimise(batId) {
+    ensureMaterials();
+    setOptBatId(batId);
+  }
+
+  function handleCacheSaved(newHash, newCache) {
+    setOptCachedHash(newHash);
+    setOptCachedResult(newCache);
+  }
 
   // ── Render ─────────────────────────────────────────────────────────────────
 
@@ -520,7 +768,8 @@ export default function ProjectLCA() {
                       </div>
                       {/* Right 40% */}
                       <div style={{ flex: "0 0 calc(40% - 16px)" }}>
-                        <ResultsWidget bat={bat} stats={stats} />
+                        <ResultsWidget bat={bat} stats={stats} auditKwh={auditKwh}
+                          onOptimize={() => handleOpenOptimise(bat.id)} />
                       </div>
                     </div>
                   )}
@@ -571,6 +820,25 @@ export default function ProjectLCA() {
           materials={materials} onConfirm={confirmAddComposant} onClose={() => setCompModal(null)}
         />
       )}
+
+      {/* Optimisation panel */}
+      {optBatId && (() => {
+        const optBat = batiments.find(b => b.id === optBatId);
+        if (!optBat) return null;
+        return (
+          <OptimisationPanel
+            bat={optBat}
+            materials={materials}
+            projectId={projectId}
+            onClose={() => setOptBatId(null)}
+            cachedHash={optCachedHash}
+            cachedResult={optCachedResult}
+            onCacheSaved={handleCacheSaved}
+            batiments={batiments}
+            onApplyProfile={(newBat) => setBatiments(prev => [...prev, newBat])}
+          />
+        );
+      })()}
     </div>
   );
 }
@@ -1006,7 +1274,7 @@ function ImpactsTab({ paroi, stats }) {
 
 // ─── ResultsWidget ────────────────────────────────────────────────────────────
 
-function ResultsWidget({ bat, stats }) {
+function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
   const paroisStats = bat.parois.map((p) => ({ paroi: p, s: calcParoiStats(p) }));
   const ch = CHAUFFAGE_OPTIONS.find((o) => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
   const dj = parseFloat(bat.degres_jours) || 2500;
@@ -1018,7 +1286,15 @@ function ResultsWidget({ bat, stats }) {
 
   return (
     <div style={detailCard}>
-      <div style={cardTitle}>Impacts globaux</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+        <div style={cardTitle} >Impacts globaux</div>
+        {onOptimize && (
+          <button type="button" onClick={onOptimize}
+            style={{ ...smallBtn, fontSize: 12, padding: "6px 12px" }}>
+            ⚡ Optimiser
+          </button>
+        )}
+      </div>
 
       {/* Section 1 — 3 cartes métriques temps réel */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
@@ -1104,6 +1380,440 @@ function ResultsWidget({ bat, stats }) {
           tooltip="Consommation annuelle (kWh) × Facteur émission du moyen de chauffage (kg CO₂/kWh)"
         />
       </div>
+
+      {/* Audit vs Modèle */}
+      <AuditVsModele auditKwh={auditKwh} modelKwh={stats.energy_kwh} />
+    </div>
+  );
+}
+
+// ─── OptimisationPanel ───────────────────────────────────────────────────────
+
+function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cachedResult, onCacheSaved, batiments, onApplyProfile }) {
+  const configHash = materials.length === 0 ? "??????" : computeConfigHash(bat, materials);
+
+  const [phase, setPhase] = useState("init");
+  const [phares, setPhares] = useState(null);
+  const [computedAt, setComputedAt] = useState(null);
+  const [isStale, setIsStale] = useState(false);
+  const [expandedProfile, setExpandedProfile] = useState(null);
+
+  useEffect(() => {
+    if (materials.length === 0) return;
+    if (phase !== "init") return;
+    if (cachedResult?.solutions) {
+      setPhares(cachedResult.solutions);
+      setComputedAt(cachedResult.computed_at ?? null);
+      setIsStale(cachedHash !== configHash);
+      setPhase("done");
+    } else {
+      runCompute();
+    }
+  }, [materials.length, phase]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function runCompute() {
+    setPhase("computing");
+    setTimeout(() => {
+      const combos = buildCombinations(bat, materials);
+      const result = computePhares(combos, bat);
+      const now = new Date().toISOString();
+      setPhares(result);
+      setComputedAt(now);
+      setIsStale(false);
+      setPhase("done");
+      const payload = { hash: configHash, cache: { computed_at: now, solutions: result } };
+      apiFetch(`/projects/${projectId}/lca/optimisation-cache`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).then(() => onCacheSaved && onCacheSaved(configHash, payload.cache));
+    }, 80);
+  }
+
+  function fmtDate(iso) {
+    if (!iso) return "";
+    try { return new Date(iso).toLocaleDateString("fr-BE", { day: "2-digit", month: "2-digit", year: "numeric" }); }
+    catch { return iso; }
+  }
+
+  const PRIX_KWH = 0.20;
+
+  function calcROI(sol, sq) {
+    const surCout = sol.cost - sq.cost;
+    const econKwh = (sq.energy_kwh ?? 0) - (sol.energy_kwh ?? 0);
+    if (surCout > 0 && econKwh > 0)  return { type: "years",     value:   surCout / (econKwh * PRIX_KWH) };
+    if (surCout <= 0 && econKwh > 0) return { type: "immediate"                                           };
+    if (surCout <= 0 && econKwh <= 0) return { type: "cheaper",  savings: -surCout                        };
+    /* surCout > 0 && econKwh <= 0 */  return { type: "infinite"                                          };
+  }
+
+  function renderROICell(roi) {
+    if (roi === null) return <span style={{ color: "#9ca3af" }}>—</span>;
+    if (roi.type === "years") {
+      const v = roi.value;
+      const c = v < 15 ? "#059669" : v <= 25 ? "#d97706" : "#dc2626";
+      return <span style={{ fontWeight: 700, color: c }}>{fmtDec(v, 1)}</span>;
+    }
+    if (roi.type === "immediate")
+      return <span style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>✓ Immédiat + gains</span>;
+    if (roi.type === "cheaper")
+      return (
+        <div>
+          <div style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>✓ Moins cher</div>
+          {roi.savings > 0 && <div style={{ fontSize: 10, color: "#059669" }}>−{fmt(roi.savings)} €</div>}
+        </div>
+      );
+    return <span style={{ fontWeight: 700, color: "#dc2626" }}>∞</span>;
+  }
+
+  // Lower is better for all metrics (cost, gwp, energy)
+  function cmpColor(val, sqVal) {
+    if (val == null || sqVal == null) return "#374151";
+    if (val < sqVal) return "#059669";
+    if (val > sqVal) return "#dc2626";
+    return "#9ca3af";
+  }
+
+  function buildDetailGroups(sol) {
+    const groups = [];
+    for (const paroi of bat.parois) {
+      const rows = [];
+      for (const co of paroi.composantsOpaques) {
+        if (co.is_fixed) continue;
+        const choice = sol.choices?.find(c => c.paroiId === paroi.id && c.compId === co.id);
+        const changed = !!(choice && choice.material_id !== co.material_id);
+        rows.push({ original: co.material_name, chosen: changed ? choice.material_name : null, changed });
+      }
+      for (const bv of paroi.baiesVitrees) {
+        if (bv.is_fixed) continue;
+        const choice = sol.choices?.find(c => c.paroiId === paroi.id && c.compId === bv.id);
+        const changed = !!(choice && choice.material_id !== bv.material_id);
+        rows.push({ original: bv.material_name, chosen: changed ? choice.material_name : null, changed });
+      }
+      if (rows.length > 0) groups.push({ paroiNom: paroi.nom, rows });
+    }
+    return groups;
+  }
+
+  function applyProfile(sol) {
+    const existingOptCount = (batiments || []).filter(b => /^Optimisation \d+$/.test(b.nom)).length;
+    const newNum = existingOptCount + 1;
+    const newBat = JSON.parse(JSON.stringify(bat));
+    newBat.id = newId();
+    newBat.nom = `Optimisation ${newNum}`;
+    for (const choice of (sol.choices || [])) {
+      for (const paroi of newBat.parois) {
+        if (paroi.id !== choice.paroiId) continue;
+        if (choice.type === "opaque") {
+          for (let i = 0; i < paroi.composantsOpaques.length; i++) {
+            if (paroi.composantsOpaques[i].id !== choice.compId) continue;
+            const mat = materials.find(m => m.id === choice.material_id);
+            if (mat) {
+              paroi.composantsOpaques[i] = {
+                ...paroi.composantsOpaques[i],
+                material_id: mat.id,
+                material_name: mat.name,
+                lambda_lib: parseFloat(mat.valeur_r) ?? null,
+                lambda_local: "",
+                r_local: "",
+                prix_unit: parseFloat(mat.prix) || 0,
+                gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100") || 0,
+                impacts: mat.impacts || {},
+              };
+            }
+          }
+        } else {
+          for (let i = 0; i < paroi.baiesVitrees.length; i++) {
+            if (paroi.baiesVitrees[i].id !== choice.compId) continue;
+            const mat = materials.find(m => m.id === choice.material_id);
+            if (mat) {
+              paroi.baiesVitrees[i] = {
+                ...paroi.baiesVitrees[i],
+                material_id: mat.id,
+                material_name: mat.name,
+                valeur_r: parseFloat(mat.valeur_r) || 0,
+                prix_unit: parseFloat(mat.prix) || 0,
+                gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100") || 0,
+                impacts: mat.impacts || {},
+              };
+            }
+          }
+        }
+      }
+    }
+    onApplyProfile(newBat);
+  }
+
+  const PHARE_DEFS = [
+    { key: "statuQuo",   label: "Statu quo",    color: "#6b7280", icon: "○" },
+    { key: "economique", label: "Économique",   color: "#059669", icon: "€" },
+    { key: "ecologique", label: "Écologique",   color: "#16a34a", icon: "🌿" },
+    { key: "roi",        label: "Meilleur ROI", color: "#2563eb", icon: "↩" },
+    { key: "topsis",     label: "TOPSIS",       color: "#6d28d9", icon: "★" },
+  ];
+
+  return (
+    <>
+      <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)", zIndex: 950 }} onClick={onClose} />
+      <div style={{
+        position: "fixed", right: 0, top: 0, bottom: 0, width: "58%", minWidth: 520,
+        background: "white", zIndex: 951,
+        boxShadow: "-6px 0 32px rgba(0,0,0,0.14)",
+        display: "flex", flexDirection: "column", overflow: "hidden",
+      }}>
+        <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexShrink: 0 }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>Optimisation — {bat.nom}</div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>Config #{configHash}</div>
+          </div>
+          <button type="button" onClick={onClose} style={{ ...tinyIconBtn, color: "#6b7280", padding: "5px" }}>
+            <X size={16} />
+          </button>
+        </div>
+
+        <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+
+          {materials.length === 0 && (
+            <div style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
+              Chargement de la bibliothèque…
+            </div>
+          )}
+
+          {phase === "computing" && (
+            <div style={{ textAlign: "center", padding: "48px 0", color: "#6b7280" }}>
+              <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 6 }}>Calcul en cours…</div>
+              <div style={{ fontSize: 12, color: "#9ca3af" }}>Génération et tri des combinaisons</div>
+            </div>
+          )}
+
+          {phase === "done" && phares && (
+            <>
+              {isStale && (
+                <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", marginBottom: 4 }}>
+                    ⚠️ La configuration a changé depuis la dernière optimisation
+                  </div>
+                  {computedAt && (
+                    <div style={{ fontSize: 12, color: "#b45309", marginBottom: 10 }}>
+                      Voici les anciens résultats du {fmtDate(computedAt)}
+                    </div>
+                  )}
+                  <button type="button" onClick={runCompute}
+                    style={{ ...primaryBtn, fontSize: 13, padding: "8px 14px" }}>
+                    Mettre à jour l'optimisation
+                  </button>
+                </div>
+              )}
+
+              {!isStale && computedAt && (
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+                  <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                    Résultats du {fmtDate(computedAt)}
+                  </div>
+                  <button type="button" onClick={runCompute} style={{ ...smallBtn, fontSize: 11 }}>
+                    Recalculer
+                  </button>
+                </div>
+              )}
+
+              <div style={{ overflowX: "auto" }}>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                  <thead>
+                    <tr style={{ color: "#9ca3af", fontWeight: 600, borderBottom: "1.5px solid #f3f4f6" }}>
+                      <th style={{ ...th, minWidth: 110 }}>Profil</th>
+                      <th style={{ ...th, textAlign: "right" }}>Coût (€)</th>
+                      <th style={{ ...th, textAlign: "right" }}>GWP100 (kg)</th>
+                      <th style={{ ...th, textAlign: "right" }}>Énergie (kWh/an)</th>
+                      <th style={{ ...th, textAlign: "right" }}>Économies (kWh)</th>
+                      <th style={{ ...th, textAlign: "right" }}>ROI (ans)</th>
+                      <th style={th}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {PHARE_DEFS.map(({ key, label, color, icon }) => {
+                      const sol = phares[key];
+                      const isExpanded = expandedProfile === key;
+                      if (!sol) return (
+                        <tr key={key} style={{ borderTop: "1px solid #f3f4f6", opacity: 0.4 }}>
+                          <td style={td} colSpan={7}>
+                            <span style={{ fontWeight: 600, color: "#9ca3af" }}>{icon} {label}</span>
+                            <span style={{ color: "#d1d5db", marginLeft: 8, fontSize: 11 }}>Non disponible</span>
+                          </td>
+                        </tr>
+                      );
+                      const sq = phares.statuQuo;
+                      const roi = key === "statuQuo" ? null : calcROI(sol, sq);
+                      const econKwh = key === "statuQuo" ? null
+                        : (sq.energy_kwh != null && sol.energy_kwh != null)
+                          ? sq.energy_kwh - sol.energy_kwh : null;
+                      const detailGroups = buildDetailGroups(sol);
+                      return (
+                        <Fragment key={key}>
+                          <tr
+                            onClick={() => setExpandedProfile(isExpanded ? null : key)}
+                            style={{
+                              borderTop: "1px solid #f3f4f6",
+                              background: isExpanded ? color + "12" : (isStale ? "#f9fafb" : "white"),
+                              cursor: "pointer",
+                              opacity: isStale ? 0.75 : 1,
+                            }}
+                          >
+                            <td style={{ ...td, fontWeight: 700, color }}>
+                              <span style={{ marginRight: 4, fontSize: 10, verticalAlign: "middle" }}>
+                                {isExpanded ? "▼" : "▶"}
+                              </span>
+                              {icon} {label}
+                            </td>
+                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: key === "statuQuo" ? "#374151" : cmpColor(sol.cost, sq.cost) }}>{fmt(sol.cost)}</td>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.gwp, sq.gwp) }}>{fmt(sol.gwp)}</td>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.energy_kwh, sq.energy_kwh) }}>{sol.energy_kwh != null ? fmt(sol.energy_kwh) : "—"}</td>
+                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: econKwh != null && econKwh > 0 ? "#059669" : (econKwh != null && econKwh < 0 ? "#dc2626" : "#9ca3af") }}>
+                              {econKwh != null ? (econKwh >= 0 ? "+" : "") + fmt(econKwh) : "—"}
+                            </td>
+                            <td style={{ ...td, textAlign: "right" }}>
+                              {renderROICell(roi)}
+                            </td>
+                            <td style={td}>
+                              <button
+                                type="button"
+                                onClick={(e) => { e.stopPropagation(); applyProfile(sol); }}
+                                style={{ ...smallBtn, fontSize: 11, padding: "3px 8px", whiteSpace: "nowrap" }}
+                              >
+                                Appliquer
+                              </button>
+                            </td>
+                          </tr>
+                          {isExpanded && (
+                            <tr style={{ background: color + "08" }}>
+                              <td colSpan={7} style={{ padding: "10px 16px 14px" }}>
+                                {key !== "statuQuo" && (() => {
+                                  const warnings = [];
+                                  if (sol.gwp != null && sq.gwp != null && sol.gwp > sq.gwp)
+                                    warnings.push("GWP100 (empreinte CO₂ construction)");
+                                  if (sol.energy_kwh != null && sq.energy_kwh != null && sol.energy_kwh > sq.energy_kwh)
+                                    warnings.push("Consommation énergétique annuelle");
+                                  if (warnings.length === 0) return null;
+                                  return (
+                                    <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
+                                      {warnings.map((w, i) => (
+                                        <div key={i} style={{ fontSize: 12, color: "#92400e", fontWeight: 600, marginBottom: i < warnings.length - 1 ? 4 : 0 }}>
+                                          ⚠️ {w} : cet indicateur est moins bon que la configuration actuelle
+                                        </div>
+                                      ))}
+                                    </div>
+                                  );
+                                })()}
+                                <div style={{ fontSize: 11, fontWeight: 700, color: "#9ca3af", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 8 }}>
+                                  Matériaux utilisés
+                                </div>
+                                {detailGroups.length === 0 ? (
+                                  <div style={{ fontSize: 12, color: "#9ca3af", fontStyle: "italic" }}>Aucun composant modifiable</div>
+                                ) : (
+                                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                                    {detailGroups.map((group, gi) => (
+                                      <div key={gi}>
+                                        <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>{group.paroiNom}</div>
+                                        <div style={{ display: "flex", flexDirection: "column", gap: 3, paddingLeft: 10 }}>
+                                          {group.rows.map((row, ri) => (
+                                            <div key={ri} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                                              {row.changed ? (
+                                                <>
+                                                  <span style={{ color: "#9ca3af", textDecoration: "line-through" }}>{row.original}</span>
+                                                  <span style={{ color: "#6b7280" }}>→</span>
+                                                  <span style={{ fontWeight: 700, color, background: color + "18", padding: "1px 6px", borderRadius: 4 }}>{row.chosen}</span>
+                                                </>
+                                              ) : (
+                                                <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{row.original} — inchangé</span>
+                                              )}
+                                            </div>
+                                          ))}
+                                        </div>
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </td>
+                            </tr>
+                          )}
+                        </Fragment>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
+function PhareMetric({ label, value, delta, good }) {
+  return (
+    <div>
+      <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 500 }}>{label}</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#111827" }}>{value}</div>
+      {delta != null && (
+        <div style={{ fontSize: 11, fontWeight: 600, color: good ? "#059669" : "#dc2626" }}>{delta}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── AuditVsModele ────────────────────────────────────────────────────────────
+
+function AuditVsModele({ auditKwh, modelKwh }) {
+  const hasAudit = auditKwh != null;
+  const hasModel = modelKwh != null;
+
+  let ecart = null;
+  let ecartColor = "#374151";
+  if (hasAudit && hasModel && auditKwh > 0) {
+    ecart = ((modelKwh - auditKwh) / auditKwh) * 100;
+    const abs = Math.abs(ecart);
+    ecartColor = abs < 15 ? "#059669" : abs < 30 ? "#d97706" : "#dc2626";
+  }
+
+  return (
+    <div style={{ ...detailCard, marginTop: 14 }}>
+      <div style={cardTitle}>Consommation audit vs modèle</div>
+      {!hasAudit ? (
+        <div style={{ fontSize: 13, color: "#9ca3af", fontStyle: "italic" }}>
+          Aucune donnée audit disponible pour ce projet
+        </div>
+      ) : (
+        <>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+            <tbody>
+              <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "6px 0", fontWeight: 600, color: "#374151" }}>Consommation réelle</td>
+                <td style={{ textAlign: "right", fontWeight: 700, color: "#111827" }}>{fmt(auditKwh)} kWh/an</td>
+                <td style={{ textAlign: "right", paddingLeft: 10, fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>Audit AMUREBA</td>
+              </tr>
+              <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
+                <td style={{ padding: "6px 0", fontWeight: 600, color: "#374151" }}>Consommation estimée</td>
+                <td style={{ textAlign: "right", fontWeight: 700, color: "#111827" }}>
+                  {hasModel ? `${fmt(modelKwh)} kWh/an` : "—"}
+                </td>
+                <td style={{ textAlign: "right", paddingLeft: 10, fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>Modèle ACV</td>
+              </tr>
+              {ecart != null && (
+                <tr>
+                  <td style={{ padding: "6px 0", fontWeight: 600, color: "#374151" }}>Écart</td>
+                  <td style={{ textAlign: "right", fontWeight: 700, color: ecartColor }}>
+                    {ecart > 0 ? "+" : ""}{ecart.toFixed(1)} %
+                  </td>
+                  <td />
+                </tr>
+              )}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", marginTop: 10, lineHeight: 1.5 }}>
+            Un écart important peut indiquer des hypothèses à affiner : degrés-jours, rendement système ou température cible.
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -1160,19 +1870,18 @@ function TooltipCard({ label, value, unit, tooltip }) {
 
 // ─── MaterialSidePanel ────────────────────────────────────────────────────────
 
-const CATEGORY_ORDER = ["Mur", "Fenêtre", "Toiture", "Plancher", "Cloison", "Autre"];
+const CATEGORY_ORDER = ["Mur", "Isolant", "Fenêtre", "Toiture", "Plancher", "Cloison", "Cadre", "Autre"];
+const OPAQUE_CATS = new Set(["Mur", "Toiture", "Plancher", "Cloison", "Cadre"]);
 
 function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose }) {
   const { type } = modal;
   const [search, setSearch] = useState("");
 
   const filtered = materials.filter((m) => {
-    const u = (m.unit || "").toLowerCase();
-    const matchUnit = type === "opaque"
-      ? (u.includes("m²") || u.includes("m2") || u.includes("m³") || u.includes("m3"))
-      : (u.includes("unit") || u.includes("pièce") || u.includes("piece") || u.includes("m²") || u.includes("m2"));
+    const cat = m.category || "Autre";
+    const matchType = type === "vitree" ? isFenetreCategory(cat) : !isFenetreCategory(cat);
     const matchSearch = !search.trim() || m.name.toLowerCase().includes(search.toLowerCase());
-    return matchUnit && matchSearch;
+    return matchType && matchSearch;
   });
 
   // Group by category, sorted per CATEGORY_ORDER then alphabetically
@@ -1191,10 +1900,22 @@ function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose
     return ia - ib;
   });
 
+  const [openCat, setOpenCat] = useState(null);
+
+  function toggleCat(cat) {
+    setOpenCat((prev) => (prev === cat ? null : cat));
+  }
+
   const selectedMat = materials.find((m) => m.id === form.material_id) || null;
 
   function selectMat(m) {
-    setForm((f) => ({ ...f, material_id: m.id }));
+    setForm((f) => ({
+      ...f,
+      material_id: m.id,
+      lambda_custom: "",
+      r_custom: "",
+      unite_autre: "",
+    }));
   }
 
   return (
@@ -1217,7 +1938,7 @@ function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose
           display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0,
         }}>
           <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>
-            {type === "opaque" ? "Composant opaque" : "Baie vitrée"}
+            {type === "vitree" ? "Baie vitrée" : "Composant opaque"}
           </div>
           <button type="button" onClick={onClose} style={{ ...tinyIconBtn, color: "#6b7280", padding: "5px" }}>
             <X size={16} />
@@ -1242,91 +1963,221 @@ function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose
               Aucun matériau compatible
             </div>
           )}
-          {sortedCats.map((cat) => (
-            <div key={cat} style={{ marginBottom: 12 }}>
-              <div style={{ ...sectionLabel, marginBottom: 6 }}>{cat}</div>
-              {groups[cat].map((m) => {
-                const isSelected = form.material_id === m.id;
-                const gwp = extractImpact(m.impacts, "gwp100", "gwp_100");
-                return (
-                  <div
-                    key={m.id}
-                    onClick={() => selectMat(m)}
-                    style={{
-                      padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 3,
-                      background: isSelected ? "#f5f3ff" : "transparent",
-                      border: `1.5px solid ${isSelected ? "#8b5cf6" : "transparent"}`,
-                      transition: "background 0.1s",
-                    }}
-                    onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#fafafa"; }}
-                    onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
-                  >
-                    <div style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>{m.name}</div>
-                    <div style={{ display: "flex", gap: 10, marginTop: 2, flexWrap: "wrap" }}>
-                      {m.valeur_r != null && (
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>λ/R {m.valeur_r}</span>
+          {sortedCats.map((cat) => {
+            const isOpen = openCat === cat;
+            return (
+              <div key={cat} style={{ marginBottom: 4 }}>
+                {/* Accordion header */}
+                <button
+                  type="button"
+                  onClick={() => toggleCat(cat)}
+                  style={{
+                    width: "100%", display: "flex", alignItems: "center",
+                    justifyContent: "space-between",
+                    padding: "7px 10px", borderRadius: 8,
+                    border: "1.5px solid #e5e7eb",
+                    background: isOpen ? "#f5f3ff" : "#f9fafb",
+                    cursor: "pointer",
+                    fontSize: 12, fontWeight: 700,
+                    color: isOpen ? "#6d28d9" : "#374151",
+                    textTransform: "uppercase", letterSpacing: "0.05em",
+                    marginBottom: isOpen ? 4 : 0,
+                  }}
+                >
+                  <span>{cat}</span>
+                  <span style={{ fontSize: 11, color: isOpen ? "#6d28d9" : "#9ca3af" }}>
+                    {isOpen ? "▼" : "▶"}
+                  </span>
+                </button>
+
+                {/* Accordion body */}
+                {isOpen && groups[cat].map((m) => {
+                  const isSelected = form.material_id === m.id;
+                  const gwp = extractImpact(m.impacts, "gwp100", "gwp_100");
+                  return (
+                    <div
+                      key={m.id}
+                      onClick={() => selectMat(m)}
+                      style={{
+                        padding: "8px 10px", borderRadius: 8, cursor: "pointer", marginBottom: 3,
+                        background: isSelected ? "#f5f3ff" : "transparent",
+                        border: `1.5px solid ${isSelected ? "#8b5cf6" : "transparent"}`,
+                        transition: "background 0.1s",
+                      }}
+                      onMouseEnter={(e) => { if (!isSelected) e.currentTarget.style.background = "#fafafa"; }}
+                      onMouseLeave={(e) => { if (!isSelected) e.currentTarget.style.background = "transparent"; }}
+                    >
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap" }}>
+                        <span style={{ fontWeight: 600, fontSize: 13, color: "#111827" }}>{m.name}</span>
+                        {m.valeur_r == null && (
+                          <span style={{ fontSize: 10, fontWeight: 700, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", borderRadius: 4, padding: "1px 5px" }}>
+                            R manquant
+                          </span>
+                        )}
+                      </div>
+                      {m.unit && (
+                        <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", marginTop: 1 }}>{m.unit}</div>
                       )}
-                      {m.prix != null && (
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>{m.prix} €/u</span>
-                      )}
-                      {gwp != null && (
-                        <span style={{ fontSize: 11, color: "#6b7280" }}>GWP {fmtDec(gwp, 1)} kg CO₂eq</span>
-                      )}
+                      <div style={{ display: "flex", gap: 10, marginTop: 2, flexWrap: "wrap" }}>
+                        {m.valeur_r != null && (
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>λ/R {m.valeur_r}</span>
+                        )}
+                        {m.prix != null && (
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>{m.prix} €/u</span>
+                        )}
+                        {gwp != null && (
+                          <span style={{ fontSize: 11, color: "#6b7280" }}>GWP {fmtDec(gwp, 1)} kg CO₂eq</span>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
-            </div>
-          ))}
+                  );
+                })}
+              </div>
+            );
+          })}
         </div>
 
         {/* Inline form — visible only when a material is selected */}
         {selectedMat && (
-          <div style={{
-            flexShrink: 0, borderTop: "1.5px solid #eef2f7",
-            background: "#fafafa", padding: "16px 20px",
-          }}>
-            <div style={{ fontWeight: 700, fontSize: 13, color: "#6d28d9", marginBottom: 12 }}>
-              {selectedMat.name}
-            </div>
-            {type === "opaque" && (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Field label="Épaisseur (cm)">
-                  <input type="number" min="0" step="any" value={form.epaisseur_cm}
-                    onChange={(e) => setForm((f) => ({ ...f, epaisseur_cm: e.target.value }))}
-                    style={inputStyle} placeholder="ex : 20" autoFocus />
-                </Field>
-                <Field label="Surface (m²) — optionnel">
-                  <input type="number" min="0" step="any" value={form.surface_m2}
-                    onChange={(e) => setForm((f) => ({ ...f, surface_m2: e.target.value }))}
-                    style={inputStyle} placeholder="= S paroi" />
-                </Field>
-              </div>
-            )}
-            {type === "vitree" && (
-              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-                <Field label="Quantité">
-                  <input type="number" min="1" value={form.quantite}
-                    onChange={(e) => setForm((f) => ({ ...f, quantite: e.target.value }))}
-                    style={inputStyle} autoFocus />
-                </Field>
-                <Field label="Surface vitrée (m²)">
-                  <input type="number" min="0" step="any" value={form.surface_vitree_m2}
-                    onChange={(e) => setForm((f) => ({ ...f, surface_vitree_m2: e.target.value }))}
-                    style={inputStyle} placeholder="ex : 1.5" />
-                </Field>
-              </div>
-            )}
-            <button
-              type="button" onClick={onConfirm}
-              style={{ ...primaryBtn, width: "100%", marginTop: 14, textAlign: "center" }}
-            >
-              Ajouter ce composant
-            </button>
-          </div>
+          <InlineCompForm
+            selectedMat={selectedMat}
+            form={form}
+            setForm={setForm}
+            onConfirm={onConfirm}
+          />
         )}
       </div>
     </>
+  );
+}
+
+// ─── InlineCompForm ───────────────────────────────────────────────────────────
+
+function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
+  const cat = selectedMat.category || "Autre";
+  const isFenetre = isFenetreCategory(cat);
+  const isOpaque = OPAQUE_CATS.has(cat) || (!isFenetre && cat !== "Autre");
+
+  // For opaque: R = ep / (lambda * 100)
+  const lambdaVal = form.lambda_custom !== "" ? parseFloat(form.lambda_custom) : parseFloat(selectedMat.valeur_r);
+  const epVal = parseFloat(form.epaisseur_cm);
+  const rCalc = isFinite(lambdaVal) && lambdaVal > 0 && isFinite(epVal) && epVal > 0
+    ? (epVal / 100) / lambdaVal
+    : null;
+  const lambdaIsCustom = form.lambda_custom !== "";
+
+  // For fenetre: R and U
+  const rFenVal = form.r_custom !== "" ? parseFloat(form.r_custom) : parseFloat(selectedMat.valeur_r);
+  const uFen = isFinite(rFenVal) && rFenVal > 0 ? (1 / rFenVal).toFixed(3) : "—";
+  const rFenIsCustom = form.r_custom !== "";
+  const rLibNull = selectedMat.valeur_r == null;
+
+  return (
+    <div style={{
+      flexShrink: 0, borderTop: "1.5px solid #eef2f7",
+      background: "#fafafa", padding: "16px 20px",
+    }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: "#6d28d9", marginBottom: 12 }}>
+        {selectedMat.name}
+      </div>
+
+      {isFenetre && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Field label="Quantité (unités)">
+            <input type="number" min="1" value={form.quantite}
+              onChange={(e) => setForm((f) => ({ ...f, quantite: e.target.value }))}
+              style={inputStyle} autoFocus />
+          </Field>
+          <Field label="Surface vitrée (m²)">
+            <input type="number" min="0" step="any" value={form.surface_vitree_m2}
+              onChange={(e) => setForm((f) => ({ ...f, surface_vitree_m2: e.target.value }))}
+              style={inputStyle} placeholder="ex : 1.5" />
+          </Field>
+          <Field label={
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              R global (m²K/W) {rFenIsCustom && <Pencil size={10} color="#f59e0b" />}
+            </span>
+          }>
+            <input type="number" min="0" step="any"
+              value={form.r_custom !== "" ? form.r_custom : (selectedMat.valeur_r ?? "")}
+              onChange={(e) => setForm((f) => ({ ...f, r_custom: e.target.value }))}
+              style={{ ...inputStyle, borderColor: rLibNull ? "#f97316" : undefined }}
+              placeholder={rLibNull ? "à renseigner" : "—"} />
+            {rLibNull && (
+              <span style={{ fontSize: 11, color: "#ea580c", marginTop: 2 }}>Valeur R manquante — à renseigner</span>
+            )}
+          </Field>
+          <Field label="U (W/m²K) — calculé">
+            <input type="text" readOnly value={uFen}
+              style={{ ...inputStyle, background: "#f3f4f6", color: "#6b7280" }} />
+          </Field>
+        </div>
+      )}
+
+      {isOpaque && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Field label="Épaisseur (cm)">
+            <input type="number" min="0" step="any" value={form.epaisseur_cm}
+              onChange={(e) => setForm((f) => ({ ...f, epaisseur_cm: e.target.value }))}
+              style={inputStyle} placeholder="ex : 20" autoFocus />
+          </Field>
+          <Field label={
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              λ (W/m·K) {lambdaIsCustom && <Pencil size={10} color="#f59e0b" />}
+            </span>
+          }>
+            <input type="number" min="0" step="any"
+              value={form.lambda_custom !== "" ? form.lambda_custom : (selectedMat.valeur_r ?? "")}
+              onChange={(e) => setForm((f) => ({ ...f, lambda_custom: e.target.value }))}
+              style={inputStyle} placeholder={selectedMat.valeur_r != null ? String(selectedMat.valeur_r) : "—"} />
+          </Field>
+          <Field label={
+            <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
+              R calculé (m²K/W)
+            </span>
+          }>
+            <input type="text" readOnly
+              value={rCalc != null ? fmtDec(rCalc) : (rLibNull ? "—" : "—")}
+              style={{
+                ...inputStyle,
+                background: "#f3f4f6",
+                color: rLibNull ? "#ea580c" : "#6b7280",
+                borderColor: rLibNull ? "#f97316" : undefined,
+              }} />
+            {rLibNull && (
+              <span style={{ fontSize: 11, color: "#ea580c", marginTop: 2 }}>Valeur R manquante — à renseigner</span>
+            )}
+          </Field>
+          <Field label="Surface (m²) — optionnel">
+            <input type="number" min="0" step="any" value={form.surface_m2}
+              onChange={(e) => setForm((f) => ({ ...f, surface_m2: e.target.value }))}
+              style={inputStyle} placeholder="= S paroi" />
+          </Field>
+        </div>
+      )}
+
+      {!isFenetre && !isOpaque && (
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <Field label="Quantité">
+            <input type="number" min="1" value={form.quantite}
+              onChange={(e) => setForm((f) => ({ ...f, quantite: e.target.value }))}
+              style={inputStyle} autoFocus />
+          </Field>
+          <Field label="Unité">
+            <input type="text" value={form.unite_autre}
+              onChange={(e) => setForm((f) => ({ ...f, unite_autre: e.target.value }))}
+              style={inputStyle} placeholder="ex : m², u, ml…" />
+          </Field>
+        </div>
+      )}
+
+      <button
+        type="button" onClick={onConfirm}
+        style={{ ...primaryBtn, width: "100%", marginTop: 14, textAlign: "center" }}
+      >
+        Ajouter ce composant
+      </button>
+    </div>
   );
 }
 
