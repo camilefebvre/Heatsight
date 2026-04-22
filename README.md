@@ -107,7 +107,7 @@ HeatSight/
 | `energy_accounting` | Comptabilité énergétique annuelle par projet — inclut `field_sources` (traçabilité IA) |
 | `audits` | Données audit par projet (énergies, facteurs d'influence, factures) — inclut `field_sources` |
 | `reports` | Données rapport par projet (type, thème, auditeur, compétences) — inclut `field_sources` |
-| `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec statut IA et données extraites |
+| `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec `file_hash` SHA-256, statut IA et données extraites |
 | `improvement_actions` | Actions du plan d'amélioration (référence AA1–AA9, investissement, économies, IRR, PBT…) |
 | `plan_amelioration_history` | Historique des pré-remplissages IA et uploads manuels AMUREBA |
 | `amelioration_actions` | Import AMUREBA flexible (JSONB) — une ligne par feuille AAx importée |
@@ -150,9 +150,15 @@ Les tables sont créées/mises à jour au **démarrage du serveur** via des inst
 - Upload de fichiers PDF, JPEG ou PNG associés à un projet
 - Types de documents : facture électricité / gaz / fuel, relevé compteur, contrat, autre
 - Fichiers stockés en **bytea PostgreSQL** (pas de filesystem — robuste sur Render)
+- **Hash SHA-256** calculé à l'upload et stocké (`file_hash`) — utilisé pour la déduplication
 - **Visualisation** : double-clic sur un document → modale plein écran
 - **Analyse IA individuelle** : bouton "🤖 Analyser" par document → appel Claude API
-- **Analyse IA globale** : "Tout analyser" → traite tous les documents en attente / en erreur
+- **Analyse IA globale** : "Tout analyser" → traite tous les documents en attente / en erreur **en parallèle** (max 3 appels Claude simultanés via sémaphore)
+- **Heuristique texte robuste** (`_has_useful_text`) : PDF natif exploitable si ≥ 200 chars, contient des chiffres (≥ 3 consécutifs), ≥ 90 % de caractères imprimables — sinon fallback vision automatique
+- **Timeout pdfplumber** : extraction texte abandonnée après 10 s → fallback vision
+- **Retry vision** : si l'extraction texte réussit mais que `consommation` ET `cout_total` sont null → relance automatique en mode vision (une seule fois)
+- **Déduplication par hash** : si un document identique (même SHA-256) a déjà été analysé, ses données sont copiées sans appel API
+- **Logging tokens** : chaque appel Claude imprime `[tokens] in=X out=Y doc_id=Z`
 - Données extraites : énergie, consommation, unité, année, coût total, fournisseur, période, adresse, client, auditeur…
 - Statuts IA : `pending` · `analyzed` · `error`
 - **Logique non-overwrite** : ne remplace jamais un champ déjà rempli (≠ 0)
@@ -439,6 +445,6 @@ Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_templa
 - **Template Excel audit** : limité à 2 lignes par section — un avertissement s'affiche si dépassé
 - **Indices IEE / AEE** : nécessitent la colonne "surface" du template Excel — s'affichent "—" si non renseignée
 - **Année d'audit** : fixée à `2023` dans le template Excel
-- **Analyse IA** : traitement synchrone sur `analyze-all` — peut prendre plusieurs secondes pour de nombreux documents
+- **Analyse IA** : `analyze-all` traite les documents en parallèle (max 3 simultanés) — un grand volume reste limité par le débit de l'API Anthropic
 - **Plan d'amélioration PEB / Autre / Mon template** : onglets prévus, pas encore implémentés
 - **LCA** : calcul des impacts basé sur la bibliothèque de matériaux — nécessite que les matériaux soient importés via l'admin ACV

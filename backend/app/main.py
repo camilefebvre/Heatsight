@@ -25,15 +25,20 @@ import base64
 import re
 import sys
 import traceback
+import hashlib
+import threading
+import concurrent.futures
+import asyncio
 import unicodedata
 import anthropic
+import pdfplumber
 from docxtpl import DocxTemplate
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from pydantic import BaseModel as _PydanticBase
-from .database import get_db
+from .database import get_db, SessionLocal
 from . import models, schemas
 from .amureba_mapper import AmurebaMappingService
 
@@ -59,6 +64,10 @@ def _safe_pivot_caches(self):
 
 
 _wb_reader.WorkbookParser.pivot_caches = property(_safe_pivot_caches)
+
+
+# Max 3 Claude calls in parallel for analyze-all
+_claude_semaphore = threading.Semaphore(3)
 
 
 # ==============================
@@ -440,6 +449,7 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefill_summary JSONB",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_excel BYTEA",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_at TEXT",
+        "ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS file_hash TEXT",
         # Nouvelle table historique (idempotent)
         """CREATE TABLE IF NOT EXISTS plan_amelioration_history (
             id TEXT PRIMARY KEY,
@@ -1002,18 +1012,6 @@ async def extract_document(
         )
 
     file_bytes = await file.read()
-    b64_data = base64.standard_b64encode(file_bytes).decode("utf-8")
-
-    if content_type == "application/pdf":
-        content_block = {
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": b64_data},
-        }
-    else:
-        content_block = {
-            "type": "image",
-            "source": {"type": "base64", "media_type": content_type, "data": b64_data},
-        }
 
     prompt = (
         "Tu es un assistant spécialisé en audit énergétique belge. "
@@ -1026,20 +1024,31 @@ async def extract_document(
         "Retourne UNIQUEMENT un JSON valide sans markdown."
     )
 
+    if content_type == "application/pdf":
+        pdf_text = _extract_pdf_text(file_bytes)
+        if _has_useful_text(pdf_text):
+            print(f"[extract-document] PDF natif ({len(pdf_text)} chars), envoi texte", flush=True)
+            messages = [{"role": "user", "content": f"{prompt}\n\nContenu du document :\n{pdf_text}"}]
+        else:
+            print("[extract-document] PDF scanné, fallback vision", flush=True)
+            b64_data = base64.standard_b64encode(file_bytes).decode("utf-8")
+            messages = [{"role": "user", "content": [
+                {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64_data}},
+                {"type": "text", "text": prompt},
+            ]}]
+    else:
+        b64_data = base64.standard_b64encode(file_bytes).decode("utf-8")
+        messages = [{"role": "user", "content": [
+            {"type": "image", "source": {"type": "base64", "media_type": content_type, "data": b64_data}},
+            {"type": "text", "text": prompt},
+        ]}]
+
     try:
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        content_block,
-                        {"type": "text", "text": prompt},
-                    ],
-                }
-            ],
+            messages=messages,
         )
         raw = message.content[0].text.strip()
         extracted = json.loads(raw)
@@ -1376,30 +1385,99 @@ def _doc_to_dict(doc: models.ProjectDocument) -> Dict[str, Any]:
     }
 
 
-def _analyze_one(doc: models.ProjectDocument) -> None:
-    """Analyse un document avec Claude et met à jour doc.status / doc.extracted_data (sans commit)."""
-    b64 = base64.standard_b64encode(doc.file_data).decode("utf-8")
-    if doc.file_type == "application/pdf":
-        content_block = {
-            "type": "document",
-            "source": {"type": "base64", "media_type": "application/pdf", "data": b64},
-        }
-    else:
-        content_block = {
-            "type": "image",
-            "source": {"type": "base64", "media_type": doc.file_type, "data": b64},
-        }
-    print(f"[analyze] envoi à Claude, media_type: {doc.file_type}, doc_id: {doc.id}", flush=True)
+def _extract_pdf_text(file_bytes: bytes) -> str:
+    """Tente d'extraire le texte natif d'un PDF avec pdfplumber (timeout 10s). Retourne '' si échec."""
+    def _do_extract():
+        with pdfplumber.open(io.BytesIO(file_bytes)) as pdf:
+            pages_text = [page.extract_text() or "" for page in pdf.pages]
+        return "\n".join(pages_text).strip()
+
     try:
-        client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        message = client.messages.create(
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+            future = ex.submit(_do_extract)
+            return future.result(timeout=10)
+    except concurrent.futures.TimeoutError:
+        print("[analyze] pdfplumber timeout (>10s), fallback vision", flush=True)
+        return ""
+    except Exception as e:
+        print(f"[analyze] pdfplumber échec: {e}", flush=True)
+        return ""
+
+
+def _has_useful_text(text: str) -> bool:
+    """Heuristique robuste : le texte extrait est-il exploitable ?"""
+    if len(text) < 200:
+        return False
+    if not re.search(r'\d{3,}', text):   # facture = toujours des chiffres
+        return False
+    printable = sum(1 for c in text if c.isprintable() or c == '\n')
+    if printable / len(text) < 0.90:     # trop de garbage chars → OCR raté
+        return False
+    return True
+
+
+def _analyze_one(doc: models.ProjectDocument, db_session=None) -> None:
+    """Analyse un document avec Claude et met à jour doc.status / doc.extracted_data (sans commit)."""
+
+    # --- Déduplication par hash ---
+    if doc.file_hash and db_session is not None:
+        duplicate = db_session.query(models.ProjectDocument).filter(
+            models.ProjectDocument.file_hash == doc.file_hash,
+            models.ProjectDocument.status == "analyzed",
+            models.ProjectDocument.id != doc.id,
+        ).first()
+        if duplicate:
+            print(f"[analyze] Déduplication hash ({doc.file_hash[:12]}…), copie depuis doc_id={duplicate.id}, doc_id={doc.id}", flush=True)
+            doc.extracted_data = duplicate.extracted_data
+            doc.status = "analyzed"
+            flag_modified(doc, "extracted_data")
+            return
+
+    client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    use_vision = False
+
+    if doc.file_type == "application/pdf":
+        pdf_text = _extract_pdf_text(doc.file_data)
+        if _has_useful_text(pdf_text):
+            print(f"[analyze] PDF natif ({len(pdf_text)} chars), envoi texte à Claude, doc_id: {doc.id}", flush=True)
+            messages = [{
+                "role": "user",
+                "content": f"{_ANALYZE_PROMPT}\n\nContenu du document :\n{pdf_text}",
+            }]
+        else:
+            print(f"[analyze] PDF scanné (texte natif insuffisant), fallback vision, doc_id: {doc.id}", flush=True)
+            use_vision = True
+            b64 = base64.standard_b64encode(doc.file_data).decode("utf-8")
+            messages = [{
+                "role": "user",
+                "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}},
+                    {"type": "text", "text": _ANALYZE_PROMPT},
+                ],
+            }]
+    else:
+        print(f"[analyze] image ({doc.file_type}), envoi vision à Claude, doc_id: {doc.id}", flush=True)
+        use_vision = True
+        b64 = base64.standard_b64encode(doc.file_data).decode("utf-8")
+        messages = [{
+            "role": "user",
+            "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": doc.file_type, "data": b64}},
+                {"type": "text", "text": _ANALYZE_PROMPT},
+            ],
+        }]
+
+    def _call_claude(msgs):
+        msg = client.messages.create(
             model="claude-sonnet-4-20250514",
             max_tokens=1024,
-            messages=[{
-                "role": "user",
-                "content": [content_block, {"type": "text", "text": _ANALYZE_PROMPT}],
-            }],
+            messages=msgs,
         )
+        print(f"[tokens] in={msg.usage.input_tokens} out={msg.usage.output_tokens} doc_id={doc.id}", flush=True)
+        return msg
+
+    try:
+        message = _call_claude(messages)
         print(f"[analyze] réponse brute: {message.content}", flush=True)
         raw = message.content[0].text.strip()
         if raw.startswith("```"):
@@ -1407,7 +1485,28 @@ def _analyze_one(doc: models.ProjectDocument) -> None:
             if raw.startswith("json"):
                 raw = raw[4:]
         raw = raw.strip()
-        doc.extracted_data = json.loads(raw)
+        extracted = json.loads(raw)
+
+        # --- Retry vision si champs critiques manquants après extraction texte ---
+        if not use_vision and extracted.get("consommation") is None and extracted.get("cout_total") is None:
+            print(f"[analyze] Retry vision (champs critiques manquants), doc_id: {doc.id}", flush=True)
+            b64 = base64.standard_b64encode(doc.file_data).decode("utf-8")
+            vision_messages = [{
+                "role": "user",
+                "content": [
+                    {"type": "document", "source": {"type": "base64", "media_type": "application/pdf", "data": b64}},
+                    {"type": "text", "text": _ANALYZE_PROMPT},
+                ],
+            }]
+            message2 = _call_claude(vision_messages)
+            raw2 = message2.content[0].text.strip()
+            if raw2.startswith("```"):
+                raw2 = raw2.split("```")[1]
+                if raw2.startswith("json"):
+                    raw2 = raw2[4:]
+            extracted = json.loads(raw2.strip())
+
+        doc.extracted_data = extracted
         doc.status = "analyzed"
         flag_modified(doc, "extracted_data")
     except json.JSONDecodeError as e:
@@ -1440,6 +1539,7 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="Type non supporté. Utilisez PDF, JPEG ou PNG.")
 
     file_bytes = await file.read()
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
     doc = models.ProjectDocument(
         id=str(uuid4()),
         project_id=project_id,
@@ -1449,6 +1549,7 @@ async def upload_document(
         file_type=content_type,
         doc_type=doc_type,
         file_data=file_bytes,
+        file_hash=file_hash,
         status="pending",
         created_at=datetime.now(timezone.utc).isoformat(),
     )
@@ -1503,8 +1604,33 @@ def delete_document(
     return {"status": "deleted", "id": doc_id}
 
 
+def _analyze_one_by_id(doc_id: str) -> Dict[str, Any]:
+    """Analyse un document dans sa propre session DB (pour parallélisation)."""
+    db = SessionLocal()
+    try:
+        doc = db.query(models.ProjectDocument).filter(
+            models.ProjectDocument.id == doc_id
+        ).first()
+        if not doc:
+            return {"id": doc_id, "status": "error", "error": "not found"}
+        _claude_semaphore.acquire()
+        try:
+            _analyze_one(doc, db_session=db)
+        finally:
+            _claude_semaphore.release()
+        db.commit()
+        db.refresh(doc)
+        return _doc_to_dict(doc)
+    except Exception as e:
+        db.rollback()
+        print(f"[analyze-all] ERREUR doc_id={doc_id}: {e}", flush=True)
+        return {"id": doc_id, "status": "error", "error": str(e)}
+    finally:
+        db.close()
+
+
 @app.post("/projects/{project_id}/documents/analyze-all")
-def analyze_all_documents(
+async def analyze_all_documents(
     project_id: str,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
@@ -1520,12 +1646,15 @@ def analyze_all_documents(
         models.ProjectDocument.project_id == project_id,
         models.ProjectDocument.status.in_(["pending", "error"]),
     ).all()
+    doc_ids = [d.id for d in docs]
 
-    for doc in docs:
-        _analyze_one(doc)
+    loop = asyncio.get_running_loop()
+    results = await asyncio.gather(*[
+        loop.run_in_executor(None, _analyze_one_by_id, doc_id)
+        for doc_id in doc_ids
+    ])
 
-    db.commit()
-    return {"analyzed": len(docs), "documents": [_doc_to_dict(d) for d in docs]}
+    return {"analyzed": len(doc_ids), "documents": list(results)}
 
 
 @app.get("/projects/{project_id}/documents/{doc_id}/file")
@@ -1573,7 +1702,7 @@ def analyze_document(
     if not doc:
         raise HTTPException(status_code=404, detail="Document not found")
 
-    _analyze_one(doc)
+    _analyze_one(doc, db_session=db)
     db.commit()
     db.refresh(doc)
     return _doc_to_dict(doc)

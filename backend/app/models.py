@@ -119,6 +119,7 @@ class ProjectDocument(Base):
     file_type = Column(String, nullable=False)       # mimetype
     doc_type = Column(String, nullable=False, default="autre")
     file_data = Column(LargeBinary, nullable=False)  # bytea
+    file_hash = Column(String, nullable=True)        # SHA-256 hex digest
     status = Column(String, nullable=False, default="pending")
     extracted_data = Column(JSONB, nullable=True)
     created_at = Column(String, nullable=False)
