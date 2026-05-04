@@ -118,6 +118,13 @@ HeatSight/
 
 Les tables sont créées/mises à jour au **démarrage du serveur** via des instructions `CREATE TABLE IF NOT EXISTS` et `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` dans `main.py`. Aucun outil de migration externe (pas d'Alembic en production).
 
+**Migrations ACV appliquées :**
+- `005_add_lca_tables` — tables `lca_materials` et `lca_projects`
+- `006_add_lca_material_fields` — champs de prix, valeur R et indicateurs EF v3.0
+- `007_add_lca_building_fields` — champs bâtiments, parois et composants
+- `008_add_flux_reference` — champ `flux_reference` sur `lca_materials`
+- `009_add_lca_optimisation_cache` — champ `optimisation_cache` sur `lca_projects`
+
 ---
 
 ## Fonctionnalités
@@ -211,12 +218,34 @@ Workflow en 3 étapes :
 
 ### Analyse du cycle de vie — ACV (`/projects/:id/lca`)
 - Saisie des bâtiments, parois et composants
-- Calcul des impacts environnementaux selon la méthode **EF v3.0** (22 indicateurs : GWP100, acidification, eutrophisation, toxicité humaine…)
+- Calcul des impacts environnementaux selon la méthode **EF v3.0** (19 indicateurs : GWP100, énergie non renouvelable, particulate matter, land use, écotoxicité…)
 - Bibliothèque de matériaux partagée entre tous les projets
 
 ### Bibliothèque ACV (`/lca/library`)
-- Consultation de tous les matériaux disponibles par catégorie (mur, toiture, plancher, fenêtre, fondation…)
-- Affichage des 22 indicateurs EF v3.0 par matériau
+- Module de gestion des matériaux accessible depuis la sidebar
+- Import de matériaux via fichiers **LCIA-results.xlsx** (Activity Browser, méthode EF v3.0, 19 indicateurs)
+- Consultation des 19 indicateurs par double-clic
+- Modification du prix / valeur R / flux_reference par matériau
+- Duplication et suppression de matériaux
+
+### Construction du bâtiment
+- Modélisation par parois avec composants unifiés (opaques et baies vitrées)
+- Champs épaisseur / λ / R liés et recalculés mutuellement
+- Coefficient d'efficacité par composant (0–100 %) pour modéliser la dégradation des matériaux existants — `U_effectif = U_théorique / (efficacité / 100)`
+- Calcul thermique basé sur degrés-jours (défaut 2 500 DJ Belgique)
+- 5 moyens de chauffage avec facteurs CO₂ et rendements belges
+- 2 widgets côte à côte : Construction + Impacts globaux
+- Persistance via `PATCH` avec debounce 800 ms et hash de configuration
+
+### Optimisation multi-critères
+- Moteur 100 % frontend combinant **CSP** (filtres durs : budget, ROI, GWP100 max, U max PEB) et **TOPSIS**
+- 5 profils de solutions : statu quo · économique · écologique · meilleur ROI · TOPSIS
+- Coûts différentiels (statu quo = 0 € de référence)
+- ROI calculé avec prix kWh selon moyen de chauffage : gaz = 0,12 · mazout = 0,11 · bois = 0,08 · PAC/électrique = 0,25 €/kWh
+- Matériaux de remplacement toujours à efficacité 100 % (neufs)
+- 3 indicateurs principaux (GWP100, énergie non renouvelable, particulate matter) + 2 complémentaires (land use, écotoxicité)
+- Système de hash pour reproductibilité des résultats entre sessions
+- Création automatique de bâtiments « Optimisation 1/2/3 » depuis les solutions sélectionnées
 
 ### Administration ACV (`/lca/admin`)
 - Import de matériaux depuis un fichier **LCIA-results.xlsx** (format EF v3.0)
@@ -319,6 +348,8 @@ Workflow en 3 étapes :
 | GET | `/projects/{id}/lca` | Récupère les données ACV du projet |
 | PATCH | `/projects/{id}/lca` | Sauvegarde les éléments ACV (legacy) |
 | PATCH | `/projects/{id}/lca/batiments` | Sauvegarde les bâtiments avec parois et composants |
+| PATCH | `/projects/{id}/lca/optimisation-cache` | Sauvegarde le cache des résultats d'optimisation |
+| GET | `/projects/{id}/audit/energie-chauffage` | Récupère le moyen de chauffage pour le calcul ROI |
 
 ### Agenda
 
