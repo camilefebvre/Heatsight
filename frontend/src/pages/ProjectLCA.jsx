@@ -14,6 +14,14 @@ const CHAUFFAGE_OPTIONS = [
   { id: "electrique", label: "Électrique direct", co2: 0.056, rendement: 1.0  },
 ];
 
+const PRIX_KWH_BY_CHAUFFAGE = {
+  gaz:        0.12,
+  mazout:     0.11,
+  bois:       0.08,
+  pac:        0.25,
+  electrique: 0.25,
+};
+
 const PAROI_TYPES = ["mur", "toiture", "plancher", "cloison"];
 const PAROI_TYPE_LABELS = {
   mur:      "Mur extérieur",
@@ -38,6 +46,14 @@ function fmt(v) {
 function fmtDec(v, dec = 2) {
   if (v == null) return "—";
   return v.toFixed(dec);
+}
+
+function fmtSmall(v) {
+  if (v == null) return "—";
+  if (v === 0) return "0";
+  if (Math.abs(v) < 0.001) return v.toExponential(2);
+  if (Math.abs(v) < 1) return v.toPrecision(3);
+  return fmt(v);
 }
 
 function extractImpact(impacts, ...keys) {
@@ -77,10 +93,10 @@ function computeConfigHash(bat, materials) {
   const changeables = [];
   for (const paroi of bat.parois) {
     for (const co of paroi.composantsOpaques) {
-      if (!co.is_fixed) changeables.push({ id: co.material_id, q: String(co.surface_m2 ?? "") });
+      if (!co.is_fixed) changeables.push({ id: co.material_id, q: String(co.surface_m2 ?? ""), e: String(co.efficacite ?? 100) });
     }
     for (const bv of paroi.baiesVitrees) {
-      if (!bv.is_fixed) changeables.push({ id: bv.material_id, q: String(bv.surface_vitree_m2 ?? "") });
+      if (!bv.is_fixed) changeables.push({ id: bv.material_id, q: String(bv.surface_vitree_m2 ?? ""), e: String(bv.efficacite ?? 100) });
     }
   }
   changeables.sort((a, b) => a.id.localeCompare(b.id));
@@ -126,7 +142,10 @@ function buildCombinations(bat, materials) {
         r_local: "",
         prix_unit: parseFloat(m.prix) || 0,
         gwp100_unit: extractImpact(m.impacts, "gwp100", "gwp_100") || 0,
+        pm_unit: extractImpact(m.impacts, "particulate_matter") || 0,
+        lu_unit: extractImpact(m.impacts, "land_use") || 0,
         impacts: m.impacts || {},
+        efficacite: 100,
       }));
 
       if (candidates.length > 0) {
@@ -154,7 +173,10 @@ function buildCombinations(bat, materials) {
         valeur_r: parseFloat(m.valeur_r) || 0,
         prix_unit: parseFloat(m.prix) || 0,
         gwp100_unit: extractImpact(m.impacts, "gwp100", "gwp_100") || 0,
+        pm_unit: extractImpact(m.impacts, "particulate_matter") || 0,
+        lu_unit: extractImpact(m.impacts, "land_use") || 0,
         impacts: m.impacts || {},
+        efficacite: 100,
       }));
 
       if (candidates.length > 0) {
@@ -179,7 +201,7 @@ function buildCombinations(bat, materials) {
 
   const combos = [];
 
-  function enumerate(idx, curBat, choices) {
+  function enumerate(idx, curBat, choices, accPm, accLu) {
     if (idx === slots.length) {
       const st = calcBatimentStats(curBat);
       combos.push({
@@ -187,12 +209,17 @@ function buildCombinations(bat, materials) {
         gwp:        st.total_gwp  ?? 0,
         energy_kwh: st.energy_kwh ?? null,
         dep_wk:     st.dep_wk     ?? null,
+        pm:         accPm,
+        lu:         accLu,
         choices,
       });
       return;
     }
     const slot = slots[idx];
     for (const cand of slot.candidates) {
+      const qty = slot.type === "opaque"
+        ? (parseFloat(cand.surface_m2) || 0)
+        : (parseFloat(cand.quantite)   || 1);
       enumerate(
         idx + 1,
         applyChoice(curBat, slot, cand),
@@ -201,24 +228,47 @@ function buildCombinations(bat, materials) {
           material_id: cand.material_id, material_name: cand.material_name,
           prix_unit: cand.prix_unit,
         }],
+        accPm + (cand.pm_unit || 0) * qty,
+        accLu + (cand.lu_unit || 0) * qty,
       );
     }
   }
 
-  enumerate(0, bat, []);
+  enumerate(0, bat, [], 0, 0);
 
   // Fix 1 : tri déterministe — coût croissant, puis GWP croissant
   combos.sort((a, b) => a.cost !== b.cost ? a.cost - b.cost : a.gwp - b.gwp);
   return combos.slice(0, MAX_COMBOS);
 }
 
-function computePhares(combos, bat) {
+function computePhares(combos, bat, materials) {
   const sqSt     = calcBatimentStats(bat);
   const sqCost   = sqSt.total_cout   ?? 0;
   const sqGwp    = sqSt.total_gwp    ?? 0;
   const sqEnergy = sqSt.energy_kwh   ?? null;
 
-  const statuQuo = { cost: sqCost, gwp: sqGwp, energy_kwh: sqEnergy, choices: [] };
+  // PM et LU du statu quo : lookup matériau courant pour chaque composant changeable
+  let sqPm = 0, sqLu = 0;
+  for (const paroi of bat.parois) {
+    for (const co of paroi.composantsOpaques) {
+      if (co.is_fixed) continue;
+      const mat = (materials || []).find(m => m.id === co.material_id);
+      if (!mat) continue;
+      const s = parseFloat(co.surface_m2) || 0;
+      sqPm += (extractImpact(mat.impacts, "particulate_matter") || 0) * s;
+      sqLu += (extractImpact(mat.impacts, "land_use") || 0) * s;
+    }
+    for (const bv of paroi.baiesVitrees) {
+      if (bv.is_fixed) continue;
+      const mat = (materials || []).find(m => m.id === bv.material_id);
+      if (!mat) continue;
+      const qty = parseFloat(bv.quantite) || 1;
+      sqPm += (extractImpact(mat.impacts, "particulate_matter") || 0) * qty;
+      sqLu += (extractImpact(mat.impacts, "land_use") || 0) * qty;
+    }
+  }
+
+  const statuQuo = { cost: sqCost, gwp: sqGwp, energy_kwh: sqEnergy, pm: sqPm, lu: sqLu, choices: [] };
 
   if (combos.length === 0) {
     return { statuQuo, economique: null, ecologique: null, roi: null, topsis: null };
@@ -241,21 +291,27 @@ function computePhares(combos, bat) {
     }
   }
 
-  // TOPSIS 3 critères : coût, GWP, énergie (tous à minimiser)
+  // TOPSIS 5 critères : coût(×1), GWP(×1), énergie(×1), PM(×0.5), LU(×0.5)
   const valid = combos.filter(c => c.energy_kwh != null);
   let topsis = null;
   if (valid.length > 1) {
-    const vals = k => valid.map(c => c[k]);
+    const vals = k => valid.map(c => c[k] ?? 0);
     const mn = k => Math.min(...vals(k));
     const mx = k => Math.max(...vals(k));
     const [minC, maxC] = [mn("cost"), mx("cost")];
     const [minG, maxG] = [mn("gwp"),  mx("gwp")];
     const [minE, maxE] = [mn("energy_kwh"), mx("energy_kwh")];
+    const [minP, maxP] = [mn("pm"), mx("pm")];
+    const [minL, maxL] = [mn("lu"), mx("lu")];
     const n = (v, lo, hi) => hi === lo ? 0 : (v - lo) / (hi - lo);
     const scored = valid.map(c => {
-      const nc = n(c.cost, minC, maxC), ng = n(c.gwp, minG, maxG), ne = n(c.energy_kwh, minE, maxE);
-      const dI = Math.sqrt(nc*nc + ng*ng + ne*ne);
-      const dA = Math.sqrt((1-nc)**2 + (1-ng)**2 + (1-ne)**2);
+      const nc = n(c.cost,       minC, maxC);
+      const ng = n(c.gwp,        minG, maxG);
+      const ne = n(c.energy_kwh, minE, maxE);
+      const np = n(c.pm ?? 0,    minP, maxP) * 0.5;
+      const nl = n(c.lu ?? 0,    minL, maxL) * 0.5;
+      const dI = Math.sqrt(nc*nc + ng*ng + ne*ne + np*np + nl*nl);
+      const dA = Math.sqrt((1-nc)**2 + (1-ng)**2 + (1-ne)**2 + (0.5-np)**2 + (0.5-nl)**2);
       return { c, score: (dI + dA) > 0 ? dA / (dI + dA) : 0 };
     });
     scored.sort((a, b) => b.score - a.score);
@@ -279,6 +335,14 @@ function getComposantR(comp) {
   return null;
 }
 
+// R_eff = R_theorique × (eff/100) → U_eff = U_th / (eff/100), dégradation réelle
+function getComposantREffectif(comp) {
+  const r = getComposantR(comp);
+  if (r == null) return null;
+  const eff = (parseFloat(comp.efficacite) || 100) / 100;
+  return r * eff;
+}
+
 function calcParoiStats(paroi) {
   const S_tot = parseFloat(paroi.surface_totale);
   if (!isFinite(S_tot) || S_tot <= 0) return null;
@@ -291,9 +355,10 @@ function calcParoiStats(paroi) {
     const sv = parseFloat(bv.surface_vitree_m2);
     const vr = parseFloat(bv.valeur_r);
     const qty = parseFloat(bv.quantite) || 1;
+    const bvEff = (parseFloat(bv.efficacite) || 100) / 100;
     if (isFinite(sv) && sv > 0) {
       s_vitree += sv;
-      if (isFinite(vr) && vr > 0) ua_vitree += sv * (1 / vr);
+      if (isFinite(vr) && vr > 0) ua_vitree += sv * (1 / vr) / bvEff;
     }
     cout_vitree += (parseFloat(bv.prix_unit) || 0) * qty;
     gwp_vitree += (parseFloat(bv.gwp100_unit) || 0) * qty;
@@ -306,7 +371,7 @@ function calcParoiStats(paroi) {
   let cout_opaque = 0;
   let gwp_opaque = 0;
   for (const co of paroi.composantsOpaques) {
-    const r = getComposantR(co);
+    const r = getComposantREffectif(co);
     if (r == null) { hasAllR = false; } else { r_total += r; }
     const s = parseFloat(co.surface_m2) || s_opaque;
     cout_opaque += (parseFloat(co.prix_unit) || 0) * s;
@@ -550,6 +615,7 @@ export default function ProjectLCA() {
         quantite: parseFloat(compForm.quantite) || 1,
         surface_vitree_m2: compForm.surface_vitree_m2,
         is_fixed: false,
+        efficacite: 100,
         prix_unit: parseFloat(mat.prix) || 0,
         gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
         impacts: mat.impacts || {},
@@ -573,6 +639,7 @@ export default function ProjectLCA() {
         quantite: cat === "Autre" ? (parseFloat(compForm.quantite) || 1) : undefined,
         unite_autre: cat === "Autre" ? compForm.unite_autre : undefined,
         is_fixed: false,
+        efficacite: 100,
         prix_unit: parseFloat(mat.prix) || 0,
         gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
         impacts: mat.impacts || {},
@@ -1055,6 +1122,7 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
               <th style={th}>λ</th>
               <th style={th}>R</th>
               <th style={th}>S (m²)</th>
+              <th style={th}>Eff. %</th>
               <th style={{ ...th, textAlign: "center" }}>Fixe</th>
               <th style={th}></th>
             </tr>
@@ -1062,6 +1130,9 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
           <tbody>
             {paroi.composantsOpaques.map((co) => {
               const r = getComposantR(co);
+              const eff = parseFloat(co.efficacite) || 100;
+              const rEff = r != null ? r * (eff / 100) : null;
+              const uEff = rEff != null && rEff > 0 ? 1 / rEff : null;
               const lambdaIsCustom = co.lambda_local !== "" && co.lambda_local != null;
               const rIsCustom = co.r_local !== "" && co.r_local != null;
               return (
@@ -1093,6 +1164,15 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
                     <input type="number" min="0" step="any" value={co.surface_m2}
                       onChange={(e) => updateComposant(co.id, "surface_m2", e.target.value)}
                       style={miniInput} placeholder={stats ? fmtDec(stats.s_opaque, 1) : "—"} />
+                  </td>
+                  <td style={td}>
+                    <input type="number" min="0" max="100" step="1"
+                      value={co.efficacite ?? 100}
+                      onChange={(e) => updateComposant(co.id, "efficacite", Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                      style={{ ...miniInput, width: 40 }} />
+                    {eff < 100 && uEff != null && (
+                      <div style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>U: {fmtDec(uEff)}</div>
+                    )}
                   </td>
                   <td style={{ ...td, textAlign: "center" }}>
                     <input type="checkbox" checked={!!co.is_fixed}
@@ -1129,37 +1209,52 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
               <th style={th}>R (m²K/W)</th>
               <th style={th}>Qté</th>
               <th style={th}>S vitrée (m²)</th>
+              <th style={th}>Eff. %</th>
               <th style={{ ...th, textAlign: "center" }}>Fixe</th>
               <th style={th}></th>
             </tr>
           </thead>
           <tbody>
-            {paroi.baiesVitrees.map((bv) => (
-              <tr key={bv.id} style={{ borderTop: "1px solid #f3f4f6" }}>
-                <td style={td}>{bv.material_name}</td>
-                <td style={td}>{fmtDec(bv.valeur_r)}</td>
-                <td style={td}>
-                  <input type="number" min="1" value={bv.quantite}
-                    onChange={(e) => updateBaieVitree(bv.id, "quantite", e.target.value)}
-                    style={miniInput} />
-                </td>
-                <td style={td}>
-                  <input type="number" min="0" step="any" value={bv.surface_vitree_m2}
-                    onChange={(e) => updateBaieVitree(bv.id, "surface_vitree_m2", e.target.value)}
-                    style={miniInput} placeholder="m²" />
-                </td>
-                <td style={{ ...td, textAlign: "center" }}>
-                  <input type="checkbox" checked={!!bv.is_fixed}
-                    onChange={(e) => updateBaieVitree(bv.id, "is_fixed", e.target.checked)}
-                    title="Composant fixe (non modifiable)" />
-                </td>
-                <td style={td}>
-                  <button type="button" onClick={() => removeComposant(bv.id, "vitree")} style={tinyIconBtn}>
-                    <Trash2 size={11} />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {paroi.baiesVitrees.map((bv) => {
+              const bvEff = parseFloat(bv.efficacite) || 100;
+              const vr = parseFloat(bv.valeur_r);
+              const uEff = isFinite(vr) && vr > 0 ? (1 / vr) / (bvEff / 100) : null;
+              return (
+                <tr key={bv.id} style={{ borderTop: "1px solid #f3f4f6" }}>
+                  <td style={td}>{bv.material_name}</td>
+                  <td style={td}>{fmtDec(bv.valeur_r)}</td>
+                  <td style={td}>
+                    <input type="number" min="1" value={bv.quantite}
+                      onChange={(e) => updateBaieVitree(bv.id, "quantite", e.target.value)}
+                      style={miniInput} />
+                  </td>
+                  <td style={td}>
+                    <input type="number" min="0" step="any" value={bv.surface_vitree_m2}
+                      onChange={(e) => updateBaieVitree(bv.id, "surface_vitree_m2", e.target.value)}
+                      style={miniInput} placeholder="m²" />
+                  </td>
+                  <td style={td}>
+                    <input type="number" min="0" max="100" step="1"
+                      value={bv.efficacite ?? 100}
+                      onChange={(e) => updateBaieVitree(bv.id, "efficacite", Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)))}
+                      style={{ ...miniInput, width: 40 }} />
+                    {bvEff < 100 && uEff != null && (
+                      <div style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>U: {fmtDec(uEff)}</div>
+                    )}
+                  </td>
+                  <td style={{ ...td, textAlign: "center" }}>
+                    <input type="checkbox" checked={!!bv.is_fixed}
+                      onChange={(e) => updateBaieVitree(bv.id, "is_fixed", e.target.checked)}
+                      title="Composant fixe (non modifiable)" />
+                  </td>
+                  <td style={td}>
+                    <button type="button" onClick={() => removeComposant(bv.id, "vitree")} style={tinyIconBtn}>
+                      <Trash2 size={11} />
+                    </button>
+                  </td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       )}
@@ -1397,6 +1492,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   const [computedAt, setComputedAt] = useState(null);
   const [isStale, setIsStale] = useState(false);
   const [expandedProfile, setExpandedProfile] = useState(null);
+  const [prixKwh, setPrixKwh] = useState(PRIX_KWH_BY_CHAUFFAGE[bat.moyen_chauffage] ?? 0.20);
 
   useEffect(() => {
     if (materials.length === 0) return;
@@ -1415,7 +1511,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     setPhase("computing");
     setTimeout(() => {
       const combos = buildCombinations(bat, materials);
-      const result = computePhares(combos, bat);
+      const result = computePhares(combos, bat, materials);
       const now = new Date().toISOString();
       setPhares(result);
       setComputedAt(now);
@@ -1436,15 +1532,13 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     catch { return iso; }
   }
 
-  const PRIX_KWH = 0.20;
-
   function calcROI(sol, sq) {
     const surCout = sol.cost - sq.cost;
     const econKwh = (sq.energy_kwh ?? 0) - (sol.energy_kwh ?? 0);
-    if (surCout > 0 && econKwh > 0)  return { type: "years",     value:   surCout / (econKwh * PRIX_KWH) };
-    if (surCout <= 0 && econKwh > 0) return { type: "immediate"                                           };
-    if (surCout <= 0 && econKwh <= 0) return { type: "cheaper",  savings: -surCout                        };
-    /* surCout > 0 && econKwh <= 0 */  return { type: "infinite"                                          };
+    if (surCout > 0 && econKwh > 0)   return { type: "years",    value: surCout / (econKwh * prixKwh) };
+    if (surCout <= 0 && econKwh > 0)  return { type: "immediate"                                       };
+    if (surCout <= 0 && econKwh <= 0) return { type: "cheaper"                                         };
+    return { type: "infinite" };
   }
 
   function renderROICell(roi) {
@@ -1452,17 +1546,12 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     if (roi.type === "years") {
       const v = roi.value;
       const c = v < 15 ? "#059669" : v <= 25 ? "#d97706" : "#dc2626";
-      return <span style={{ fontWeight: 700, color: c }}>{fmtDec(v, 1)}</span>;
+      return <span style={{ fontWeight: 700, color: c }}>{fmtDec(v, 1)} ans</span>;
     }
     if (roi.type === "immediate")
-      return <span style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>✓ Immédiat + gains</span>;
+      return <span style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>Économie construction + gains</span>;
     if (roi.type === "cheaper")
-      return (
-        <div>
-          <div style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>✓ Moins cher</div>
-          {roi.savings > 0 && <div style={{ fontSize: 10, color: "#059669" }}>−{fmt(roi.savings)} €</div>}
-        </div>
-      );
+      return <span style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>Économie construction</span>;
     return <span style={{ fontWeight: 700, color: "#dc2626" }}>∞</span>;
   }
 
@@ -1482,13 +1571,29 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
         if (co.is_fixed) continue;
         const choice = sol.choices?.find(c => c.paroiId === paroi.id && c.compId === co.id);
         const changed = !!(choice && choice.material_id !== co.material_id);
-        rows.push({ original: co.material_name, chosen: changed ? choice.material_name : null, changed });
+        const matId = changed ? choice.material_id : co.material_id;
+        const mat = materials.find(m => m.id === matId);
+        const s = parseFloat(co.surface_m2) || 0;
+        rows.push({
+          original: co.material_name, chosen: changed ? choice.material_name : null, changed,
+          pm: mat ? (extractImpact(mat.impacts, "particulate_matter") || 0) * s : null,
+          lu: mat ? (extractImpact(mat.impacts, "land_use") || 0) * s : null,
+          originalEfficacite: parseFloat(co.efficacite) || 100,
+        });
       }
       for (const bv of paroi.baiesVitrees) {
         if (bv.is_fixed) continue;
         const choice = sol.choices?.find(c => c.paroiId === paroi.id && c.compId === bv.id);
         const changed = !!(choice && choice.material_id !== bv.material_id);
-        rows.push({ original: bv.material_name, chosen: changed ? choice.material_name : null, changed });
+        const matId = changed ? choice.material_id : bv.material_id;
+        const mat = materials.find(m => m.id === matId);
+        const qty = parseFloat(bv.quantite) || 1;
+        rows.push({
+          original: bv.material_name, chosen: changed ? choice.material_name : null, changed,
+          pm: mat ? (extractImpact(mat.impacts, "particulate_matter") || 0) * qty : null,
+          lu: mat ? (extractImpact(mat.impacts, "land_use") || 0) * qty : null,
+          originalEfficacite: parseFloat(bv.efficacite) || 100,
+        });
       }
       if (rows.length > 0) groups.push({ paroiNom: paroi.nom, rows });
     }
@@ -1551,6 +1656,22 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     { key: "roi",        label: "Meilleur ROI", color: "#2563eb", icon: "↩" },
     { key: "topsis",     label: "TOPSIS",       color: "#6d28d9", icon: "★" },
   ];
+
+  const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsis"];
+  const noPmData = phares == null || ALL_PHARE_KEYS.every(k => !(phares[k]?.pm > 0));
+  const noLuData = phares == null || ALL_PHARE_KEYS.every(k => !(phares[k]?.lu > 0));
+
+  const allDominatedOrEqual = phares != null && phares.statuQuo != null &&
+    ["economique", "ecologique", "roi", "topsis"].every(k => {
+      const s = phares[k];
+      if (!s) return true;
+      const sq = phares.statuQuo;
+      return (s.cost == null || sq.cost == null || s.cost >= sq.cost) &&
+             (s.gwp  == null || sq.gwp  == null || s.gwp  >= sq.gwp ) &&
+             (s.energy_kwh == null || sq.energy_kwh == null || s.energy_kwh >= sq.energy_kwh) &&
+             (s.pm == null || sq.pm == null || sq.pm === 0 || s.pm >= sq.pm) &&
+             (s.lu == null || sq.lu == null || sq.lu === 0 || s.lu >= sq.lu);
+    });
 
   return (
     <>
@@ -1616,26 +1737,54 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 </div>
               )}
 
+              {allDominatedOrEqual && (
+                <div style={{ textAlign: "center", padding: "16px 20px", marginBottom: 14, background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10 }}>
+                  <div style={{ fontSize: 16, marginBottom: 6 }}>✓</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#166534", marginBottom: 4 }}>
+                    Votre configuration actuelle est déjà optimale
+                  </div>
+                  <div style={{ fontSize: 12, color: "#15803d" }}>
+                    Aucune alternative disponible dans la bibliothèque ne propose un meilleur compromis coût / impact environnemental / consommation énergétique.
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+                <span style={{ fontSize: 12, color: "#6b7280" }}>Prix énergie (€/kWh)</span>
+                <input
+                  type="number" step="0.01" min="0"
+                  value={prixKwh}
+                  onChange={(e) => setPrixKwh(parseFloat(e.target.value) || 0)}
+                  style={{ width: 70, fontSize: 12, padding: "3px 6px", border: "1px solid #d1d5db", borderRadius: 4 }}
+                />
+                <span style={{ fontSize: 11, color: "#9ca3af" }}>
+                  ({CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage)?.label ?? bat.moyen_chauffage})
+                </span>
+              </div>
+
               <div style={{ overflowX: "auto" }}>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
                   <thead>
                     <tr style={{ color: "#9ca3af", fontWeight: 600, borderBottom: "1.5px solid #f3f4f6" }}>
                       <th style={{ ...th, minWidth: 110 }}>Profil</th>
-                      <th style={{ ...th, textAlign: "right" }}>Coût (€)</th>
+                      <th style={{ ...th, textAlign: "right" }}>Coût différentiel (€)</th>
                       <th style={{ ...th, textAlign: "right" }}>GWP100 (kg)</th>
                       <th style={{ ...th, textAlign: "right" }}>Énergie (kWh/an)</th>
                       <th style={{ ...th, textAlign: "right" }}>Économies (kWh)</th>
                       <th style={{ ...th, textAlign: "right" }}>ROI (ans)</th>
+                      <th style={{ ...th, textAlign: "right" }} title="Particulate Matter — EN 15804+A2">Particules (PM)</th>
+                      <th style={{ ...th, textAlign: "right" }} title="Land Use — EN 15804+A2 (Pt)">Terres (Pt)</th>
                       <th style={th}></th>
                     </tr>
                   </thead>
                   <tbody>
                     {PHARE_DEFS.map(({ key, label, color, icon }) => {
+                      if (allDominatedOrEqual && key !== "statuQuo") return null;
                       const sol = phares[key];
                       const isExpanded = expandedProfile === key;
                       if (!sol) return (
                         <tr key={key} style={{ borderTop: "1px solid #f3f4f6", opacity: 0.4 }}>
-                          <td style={td} colSpan={7}>
+                          <td style={td} colSpan={9}>
                             <span style={{ fontWeight: 600, color: "#9ca3af" }}>{icon} {label}</span>
                             <span style={{ color: "#d1d5db", marginLeft: 8, fontSize: 11 }}>Non disponible</span>
                           </td>
@@ -1664,7 +1813,9 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                               </span>
                               {icon} {label}
                             </td>
-                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: key === "statuQuo" ? "#374151" : cmpColor(sol.cost, sq.cost) }}>{fmt(sol.cost)}</td>
+                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: key === "statuQuo" ? "#374151" : cmpColor(sol.cost, sq.cost) }}>
+                              {(() => { const d = sol.cost - sq.cost; return (d > 0 ? "+" : "") + fmt(d) + " €"; })()}
+                            </td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.gwp, sq.gwp) }}>{fmt(sol.gwp)}</td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.energy_kwh, sq.energy_kwh) }}>{sol.energy_kwh != null ? fmt(sol.energy_kwh) : "—"}</td>
                             <td style={{ ...td, textAlign: "right", fontWeight: 600, color: econKwh != null && econKwh > 0 ? "#059669" : (econKwh != null && econKwh < 0 ? "#dc2626" : "#9ca3af") }}>
@@ -1672,6 +1823,16 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                             </td>
                             <td style={{ ...td, textAlign: "right" }}>
                               {renderROICell(roi)}
+                            </td>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.pm, phares.statuQuo?.pm) }}>
+                              {noPmData
+                                ? <span style={{ color: "#d1d5db", fontSize: 10 }}>n/d</span>
+                                : fmtSmall(sol.pm ?? null)}
+                            </td>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.lu, phares.statuQuo?.lu) }}>
+                              {noLuData
+                                ? <span style={{ color: "#d1d5db", fontSize: 10 }}>n/d</span>
+                                : fmtSmall(sol.lu ?? null)}
                             </td>
                             <td style={td}>
                               <button
@@ -1685,7 +1846,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                           </tr>
                           {isExpanded && (
                             <tr style={{ background: color + "08" }}>
-                              <td colSpan={7} style={{ padding: "10px 16px 14px" }}>
+                              <td colSpan={9} style={{ padding: "10px 16px 14px" }}>
                                 {key !== "statuQuo" && (() => {
                                   const warnings = [];
                                   if (sol.gwp != null && sq.gwp != null && sol.gwp > sq.gwp)
@@ -1715,15 +1876,33 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                                         <div style={{ fontSize: 11, fontWeight: 700, color: "#374151", marginBottom: 4 }}>{group.paroiNom}</div>
                                         <div style={{ display: "flex", flexDirection: "column", gap: 3, paddingLeft: 10 }}>
                                           {group.rows.map((row, ri) => (
-                                            <div key={ri} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-                                              {row.changed ? (
-                                                <>
-                                                  <span style={{ color: "#9ca3af", textDecoration: "line-through" }}>{row.original}</span>
-                                                  <span style={{ color: "#6b7280" }}>→</span>
-                                                  <span style={{ fontWeight: 700, color, background: color + "18", padding: "1px 6px", borderRadius: 4 }}>{row.chosen}</span>
-                                                </>
-                                              ) : (
-                                                <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{row.original} — inchangé</span>
+                                            <div key={ri} style={{ display: "flex", flexDirection: "column", gap: 2, marginBottom: 4 }}>
+                                              <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+                                                {row.changed ? (
+                                                  <>
+                                                    <span style={{ color: "#9ca3af", textDecoration: "line-through" }}>{row.original}</span>
+                                                    <span style={{ color: "#6b7280" }}>→</span>
+                                                    <span style={{ fontWeight: 700, color, background: color + "18", padding: "1px 6px", borderRadius: 4 }}>{row.chosen}</span>
+                                                  </>
+                                                ) : (
+                                                  <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{row.original} — inchangé</span>
+                                                )}
+                                              </div>
+                                              <div style={{ fontSize: 10, color: row.changed ? "#059669" : (row.originalEfficacite < 100 ? "#dc2626" : "#9ca3af"), paddingLeft: 2 }}>
+                                                {row.changed
+                                                  ? <>Remplacement — efficacité 100% (neuf){row.originalEfficacite < 100 && <span style={{ color: "#d97706", marginLeft: 4 }}>était {row.originalEfficacite}%</span>}</>
+                                                  : (row.originalEfficacite < 100 ? `Efficacité actuelle : ${row.originalEfficacite}%` : "Efficacité : 100%")
+                                                }
+                                              </div>
+                                              {(row.pm != null || row.lu != null) && (
+                                                <div style={{ display: "flex", gap: 12, paddingLeft: 10, fontSize: 10, color: "#6b7280" }}>
+                                                  {row.pm != null && !noPmData && (
+                                                    <span>PM : <strong>{fmtSmall(row.pm)}</strong></span>
+                                                  )}
+                                                  {row.lu != null && !noLuData && (
+                                                    <span>LU : <strong>{fmtSmall(row.lu)}</strong> Pt</span>
+                                                  )}
+                                                </div>
                                               )}
                                             </div>
                                           ))}
@@ -1741,6 +1920,15 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                   </tbody>
                 </table>
               </div>
+              {(noPmData || noLuData) && (
+                <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                  {noPmData && noLuData
+                    ? "ℹ️ Données PM et Land Use insuffisantes dans la bibliothèque — indicateurs non disponibles."
+                    : noPmData
+                      ? "ℹ️ Données Particulate Matter (PM) insuffisantes dans la bibliothèque."
+                      : "ℹ️ Données Land Use insuffisantes dans la bibliothèque."}
+                </div>
+              )}
             </>
           )}
         </div>

@@ -8,7 +8,9 @@
       "Bash(PGPASSWORD=meSQLl11 psql:*)",
       "Bash(python -c ':*)",
       "Bash(curl -s \"http://127.0.0.1:8000/lca/materials\")",
-      "Bash(curl:*)"
+      "Bash(curl:*)",
+      "Bash(npx acorn *)",
+      "Bash(npx vite *)"
     ]
   }
 }
