@@ -1,6 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download, Upload, Sparkles, RefreshCw, Trash2, Clock, X, CheckSquare, Square } from "lucide-react";
+import {
+  Download, Upload, Sparkles, RefreshCw, Trash2,
+  Clock, X, CheckSquare, Square,
+  AlertTriangle, Info,
+} from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 
@@ -14,17 +18,14 @@ const TYPE_LABEL = {
   FLUIDE_FRIGORIGENE: "Fluide frigorigène",
 };
 
-/* ── Onglets du plan d'amélioration ─────────────────────────── */
-const TABS = [
-  { value: "AMUREBA", label: "AMUREBA", available: true },
-  { value: "PEB",     label: "PEB",     available: false },
-  { value: "AUTRE",   label: "Autre",   available: false },
-  { value: "CUSTOM",  label: "📁 Mon propre template", available: false },
-];
+/* ── Source display helpers ──────────────────────────────────── */
+const DB_SOURCE_LABELS = {
+  energy_accounting_db: { icon: "📊", label: "Comptabilité énergétique" },
+  audit_data_db:        { icon: "📝", label: "Audit" },
+};
 
 /* ── Mapping champ → cellule AMUREBA ─────────────────────────── */
 const FIELD_META = {
-  // Tous les champs proposés par l'IA peuvent être cochés individuellement.
   intitule:          { cell: "B9",  label: "Intitulé",             numeric: false },
   type_amelioration: { cell: "B13", label: "Type d'amélioration",  numeric: false },
   classification:    { cell: "F27", label: "Classification",        numeric: false },
@@ -34,26 +35,57 @@ const FIELD_META = {
   duree_amortissement:     { cell: "K18", label: "Durée amort. (ans)",        numeric: true },
 };
 
+/* ── Version source metadata ─────────────────────────────────── */
+const SOURCE_META = {
+  template:       { label: "Template vierge",    color: "#6b7280", bg: "#f3f4f6", icon: "📄" },
+  ai_prefill:     { label: "Pré-rempli par IA",  color: "#6d28d9", bg: "#f5f3ff", icon: "🤖" },
+  manual_upload:  { label: "Upload manuel",       color: "#0369a1", bg: "#e0f2fe", icon: "📤" },
+  ai_patched:     { label: "IA + upload manuel", color: "#0f766e", bg: "#f0fdfa", icon: "🤖📤" },
+};
+
+/* ── Conflict type metadata ──────────────────────────────────── */
+const CONFLICT_META = {
+  new:       { label: "Nouveau",    color: "#059669", bg: "#d1fae5", title: "Cellule vide dans l'Excel courant" },
+  replace:   { label: "Remplacement", color: "#b45309", bg: "#fef3c7", title: "Remplacera une valeur existante" },
+  uncertain: { label: "Estimation IA", color: "#6b7280", bg: "#f3f4f6", title: "Valeur estimée par l'IA, aucun document source" },
+};
+
 function buildChecklistItems(preview) {
   const items = [];
   (preview.actions || []).forEach((action) => {
+    const conflictTypes = action.conflict_types || {};
     Object.entries(FIELD_META).forEach(([field, meta]) => {
       const val = action[field];
       if (val == null || val === "") return;
       items.push({
-        id:         `${action.sheet}_${field}`,
-        sheet:      action.sheet,
-        cell:       meta.cell,
+        id:           `${action.sheet}_${field}`,
+        sheet:        action.sheet,
+        cell:         meta.cell,
         field,
-        label:      `${action.sheet} → ${meta.label}`,
-        value:      val,
-        is_numeric: meta.numeric,
-        source:     action.sources?.[field] || null,
-        selected:   true,
+        label:        `${action.sheet} → ${meta.label}`,
+        value:        val,
+        is_numeric:   meta.numeric,
+        source:       action.sources?.[field] || null,
+        conflict_type: conflictTypes[field] || (preview.has_existing_excel ? "new" : "new"),
+        selected:     conflictTypes[field] !== "replace", // pre-deselect replacements
       });
     });
   });
   return items;
+}
+
+/* Truncate a filename in the middle, keeping the extension visible.
+   "facture_engie_complete_2022.pdf" → "facture_eng…_2022.pdf" */
+function truncateMid(name, maxLen = 26) {
+  if (name.length <= maxLen) return name;
+  const dotIdx = name.lastIndexOf(".");
+  const ext = dotIdx > 0 ? name.slice(dotIdx) : "";          // ".pdf"
+  const base = dotIdx > 0 ? name.slice(0, dotIdx) : name;    // without extension
+  // How many chars of the base we can keep on each side
+  const available = maxLen - ext.length - 1; // -1 for "…"
+  const headLen = Math.ceil(available * 0.6);
+  const tailLen = available - headLen;
+  return base.slice(0, headLen) + "…" + base.slice(-tailLen) + ext;
 }
 
 function fmtValue(field, value) {
@@ -83,15 +115,16 @@ export default function ProjectPlanAmelioration() {
   const [actions,      setActions]      = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [pageError,    setPageError]    = useState("");
-  const [activeTab,    setActiveTab]    = useState("AMUREBA");
 
   /* Prefill status (persisté en base) */
   const [prefillStatus, setPrefillStatus] = useState(null);
 
   /* Étape 1 — Analyse IA → checklist */
   const [analyzing,      setAnalyzing]      = useState(false);
-  const [checklistItems, setChecklistItems] = useState([]);  // items plats avec selected
+  const [checklistItems, setChecklistItems] = useState([]);
   const [analyzeError,   setAnalyzeError]   = useState("");
+  /* Context info about the preview (has_existing_excel, current_excel_source) */
+  const [previewContext, setPreviewContext] = useState(null);
 
   /* Étape 2 — Appliquer */
   const [applying,    setApplying]    = useState(false);
@@ -168,12 +201,29 @@ export default function ProjectPlanAmelioration() {
       .replace(/\s+/g, "_").replace(/[^\w\-]/g, "");
   }
 
+  /* ── Télécharger le fichier courant (pré-rempli ou template) */
+  async function handleDownload() {
+    setDownloading(true);
+    try {
+      const res = await apiFetch(`/projects/${projectId}/improvement-actions/export-excel`);
+      if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
+      const source = prefillStatus?.current_excel_source || "template";
+      const suffix = source === "template" ? "" : `_${source}`;
+      _triggerDownload(await res.blob(), `AMUREBA${suffix}_${_safeName()}.xlsx`);
+    } catch (e) {
+      setPageError(e.message || "Erreur lors du téléchargement");
+    } finally {
+      setDownloading(false);
+    }
+  }
+
   /* ── Étape 1 : Analyser les documents ──────────────────── */
   async function handleAnalyze() {
     setAnalyzing(true);
     setChecklistItems([]);
     setAnalyzeError("");
     setApplyError("");
+    setPreviewContext(null);
     try {
       const res = await apiFetch(
         `/projects/${projectId}/improvement-actions/prefill-preview`,
@@ -184,6 +234,10 @@ export default function ProjectPlanAmelioration() {
         throw new Error(body?.detail || `Erreur serveur (${res.status})`);
       }
       const data = await res.json();
+      setPreviewContext({
+        has_existing_excel: data.has_existing_excel,
+        current_excel_source: data.current_excel_source,
+      });
       setChecklistItems(buildChecklistItems(data));
     } catch (e) {
       setAnalyzeError(e.message || "Erreur lors de l'analyse IA");
@@ -219,42 +273,15 @@ export default function ProjectPlanAmelioration() {
         throw new Error(body?.detail || `Erreur serveur (${res.status})`);
       }
       _triggerDownload(await res.blob(), `AMUREBA_prefill_${_safeName()}.xlsx`);
-      // Rafraîchir status + vider checklist
+      // Refresh status + clear checklist
       const resS = await apiFetch(`/projects/${projectId}/improvement-actions/prefill-status`);
       if (resS.ok) setPrefillStatus(await resS.json());
       setChecklistItems([]);
+      setPreviewContext(null);
     } catch (e) {
       setApplyError(e.message || "Erreur lors de l'application");
     } finally {
       setApplying(false);
-    }
-  }
-
-  /* ── Télécharger le fichier pré-rempli sauvegardé ─────── */
-  async function handleDownloadPrefilled() {
-    setDownloading(true);
-    try {
-      const res = await apiFetch(`/projects/${projectId}/improvement-actions/export-excel`);
-      if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
-      _triggerDownload(await res.blob(), `AMUREBA_prefill_${_safeName()}.xlsx`);
-    } catch (e) {
-      setPageError(e.message || "Erreur lors du téléchargement");
-    } finally {
-      setDownloading(false);
-    }
-  }
-
-  /* ── Télécharger le template vierge ─────────────────────── */
-  async function handleDownload() {
-    setDownloading(true);
-    try {
-      const res = await apiFetch(`/projects/${projectId}/improvement-actions/export-excel`);
-      if (!res.ok) throw new Error(`Erreur serveur (${res.status})`);
-      _triggerDownload(await res.blob(), `AMUREBA_${_safeName()}.xlsx`);
-    } catch (e) {
-      setPageError(e.message || "Erreur lors du téléchargement");
-    } finally {
-      setDownloading(false);
     }
   }
 
@@ -278,7 +305,7 @@ export default function ProjectPlanAmelioration() {
         throw new Error(body?.detail || `Erreur serveur (${res.status})`);
       }
       const data = await res.json();
-      setUploadMsg(`✅ ${data.imported} action${data.imported !== 1 ? "s" : ""} importée${data.imported !== 1 ? "s" : ""} avec succès.`);
+      setUploadMsg(`✅ ${data.imported} action${data.imported !== 1 ? "s" : ""} importée${data.imported !== 1 ? "s" : ""}. L'Excel uploadé est maintenant la version courante.`);
       await loadAll();
     } catch (e) {
       setUploadError(e.message || "Erreur lors de l'import");
@@ -301,8 +328,8 @@ export default function ProjectPlanAmelioration() {
     }
   }
 
-  /* ── Détecter si de nouveaux docs depuis le dernier prefill ─ */
-  const hasPrefill = prefillStatus?.has_prefilled_excel;
+  const currentSource = prefillStatus?.current_excel_source || "template";
+  const hasExcel = prefillStatus?.has_prefilled_excel;
 
   if (loading) return <div style={{ color: "#6b7280" }}>Chargement…</div>;
   if (!project) return <div style={{ color: "#6b7280" }}>Projet introuvable.</div>;
@@ -331,155 +358,69 @@ export default function ProjectPlanAmelioration() {
         </button>
       </div>
 
-      {pageError && <div style={s.errorBox}>{pageError}</div>}
+      {pageError && <div style={{ ...s.errorBox, marginBottom: 16 }}>{pageError}</div>}
 
-      {/* ── Onglets ────────────────────────────────────────── */}
-      <div style={{ display: "flex", gap: 4, marginBottom: 16, borderBottom: "2px solid #e5e7eb", paddingBottom: 0 }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab.value}
-            onClick={() => tab.available && setActiveTab(tab.value)}
-            style={{
-              padding: "9px 18px",
-              border: "none",
-              borderBottom: activeTab === tab.value ? "3px solid #6d28d9" : "3px solid transparent",
-              background: "none",
-              fontWeight: activeTab === tab.value ? 800 : 600,
-              fontSize: 13,
-              color: activeTab === tab.value ? "#6d28d9" : tab.available ? "#374151" : "#9ca3af",
-              cursor: tab.available ? "pointer" : "not-allowed",
-              marginBottom: -2,
-              transition: "all 0.12s",
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-            }}
-          >
-            {tab.label}
-            {!tab.available && (
+      <SectionCard title="AMUREBA — Pré-remplissage IA & Excel">
+
+        {/* ── Bandeau version courante ──────────────────── */}
+        <CurrentVersionBanner
+          prefillStatus={prefillStatus}
+          downloading={downloading}
+          onDownload={handleDownload}
+        />
+
+        {/* ── État A : checklist en cours ───────────────── */}
+        {checklistItems.length > 0 ? (
+          <ChecklistPanel
+            items={checklistItems}
+            applying={applying}
+            selectedCount={selectedCount}
+            previewContext={previewContext}
+            onToggle={toggleItem}
+            onToggleAll={toggleAll}
+            onApply={handleApply}
+            onClose={() => { setChecklistItems([]); setPreviewContext(null); }}
+            error={applyError}
+          />
+        ) : (
+          /* ── Actions disponibles ─────────────────────── */
+          <WorkflowActions
+            hasExcel={hasExcel}
+            currentSource={currentSource}
+            analyzing={analyzing}
+            onAnalyze={handleAnalyze}
+            analyzeError={analyzeError}
+          />
+        )}
+
+        {/* ── Section Upload ────────────────────────────── */}
+        <UploadSection
+          uploading={uploading}
+          uploadMsg={uploadMsg}
+          uploadError={uploadError}
+          fileRef={fileRef}
+          onUpload={handleUpload}
+        />
+      </SectionCard>
+
+      {/* ══ Section Données importées ═══════════════════════ */}
+      <SectionCard
+        title={
+          <span>
+            Données importées
+            {actions.length > 0 && (
               <span style={{
-                fontSize: 10, fontWeight: 600,
-                background: "#f3f4f6", color: "#9ca3af",
-                padding: "1px 6px", borderRadius: 20,
+                marginLeft: 8, background: "#ede9fe", color: "#6d28d9",
+                fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
               }}>
-                Bientôt
+                {actions.length}
               </span>
             )}
-          </button>
-        ))}
-      </div>
-
-      {/* ══ Onglet AMUREBA ════════════════════════════════════ */}
-      {activeTab === "AMUREBA" && (
-        <>
-          <SectionCard title="Pré-remplissage IA & Excel">
-
-            {/* ── État A : checklist en cours ───────────────── */}
-            {checklistItems.length > 0 ? (
-              <ChecklistPanel
-                items={checklistItems}
-                applying={applying}
-                selectedCount={selectedCount}
-                onToggle={toggleItem}
-                onToggleAll={toggleAll}
-                onApply={handleApply}
-                onClose={() => setChecklistItems([])}
-                error={applyError}
-              />
-            ) : hasPrefill ? (
-              /* ── État B : déjà pré-rempli ──────────────────── */
-              <>
-                <PrefillStatusBanner
-                  prefillStatus={prefillStatus}
-                  downloading={downloading}
-                  analyzing={analyzing}
-                  onDownload={handleDownloadPrefilled}
-                  onReanalyze={handleAnalyze}
-                />
-                <SavedSummary prefillStatus={prefillStatus} />
-              </>
-            ) : (
-              /* ── État C : aucun prefill ─────────────────────── */
-              <>
-                <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, lineHeight: 1.7 }}>
-                  Workflow en 3 étapes :<br />
-                  <strong>1.</strong> Analysez les documents → sélectionnez les valeurs proposées →
-                  téléchargez l'Excel pré-rempli.<br />
-                  <strong>2.</strong> Complétez les feuilles AA1–AA9 dans Excel.<br />
-                  <strong>3.</strong> Uploadez le fichier complété pour enregistrer les données en base.
-                </div>
-                <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
-                  <button
-                    onClick={handleAnalyze}
-                    disabled={analyzing}
-                    style={{ ...s.primaryBtn, opacity: analyzing ? 0.7 : 1 }}
-                  >
-                    {analyzing
-                      ? <><RefreshCw size={15} style={spin} /> Analyse IA…</>
-                      : <><Sparkles size={15} /> Analyser les documents</>}
-                  </button>
-                  <button
-                    onClick={handleDownload}
-                    disabled={downloading}
-                    style={{ ...s.ghostBtn, opacity: downloading ? 0.7 : 1 }}
-                  >
-                    <Download size={15} />
-                    {downloading ? "Téléchargement…" : "Télécharger le template vierge"}
-                  </button>
-                </div>
-              </>
-            )}
-
-            {/* ── Erreurs ─────────────────────────────────────── */}
-            {analyzeError && (
-              <div style={{ ...s.errorBox, marginTop: 14 }}>
-                {analyzeError.includes("Aucun document") ? (
-                  <>
-                    <strong>Aucun document analysé.</strong> Uploadez et analysez des factures
-                    dans le module <em>Documents</em> d'abord.
-                  </>
-                ) : analyzeError}
-              </div>
-            )}
-
-            {/* ── Upload (toujours visible) ────────────────────── */}
-            <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 18, paddingTop: 14 }}>
-              <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, fontWeight: 600 }}>
-                📤 Étape finale — Uploader l'Excel complété (pour enregistrer en base)
-              </div>
-              <button
-                onClick={() => fileRef.current?.click()}
-                disabled={uploading}
-                style={{ ...s.outlineBtn, fontSize: 12, padding: "8px 14px", opacity: uploading ? 0.7 : 1 }}
-              >
-                {uploading
-                  ? <><RefreshCw size={14} style={spin} /> Import en cours…</>
-                  : <><Upload size={14} /> Uploader l'Excel complété</>}
-              </button>
-              <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={handleUpload} />
-              {uploadMsg   && <div style={{ ...s.okBox,    marginTop: 10 }}>{uploadMsg}</div>}
-              {uploadError && <div style={{ ...s.errorBox, marginTop: 10 }}>{uploadError}</div>}
-            </div>
-          </SectionCard>
-
-          {/* ══ Section Données importées ═══════════════════════ */}
-          <SectionCard
-            title={
-              <span>
-                Données importées
-                {actions.length > 0 && (
-                  <span style={{
-                    marginLeft: 8, background: "#ede9fe", color: "#6d28d9",
-                    fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-                  }}>
-                    {actions.length}
-                  </span>
-                )}
-              </span>
-            }
-            subtitle={actions.length > 0 ? "Ces données sont disponibles dans tous les modules du projet." : undefined}
-          >
-            {actions.length === 0 ? (
+          </span>
+        }
+        subtitle={actions.length > 0 ? "Ces données sont disponibles dans tous les modules du projet." : undefined}
+      >
+        {actions.length === 0 ? (
               <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>
                 Aucune action importée. Uploadez un Excel AMUREBA complété pour en importer.
               </div>
@@ -542,9 +483,7 @@ export default function ProjectPlanAmelioration() {
                 </div>
               </>
             )}
-          </SectionCard>
-        </>
-      )}
+      </SectionCard>
 
       {/* ── Historique drawer ────────────────────────────────── */}
       {historyOpen && (
@@ -562,176 +501,244 @@ export default function ProjectPlanAmelioration() {
 
 const spin = { animation: "spin 1s linear infinite" };
 
-/* ── Bandeau de statut pré-rempli ───────────────────────────── */
-function PrefillStatusBanner({ prefillStatus, downloading, analyzing, onDownload, onReanalyze }) {
+/* ── Bandeau version courante ───────────────────────────────── */
+function CurrentVersionBanner({ prefillStatus, downloading, onDownload }) {
+  const source = prefillStatus?.current_excel_source || "template";
+  const meta   = SOURCE_META[source] || SOURCE_META.template;
+  const hasExcel = prefillStatus?.has_prefilled_excel;
+
   const dateStr = prefillStatus?.prefilled_at
     ? new Date(prefillStatus.prefilled_at).toLocaleString("fr-BE", {
         day: "2-digit", month: "2-digit", year: "numeric",
         hour: "2-digit", minute: "2-digit",
       })
-    : "—";
+    : null;
 
   return (
     <div style={{
       display: "flex", alignItems: "center", justifyContent: "space-between",
       flexWrap: "wrap", gap: 10,
-      background: "#dcfce7", border: "1px solid #bbf7d0",
+      background: meta.bg, border: `1px solid ${meta.color}33`,
       borderRadius: 10, padding: "10px 14px", marginBottom: 16,
     }}>
-      <span style={{ fontWeight: 700, fontSize: 13, color: "#166534" }}>
-        ✅ Excel pré-rempli le {dateStr}
-      </span>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <span style={{ fontSize: 18 }}>{meta.icon}</span>
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: meta.color }}>
+            Version courante : {meta.label}
+          </div>
+          {dateStr && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              {source === "manual_upload" ? "Uploadé" : "Généré"} le {dateStr}
+            </div>
+          )}
+          {!hasExcel && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              Aucun fichier Excel enregistré. Analysez les documents ou uploadez un fichier.
+            </div>
+          )}
+        </div>
+      </div>
+      {hasExcel && (
         <button
           onClick={onDownload}
           disabled={downloading}
-          style={{ ...s.primaryBtn, fontSize: 12, padding: "7px 12px", opacity: downloading ? 0.7 : 1 }}
+          style={{ ...s.ghostBtn, fontSize: 12, padding: "7px 12px", opacity: downloading ? 0.7 : 1 }}
         >
           <Download size={13} />
-          {downloading ? "Téléchargement…" : "Télécharger l'Excel pré-rempli"}
+          {downloading ? "Téléchargement…" : "Télécharger la version courante"}
         </button>
-        <button
-          onClick={onReanalyze}
-          disabled={analyzing}
-          style={{ ...s.ghostBtn, fontSize: 12, padding: "7px 12px", opacity: analyzing ? 0.7 : 1 }}
-          title="Relancer l'analyse IA pour améliorer l'Excel existant"
-        >
-          {analyzing
-            ? <><RefreshCw size={12} style={spin} /> Analyse…</>
-            : <><RefreshCw size={12} /> Améliorer l'Excel existant</>}
-        </button>
-      </div>
+      )}
     </div>
   );
 }
 
-/* ── Résumé sauvegardé (mode lecture) ───────────────────────── */
-function SavedSummary({ prefillStatus }) {
-  const summary = prefillStatus?.prefill_summary;
-  if (!summary) return null;
+/* ── Actions workflow ──────────────────────────────────────── */
+function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyzeError }) {
+  const isReanalyze = hasExcel;
+  const btnLabel = isReanalyze
+    ? (currentSource === "manual_upload"
+        ? "Proposer des compléments IA sur l'upload"
+        : "Relancer l'analyse IA")
+    : "Analyser les documents avec l'IA";
 
-  // Nouveau format: { items: [...] }
-  if (summary.items?.length > 0) {
-    const sheets = [...new Set(summary.items.map((i) => i.sheet))];
-    return (
-      <div style={{ marginTop: 4, marginBottom: 8 }}>
-        <div style={{ fontSize: 12, fontWeight: 700, color: "#6d28d9", marginBottom: 8 }}>
-          📋 Résumé du dernier pré-remplissage
+  return (
+    <div>
+      {!hasExcel && (
+        <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, lineHeight: 1.7 }}>
+          <strong>Workflow :</strong> Analysez les documents → sélectionnez les valeurs proposées
+          → téléchargez l'Excel pré-rempli → complétez dans Excel → uploadez le fichier complété.
         </div>
-        {sheets.map((sheet) => {
-          const sheetItems = summary.items.filter((i) => i.sheet === sheet);
-          return (
-            <div key={sheet} style={{ marginBottom: 8, background: "#faf5ff", borderRadius: 10, padding: "10px 14px", border: "1px solid #ede9fe" }}>
-              <div style={{ fontWeight: 700, fontSize: 12, color: "#6d28d9", marginBottom: 6 }}>{sheet}</div>
-              {sheetItems.filter((i) => i.is_numeric).map((item) => (
-                <div key={item.id} style={{ fontSize: 12, color: "#374151", marginBottom: 2 }}>
-                  <span style={{ color: item.selected ? "#059669" : "#9ca3af" }}>
-                    {item.selected ? "✅" : "⬜"}
-                  </span>{" "}
-                  {item.label.replace(`${sheet} → `, "")} :{" "}
-                  <strong>{fmtValue(item.field, item.value)}</strong>
-                  <SourceTag source={item.source} />
-                </div>
-              ))}
-            </div>
-          );
-        })}
+      )}
+      {isReanalyze && currentSource === "manual_upload" && (
+        <div style={{ ...s.infoBanner, marginBottom: 14 }}>
+          <Info size={14} style={{ flexShrink: 0, color: "#0369a1" }} />
+          L'IA proposera uniquement des compléments. Les propositions seront appliquées sur votre
+          fichier uploadé, sans écraser les cellules déjà remplies (sauf si vous le validez).
+        </div>
+      )}
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+        <button
+          onClick={onAnalyze}
+          disabled={analyzing}
+          style={{ ...s.primaryBtn, opacity: analyzing ? 0.7 : 1 }}
+        >
+          {analyzing
+            ? <><RefreshCw size={15} style={spin} /> Analyse IA…</>
+            : <><Sparkles size={15} /> {btnLabel}</>}
+        </button>
       </div>
-    );
-  }
+      {analyzeError && (
+        <div style={{ ...s.errorBox, marginTop: 14 }}>
+          {analyzeError.includes("Aucun document") ? (
+            <>
+              <strong>Aucun document analysé.</strong> Uploadez et analysez des factures
+              dans le module <em>Documents</em> d'abord.
+            </>
+          ) : analyzeError}
+        </div>
+      )}
+    </div>
+  );
+}
 
-  // Ancien format: { actions: [...] }
-  if (summary.actions?.length > 0) {
-    return (
-      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8 }}>
-        {summary.nb_actions} action(s) pré-remplie(s) — {summary.entity_name}
+/* ── Section Upload (toujours visible) ─────────────────────── */
+function UploadSection({ uploading, uploadMsg, uploadError, fileRef, onUpload }) {
+  return (
+    <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 18, paddingTop: 14 }}>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, fontWeight: 600 }}>
+        📤 Uploader un Excel AMUREBA complété
       </div>
-    );
-  }
-
-  return null;
+      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10, lineHeight: 1.6 }}>
+        Le fichier uploadé devient la version courante. Les prochains exports et les futures
+        propositions IA partiront de ce fichier.
+      </div>
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        style={{ ...s.outlineBtn, fontSize: 12, padding: "8px 14px", opacity: uploading ? 0.7 : 1 }}
+      >
+        {uploading
+          ? <><RefreshCw size={14} style={spin} /> Import en cours…</>
+          : <><Upload size={14} /> Uploader l'Excel complété</>}
+      </button>
+      <input ref={fileRef} type="file" accept=".xlsx" style={{ display: "none" }} onChange={onUpload} />
+      {uploadMsg   && <div style={{ ...s.okBox,    marginTop: 10 }}>{uploadMsg}</div>}
+      {uploadError && <div style={{ ...s.errorBox, marginTop: 10 }}>{uploadError}</div>}
+    </div>
+  );
 }
 
 /* ── Panel checklist ────────────────────────────────────────── */
-function ChecklistPanel({ items, applying, selectedCount, onToggle, onToggleAll, onApply, onClose, error }) {
+function ChecklistPanel({ items, applying, selectedCount, previewContext, onToggle, onToggleAll, onApply, onClose, error }) {
   const sheets = [...new Set(items.map((i) => i.sheet))];
-  const allSelected = items.length > 0 && items.every((i) => i.selected);
+  const allSelected   = items.length > 0 && items.every((i) => i.selected);
+  const totalReplaces = items.filter((i) => i.conflict_type === "replace").length;
+
+  // Expand/collapse state per sheet — first sheet open by default
+  const [expanded, setExpanded] = useState(() =>
+    Object.fromEntries(sheets.map((sh, idx) => [sh, idx === 0]))
+  );
+  const allExpanded = sheets.every((sh) => expanded[sh]);
+
+  const toggleSheet = (sh) =>
+    setExpanded((prev) => ({ ...prev, [sh]: !prev[sh] }));
+  const toggleAllSheets = () =>
+    setExpanded(Object.fromEntries(sheets.map((sh) => [sh, !allExpanded])));
 
   return (
     <div style={{ border: "1.5px solid #ede9fe", borderRadius: 14, overflow: "hidden", marginBottom: 4 }}>
-      {/* Header */}
+
+      {/* ── Header ─────────────────────────────────────────── */}
       <div style={{
-        background: "#f5f3ff", padding: "13px 18px",
-        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10,
+        background: "#f5f3ff", padding: "12px 18px",
+        display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
       }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>
-            ✨ Modifications proposées par IA
-          </div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>✨ Propositions IA</div>
           <div style={{ fontSize: 12, color: "#6d28d9", marginTop: 2 }}>
-            {selectedCount} cellule{selectedCount !== 1 ? "s" : ""} cochée{selectedCount !== 1 ? "s" : ""} seront injectée{selectedCount !== 1 ? "s" : ""} dans l'Excel
+            {selectedCount} cellule{selectedCount !== 1 ? "s" : ""} sélectionnée{selectedCount !== 1 ? "s" : ""}
+            {totalReplaces > 0 && (
+              <span style={{ marginLeft: 8, color: CONFLICT_META.replace.color, fontWeight: 700 }}>
+                · ⚠ {totalReplaces} remplacement{totalReplaces !== 1 ? "s" : ""}
+              </span>
+            )}
           </div>
         </div>
-        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <button
-            onClick={() => onToggleAll(!allSelected)}
-            style={{ ...s.ghostBtn, fontSize: 11, padding: "5px 10px" }}
-          >
+        <div style={{ display: "flex", gap: 6, alignItems: "center", flexWrap: "wrap" }}>
+          <button onClick={toggleAllSheets} style={{ ...s.ghostBtn, fontSize: 11, padding: "5px 10px" }}>
+            {allExpanded ? "▲ Tout replier" : "▼ Tout ouvrir"}
+          </button>
+          <button onClick={() => onToggleAll(!allSelected)} style={{ ...s.ghostBtn, fontSize: 11, padding: "5px 10px" }}>
             {allSelected ? <><Square size={12} /> Tout décocher</> : <><CheckSquare size={12} /> Tout cocher</>}
           </button>
-          <button
-            onClick={onClose}
-            style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", fontSize: 20, lineHeight: 1, padding: "2px 6px", borderRadius: 6 }}
-            title="Fermer"
-          >
+          <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: "#9ca3af", padding: "2px 6px", borderRadius: 6 }} title="Fermer">
             <X size={16} />
           </button>
         </div>
       </div>
 
-      {/* Corps — groupé par feuille */}
-      <div style={{ padding: "14px 18px", display: "flex", flexDirection: "column", gap: 10 }}>
-        {sheets.map((sheet) => {
-          const sheetItems = items.filter((i) => i.sheet === sheet);
-          const textItems = sheetItems.filter((i) => !i.is_numeric);
-          const sheetNumericItems = sheetItems.filter((i) => i.is_numeric);
+      {/* ── Bandeau conflits ─────────────────────────────── */}
+      {previewContext?.has_existing_excel && totalReplaces > 0 && (
+        <div style={{ padding: "8px 18px", background: "#fffbeb", borderBottom: "1px solid #fde68a", display: "flex", flexWrap: "wrap", gap: 10 }}>
+          <ConflictLegend />
+          <div style={{ ...s.infoBanner, flex: 1, minWidth: 200 }}>
+            <AlertTriangle size={13} style={{ flexShrink: 0, color: "#b45309" }} />
+            Les <strong>Remplacements</strong> sont pré-décochés. Cochez uniquement ceux à appliquer.
+          </div>
+        </div>
+      )}
 
-          // Info de contexte depuis les champs texte
-          const intitule       = textItems.find((i) => i.field === "intitule")?.value || "";
-          const classification = textItems.find((i) => i.field === "classification")?.value || "";
-          const type           = textItems.find((i) => i.field === "type_amelioration")?.value || "";
+      {/* ── Corps — cartes par action ─────────────────────── */}
+      <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
+        {sheets.map((sheet) => {
+          const sheetItems   = items.filter((i) => i.sheet === sheet);
+          const intitule     = sheetItems.find((i) => i.field === "intitule")?.value || "";
+          const classif      = sheetItems.find((i) => i.field === "classification")?.value || "";
+          const type         = sheetItems.find((i) => i.field === "type_amelioration")?.value || "";
+          const totalFields  = sheetItems.length;
+          const selFields    = sheetItems.filter((i) => i.selected).length;
+          const replFields   = sheetItems.filter((i) => i.conflict_type === "replace").length;
+          const isOpen       = !!expanded[sheet];
 
           return (
-            <div key={sheet} style={{ border: "1px solid #e5e7eb", borderRadius: 12, overflow: "hidden" }}>
-              {/* Groupe header */}
-              <div style={{
-                background: "#fafafa", padding: "9px 14px",
-                borderBottom: "1px solid #f3f4f6",
-                display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
-              }}>
-                <span style={{ background: "#6d28d9", color: "white", fontWeight: 800, fontSize: 11, padding: "3px 9px", borderRadius: 6 }}>
+            <div key={sheet} style={{ border: "1px solid #e5e7eb", borderRadius: 10, overflow: "hidden" }}>
+              {/* Groupe header (cliquable) */}
+              <div
+                onClick={() => toggleSheet(sheet)}
+                style={{
+                  background: isOpen ? "#f5f3ff" : "#fafafa",
+                  padding: "9px 14px",
+                  display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap",
+                  cursor: "pointer", userSelect: "none",
+                  borderBottom: isOpen ? "1px solid #ede9fe" : "none",
+                }}
+              >
+                <span style={{ background: "#6d28d9", color: "white", fontWeight: 800, fontSize: 11, padding: "3px 9px", borderRadius: 6, flexShrink: 0 }}>
                   {sheet}
                 </span>
-                {intitule && <span style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>{intitule}</span>}
-                {type && <span style={{ fontSize: 12, color: "#6b7280" }}>— {type}</span>}
-                {classification && (
+                <span style={{ fontWeight: 700, fontSize: 13, color: "#111827", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  {intitule || "—"}
+                </span>
+                {type && <span style={{ fontSize: 11, color: "#6b7280", flexShrink: 0 }}>{type}</span>}
+                {classif && (
                   <span style={{
-                    marginLeft: "auto",
-                    background: classification === "A" ? "#dcfce7" : "#fef9c3",
-                    color:      classification === "A" ? "#166534" : "#854d0e",
-                    fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 20,
+                    background: classif === "A" ? "#dcfce7" : "#fef9c3",
+                    color:      classif === "A" ? "#166534" : "#854d0e",
+                    fontWeight: 700, fontSize: 10, padding: "2px 7px", borderRadius: 20, flexShrink: 0,
                   }}>
-                    Classe {classification}
+                    Cl. {classif}
                   </span>
                 )}
+                <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0 }}>
+                  {selFields}/{totalFields}
+                  {replFields > 0 && <span style={{ color: CONFLICT_META.replace.color }}> · ⚠{replFields}</span>}
+                </span>
+                <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0 }}>{isOpen ? "▲" : "▼"}</span>
               </div>
 
-              {/* Champs texte (lecture seule — contexte) */}
-              {textItems.map((item) => (
-                <ChecklistRow key={item.id} item={item} onToggle={onToggle} />
-              ))}
-              {/* Champs numériques */}
-              {sheetNumericItems.map((item) => (
+              {/* Corps de la carte */}
+              {isOpen && sheetItems.map((item) => (
                 <ChecklistRow key={item.id} item={item} onToggle={onToggle} />
               ))}
             </div>
@@ -739,7 +746,7 @@ function ChecklistPanel({ items, applying, selectedCount, onToggle, onToggleAll,
         })}
       </div>
 
-      {/* Footer */}
+      {/* ── Footer ───────────────────────────────────────── */}
       <div style={{
         borderTop: "1px solid #ede9fe", padding: "12px 18px",
         background: "#faf5ff", display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap",
@@ -747,19 +754,18 @@ function ChecklistPanel({ items, applying, selectedCount, onToggle, onToggleAll,
         <button
           onClick={onApply}
           disabled={applying || selectedCount === 0}
-          style={{
-            ...s.primaryBtn,
-            opacity: (applying || selectedCount === 0) ? 0.6 : 1,
-          }}
+          style={{ ...s.primaryBtn, opacity: (applying || selectedCount === 0) ? 0.6 : 1 }}
         >
           {applying
             ? <><RefreshCw size={14} style={spin} /> Génération…</>
-            : <><Download size={14} /> Appliquer les changements sélectionnés</>}
+            : <><Download size={14} /> Appliquer et télécharger l'Excel</>}
         </button>
         <div style={{ fontSize: 12, color: "#9ca3af" }}>
           {selectedCount === 0
-            ? "Sélectionnez au moins une proposition pour générer l'Excel."
-            : "Chaque cellule proposée par l'IA est cochable individuellement. Seules les cases cochées seront écrites dans le template Excel."}
+            ? "Sélectionnez au moins une proposition."
+            : previewContext?.has_existing_excel
+              ? "Les changements sélectionnés seront appliqués sur la version courante."
+              : "Les changements sélectionnés seront injectés dans le template AMUREBA."}
         </div>
         {error && <div style={{ ...s.errorBox, width: "100%", marginTop: 4 }}>{error}</div>}
       </div>
@@ -767,68 +773,70 @@ function ChecklistPanel({ items, applying, selectedCount, onToggle, onToggleAll,
   );
 }
 
+/* ── Légende des types de conflit ────────────────────────────── */
+function ConflictLegend() {
+  return (
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", fontSize: 11 }}>
+      {Object.entries(CONFLICT_META).map(([type, m]) => (
+        <span key={type} title={m.title} style={{
+          background: m.bg, color: m.color, fontWeight: 700,
+          padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap",
+        }}>
+          {m.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
 /* ── Ligne de la checklist ──────────────────────────────────── */
 function ChecklistRow({ item, onToggle }) {
   const label = item.label.split(" → ")[1] || item.label;
+  const cm = CONFLICT_META[item.conflict_type] || CONFLICT_META.new;
 
   return (
     <div
+      onClick={() => onToggle(item.id)}
       style={{
-        display: "flex", alignItems: "center", gap: 10,
+        display: "flex", alignItems: "center", gap: 8,
         padding: "7px 14px",
-        borderBottom: "1px solid #f9fafb",
-        background: item.selected ? "white" : "#f9fafb",
+        borderBottom: "1px solid #f3f4f6",
+        background: item.selected ? "white" : "#fafafa",
         cursor: "pointer",
       }}
-      onClick={() => onToggle(item.id)}
     >
-      <span style={{ flexShrink: 0, color: item.selected ? "#6d28d9" : "#d1d5db", width: 18, display: "flex", justifyContent: "center" }}>
-        {item.selected ? (
-          <CheckSquare size={16} />
-        ) : (
-          <Square size={16} />
-        )}
+      {/* Checkbox */}
+      <span style={{ flexShrink: 0, color: item.selected ? "#6d28d9" : "#d1d5db", display: "flex" }}>
+        {item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
       </span>
 
-      <input
-        type="checkbox"
-        checked={item.selected}
-        onChange={() => onToggle(item.id)}
-        onClick={(e) => e.stopPropagation()}
-        aria-label={`Sélectionner ${label}`}
-        style={{ width: 18, height: 18, accentColor: "#6d28d9", cursor: "pointer", margin: 0, flexShrink: 0 }}
-      />
-
-      {/* Cellule */}
-      <span style={{ fontSize: 11, color: "#6b7280", fontFamily: "monospace", flexShrink: 0, minWidth: 36 }}>
+      {/* Cellule ref */}
+      <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace", flexShrink: 0, minWidth: 30 }}>
         {item.cell}
       </span>
 
-      {/* Label */}
-      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1 }}>
+      {/* Champ */}
+      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0 }}>
         {label}
       </span>
 
-      {/* Valeur */}
-      <span style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700, flexShrink: 0 }}>
+      {/* Valeur proposée */}
+      <span style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700, flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
         {fmtValue(item.field, item.value)}
       </span>
 
       {/* Source */}
       <SourceTag source={item.source} />
 
+      {/* Tag conflit */}
       <span
+        title={cm.title}
         style={{
-          fontSize: 10,
-          fontWeight: 700,
-          color: item.is_numeric ? "#6d28d9" : "#6b7280",
-          background: item.is_numeric ? "#f5f3ff" : "#f3f4f6",
-          padding: "2px 7px",
-          borderRadius: 999,
-          flexShrink: 0,
+          fontSize: 10, fontWeight: 700, color: cm.color, background: cm.bg,
+          padding: "2px 6px", borderRadius: 999, flexShrink: 0, whiteSpace: "nowrap",
         }}
       >
-        {item.is_numeric ? "num" : "texte"}
+        {cm.label}
       </span>
     </div>
   );
@@ -836,12 +844,38 @@ function ChecklistRow({ item, onToggle }) {
 
 /* ── Tag source ─────────────────────────────────────────────── */
 function SourceTag({ source }) {
-  const isEstimated = !source || source.estimated || !source.document;
+  // No source object at all → estimation
+  if (!source) {
+    return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+  }
+
+  const doc = source.document;
+
+  // Priority 1: real uploaded document (not a known DB key, not null, not estimated)
+  if (doc && !DB_SOURCE_LABELS[doc]) {
+    const short = truncateMid(doc, 26);
+    const tooltip = source.field ? `${doc} → ${source.field}` : doc;
+    return <SourceChip color="#059669" label={`📄 ${short}`} title={tooltip} />;
+  }
+
+  // Priority 2: known DB source
+  if (doc && DB_SOURCE_LABELS[doc]) {
+    const meta = DB_SOURCE_LABELS[doc];
+    const tooltip = source.field ? `${meta.label} → ${source.field}` : meta.label;
+    return <SourceChip color="#0369a1" label={`${meta.icon} ${meta.label}`} title={tooltip} />;
+  }
+
+  // Fallback: IA estimate
+  return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+}
+
+function SourceChip({ color, label, title }) {
   return (
-    <span style={{ fontSize: 11, color: "#9ca3af", flexShrink: 0, whiteSpace: "nowrap" }}>
-      {isEstimated
-        ? "🤖 IA"
-        : `📄 ${source.document}${source.field ? ` → ${source.field}` : ""}`}
+    <span
+      title={title}
+      style={{ fontSize: 11, color, flexShrink: 0, whiteSpace: "nowrap", cursor: title ? "help" : "default" }}
+    >
+      {label}
     </span>
   );
 }
@@ -850,7 +884,6 @@ function SourceTag({ source }) {
 function HistoryDrawer({ history, loading, onClose }) {
   return (
     <>
-      {/* Fond semi-transparent */}
       <div
         onClick={onClose}
         style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.25)", zIndex: 999 }}
@@ -907,10 +940,10 @@ function HistoryEntry({ entry }) {
 
   const items   = entry.changes?.items || [];
   const summary = entry.changes?.excel_summary;
+  const baseSource = entry.changes?.base_source;
 
   return (
     <div style={{ borderBottom: "1px solid #f3f4f6" }}>
-      {/* Ligne principale (cliquable pour ouvrir) */}
       <div
         onClick={() => setOpen((v) => !v)}
         style={{
@@ -924,17 +957,20 @@ function HistoryEntry({ entry }) {
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
           </div>
+          {isAI && baseSource && baseSource !== "template" && (
+            <div style={{ fontSize: 11, color: "#0369a1" }}>
+              Patché sur : {SOURCE_META[baseSource]?.label || baseSource}
+            </div>
+          )}
           <div style={{ fontSize: 11, color: "#9ca3af" }}>{dateStr}</div>
         </div>
         <span style={{ fontSize: 12, color: "#9ca3af" }}>{open ? "▲" : "▼"}</span>
       </div>
 
-      {/* Détails */}
       {open && (
         <div style={{ padding: "8px 20px 14px", background: "#faf5ff" }}>
           {isAI && items.length > 0 ? (
             <>
-              {/* Groupé par sheet */}
               {[...new Set(items.map((i) => i.sheet))].map((sheet) => {
                 const sheetItems = items.filter((i) => i.sheet === sheet);
                 return (
@@ -954,6 +990,16 @@ function HistoryEntry({ entry }) {
                           {fmtValue(item.field, item.value)}
                         </span>
                         <SourceTag source={item.source} />
+                        {item.conflict_type && CONFLICT_META[item.conflict_type] && (
+                          <span style={{
+                            fontSize: 10, fontWeight: 700,
+                            color: CONFLICT_META[item.conflict_type].color,
+                            background: CONFLICT_META[item.conflict_type].bg,
+                            padding: "1px 6px", borderRadius: 999,
+                          }}>
+                            {CONFLICT_META[item.conflict_type].label}
+                          </span>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1053,5 +1099,11 @@ const s = {
     background: "#ede9fe", color: "#6d28d9",
     fontWeight: 700, fontSize: 11,
     padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap",
+  },
+  infoBanner: {
+    background: "#e0f2fe", color: "#0369a1",
+    border: "1px solid #bae6fd",
+    padding: "8px 12px", borderRadius: 8, fontSize: 12,
+    display: "flex", alignItems: "flex-start", gap: 8,
   },
 };

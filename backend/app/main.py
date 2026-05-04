@@ -143,11 +143,16 @@ _NS_XR    = "http://schemas.microsoft.com/office/spreadsheetml/2014/revision"
 _NS_XR2   = "http://schemas.microsoft.com/office/spreadsheetml/2015/revision2"
 _NS_XR3   = "http://schemas.microsoft.com/office/spreadsheetml/2016/revision3"
 
+_NS_X14 = "http://schemas.microsoft.com/office/spreadsheetml/2009/9/main"
+_NS_XM  = "http://schemas.microsoft.com/office/excel/2006/main"
+
 for _pfx, _uri in [
     ("",      _NS_MAIN),
     ("r",     _NS_R),
     ("mc",    _NS_MC),
     ("x14ac", _NS_X14AC),
+    ("x14",   _NS_X14),
+    ("xm",    _NS_XM),
     ("xr",    _NS_XR),
     ("xr2",   _NS_XR2),
     ("xr3",   _NS_XR3),
@@ -192,7 +197,13 @@ def _cell_col_num(ref: str) -> int:
 
 def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
     """
-    Write cell values into a worksheet XML using ElementTree.
+    Write cell values into a worksheet XML.
+    Strategy: use ElementTree ONLY to modify <sheetData>, then splice the
+    new <sheetData> bytes back into the original XML bytes.  This preserves
+    every namespace declaration, mc:Ignorable, extLst, x14/xm inline-namespace
+    blocks, etc. untouched — avoiding the ET serialisation bug that mangles
+    namespace prefixes (x14→ns4, xm→ns5) and corrupts the worksheet.
+
     - Numbers  → plain <v>N</v>, t attribute removed (default numeric type).
     - Strings  → t="inlineStr" + <is><t>text</t></is>  (no sharedStrings.xml change).
     - Formulas on targeted cells are removed so our constants are not overwritten.
@@ -214,6 +225,7 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
         except (ValueError, TypeError):
             pass
 
+    patched_cells = []
     for cell_ref, value in changes.items():
         m = re.match(r'([A-Z]+)(\d+)', str(cell_ref).upper())
         if not m:
@@ -246,14 +258,19 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
             # Numeric constant — remove t so Excel treats cell as number
             cell_el.attrib.pop("t", None)
             ET.SubElement(cell_el, f"{{{NS}}}v").text = str(value)
+            patched_cells.append(f"{cell_ref}={value}")
         elif value is not None and str(value).strip():
             # String — inline string (no sharedStrings.xml involvement)
             cell_el.set("t", "inlineStr")
             is_el = ET.SubElement(cell_el, f"{{{NS}}}is")
             ET.SubElement(is_el, f"{{{NS}}}t").text = str(value)
+            patched_cells.append(f"{cell_ref}={value!r}")
         else:
             # Empty cell — clear type, leave no value child
             cell_el.attrib.pop("t", None)
+
+    if patched_cells:
+        print(f"[xlsx-patch] cells patched: {', '.join(patched_cells)}", flush=True)
 
     # Re-sort rows by r, and cells within each row by column index
     sorted_rows = sorted(list(sheet_data), key=lambda e: int(e.get("r") or 0))
@@ -267,33 +284,110 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
             row_el.append(cell)
         sheet_data.append(row_el)
 
-    body = ET.tostring(root, encoding="unicode")
-    return b'<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\r\n' + body.encode("utf-8")
+    # ── Serialize ONLY <sheetData> and splice into original bytes ──────────
+    # Do NOT use ET.tostring(root) — it would move x14/xm namespace declarations
+    # from their original inline location (on <ext> child elements) to the root
+    # element, producing wrong prefixes (ns4/ns5) that corrupt the worksheet.
+    new_sd_bytes = ET.tostring(sheet_data, encoding="unicode").encode("utf-8")
+
+    sd_start = xml_bytes.find(b"<sheetData")
+    if sd_start == -1:
+        return xml_bytes
+
+    # Find end of the <sheetData ...> opening tag (the FIRST > after <sheetData)
+    # For OOXML, <sheetData> never has attribute values containing >, so this is safe.
+    tag_close = xml_bytes.find(b">", sd_start)
+    if tag_close == -1:
+        return xml_bytes
+
+    # Self-closing <sheetData.../> vs regular <sheetData...>...</sheetData>
+    if xml_bytes[tag_close - 1 : tag_close] == b"/":
+        # Self-closing: entire tag is sd_start … tag_close+1
+        sd_end = tag_close + 1
+    else:
+        # Regular: find the matching closing tag
+        closing_tag = xml_bytes.find(b"</sheetData>", tag_close)
+        if closing_tag == -1:
+            return xml_bytes
+        sd_end = closing_tag + len(b"</sheetData>")
+
+    return xml_bytes[:sd_start] + new_sd_bytes + xml_bytes[sd_end:]
+
+
+def _drop_calc_chain_from_rels(rels_xml: bytes) -> bytes:
+    """Remove the calcChain Relationship entry from workbook.xml.rels."""
+    return re.sub(rb'<Relationship\b[^>]*calcChain[^>]*/>', b'', rels_xml)
+
+
+def _drop_calc_chain_from_content_types(ct_xml: bytes) -> bytes:
+    """Remove the calcChain Override entry from [Content_Types].xml."""
+    return re.sub(rb'<Override\b[^>]*calcChain[^>]*/>', b'', ct_xml)
+
+
+def _force_full_calc_on_load(wb_xml: bytes) -> bytes:
+    """
+    Ensure <calcPr> has fullCalcOnLoad="1" so Excel rebuilds the calculation
+    chain on open instead of relying on the (now absent) calcChain.xml.
+    """
+    if b'<calcPr' not in wb_xml:
+        return wb_xml
+    if b'fullCalcOnLoad' in wb_xml:
+        return re.sub(rb'fullCalcOnLoad="[^"]*"', b'fullCalcOnLoad="1"', wb_xml)
+    return re.sub(rb'(<calcPr\b)', rb'\1 fullCalcOnLoad="1"', wb_xml)
 
 
 def _apply_changes_to_template(
     template_path: Path,
     sheet_changes: Dict[str, Dict[str, Any]],
 ) -> bytes:
+    """Kept for backward compatibility — delegates to _apply_changes_to_source."""
+    return _apply_changes_to_source(template_path, sheet_changes)
+
+
+def _apply_changes_to_source(source, sheet_changes: Dict[str, Dict[str, Any]]) -> bytes:
     """
-    Low-level: copy template zip, patch only the listed worksheet cells, return bytes.
-    workbook.xml and sharedStrings.xml are copied byte-for-byte (no corruption).
+    Like _apply_changes_to_template but accepts either a Path or raw bytes as source.
+    Enables patching over an already-modified Excel (e.g. a manual upload) rather
+    than always starting from the blank template.
     """
-    with ZipFile(template_path, "r") as zf_in:
-        sheet_path_map = _build_sheet_path_map(zf_in)
+    if isinstance(source, (bytes, bytearray)):
+        source_io = io.BytesIO(source)
+        zf_source = ZipFile(source_io, "r")
+    else:
+        zf_source = ZipFile(source, "r")
+
+    try:
+        sheet_path_map = _build_sheet_path_map(zf_source)
         path_to_sheet  = {v: k for k, v in sheet_path_map.items()}
 
         out_buf = io.BytesIO()
         with ZipFile(out_buf, "w", compression=ZIP_DEFLATED) as zf_out:
-            for item in zf_in.infolist():
-                data = zf_in.read(item.filename)
-                sheet_name = path_to_sheet.get(item.filename)
-                if sheet_name and sheet_name in sheet_changes:
-                    try:
-                        data = _patch_sheet_xml(data, sheet_changes[sheet_name])
-                    except Exception as exc:
-                        print(f"[WARN] _patch_sheet_xml({item.filename}): {exc}", flush=True)
+            for item in zf_source.infolist():
+                if item.filename == "xl/calcChain.xml":
+                    print("[xlsx-patch] dropping xl/calcChain.xml (stale after cell patching)", flush=True)
+                    continue
+
+                data = zf_source.read(item.filename)
+
+                if item.filename == "xl/_rels/workbook.xml.rels":
+                    data = _drop_calc_chain_from_rels(data)
+                elif item.filename == "[Content_Types].xml":
+                    data = _drop_calc_chain_from_content_types(data)
+                elif item.filename == "xl/workbook.xml":
+                    data = _force_full_calc_on_load(data)
+                else:
+                    sheet_name = path_to_sheet.get(item.filename)
+                    if sheet_name and sheet_name in sheet_changes:
+                        try:
+                            data = _patch_sheet_xml(data, sheet_changes[sheet_name])
+                            print(f"[xlsx-patch] sheet {sheet_name!r} ({item.filename}) patched OK ({len(data)} bytes)", flush=True)
+                        except Exception as exc:
+                            print(f"[WARN] _patch_sheet_xml({item.filename}): {exc}", flush=True)
+                            traceback.print_exc()
+
                 zf_out.writestr(item, data)
+    finally:
+        zf_source.close()
 
     return out_buf.getvalue()
 
@@ -302,69 +396,194 @@ def _write_template_zipfile(
     template_path: Path,
     entity_name: str,
     actions: List[Dict[str, Any]],
+    energy_record: Any = None,
 ) -> bytes:
     """
-    High-level: build sheet_changes from entity_name + Claude actions list,
-    then delegate to _apply_changes_to_template.
+    High-level: build sheet_changes from entity_name + Claude actions list +
+    optional energy accounting DB record, then delegate to _apply_changes_to_source.
     Both text (inlineStr) and numeric values are injected.
     workbook.xml / sharedStrings.xml remain byte-identical to template.
     """
-    sheet_changes = _build_prefill_sheet_changes(entity_name, actions)
-    return _apply_changes_to_template(template_path, sheet_changes)
+    energy_changes = _build_energy_sheet_changes(energy_record) if energy_record else {}
+    sheet_changes  = _build_prefill_sheet_changes(entity_name, actions, energy_changes)
+    return _apply_changes_to_source(template_path, sheet_changes)
+
+
+def _patch_excel_bytes(
+    base_bytes: bytes,
+    entity_name: str,
+    actions: List[Dict[str, Any]],
+    energy_record: Any = None,
+) -> bytes:
+    """
+    Patch an existing Excel (provided as bytes) with new AI proposals.
+    Used when the user has previously uploaded a modified Excel: we patch
+    over their file instead of starting from the blank template.
+    """
+    energy_changes = _build_energy_sheet_changes(energy_record) if energy_record else {}
+    sheet_changes  = _build_prefill_sheet_changes(entity_name, actions, energy_changes)
+    return _apply_changes_to_source(base_bytes, sheet_changes)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# AMUREBA sheet cell mappings
+# ──────────────────────────────────────────────────────────────────────────────
+
+# '2023' sheet: first input row per section (cols C-I = electricity/gas/fuel/
+# biogas/utility1/utility2/process).  Two rows exist per section; we use the
+# first (row1) for totals when no sub-row breakdown is available.
+_ENERGY_SECTION_ROW: Dict[str, int] = {
+    "operational": 6,
+    "buildings":   9,
+    "transport":  12,
+    "utility":    15,
+}
+_ENERGY_COL: Dict[str, str] = {
+    "electricity": "C",
+    "gas":         "D",
+    "fuel":        "E",
+    "biogas":      "F",
+    "utility1":    "G",
+    "utility2":    "H",
+    "process":     "I",
+}
+
+# AA sheets: text cells for up to 3 pre-conditions (B31/B33/B35)
+_AA_CONDITION_CELLS = ["B31", "B33", "B35"]
+
+
+def _build_energy_sheet_changes(record: Any) -> Dict[str, Any]:
+    """
+    Build {cell: value} patch for the AMUREBA '2023' energy accounting sheet
+    from an EnergyRecord DB row.
+
+    Strategy:
+      1. Inject B2 = year.
+      2. If record.details has section keys (operational/buildings/transport/utility),
+         inject each section into its first row.
+      3. Otherwise fall back to top-level totals in the 'operational' row (row 6).
+
+    Only non-None, non-zero values are written; formulas in other columns are
+    never touched.
+    """
+    changes: Dict[str, Any] = {}
+    patched: list = []
+
+    if record.year:
+        changes["B2"] = str(record.year)
+        patched.append(f"B2={record.year!r}")
+
+    details = record.details or {}
+
+    section_used = False
+    if isinstance(details, dict):
+        for section, start_row in _ENERGY_SECTION_ROW.items():
+            sdata = details.get(section) or details.get(section + "s")
+            if not sdata:
+                continue
+            # Support both {field: val} dict and [{field: val}, ...] list
+            if isinstance(sdata, list) and sdata:
+                sdata = sdata[0]
+            if not isinstance(sdata, dict):
+                continue
+            for field, col in _ENERGY_COL.items():
+                v = sdata.get(field)
+                if v is None or v == 0:
+                    continue
+                try:
+                    fv = float(v)
+                    cell = f"{col}{start_row}"
+                    changes[cell] = fv
+                    patched.append(f"{cell}={fv}")
+                    section_used = True
+                except (TypeError, ValueError):
+                    pass
+
+    if not section_used:
+        # Fall back: inject top-level totals in 'operational' row 6
+        row = _ENERGY_SECTION_ROW["operational"]
+        for field, col in _ENERGY_COL.items():
+            v = getattr(record, field, None)
+            if v is None or v == 0:
+                continue
+            try:
+                fv = float(v)
+                cell = f"{col}{row}"
+                changes[cell] = fv
+                patched.append(f"{cell}={fv}")
+            except (TypeError, ValueError):
+                pass
+
+    if patched:
+        src = "section breakdown" if section_used else "top-level totals"
+        print(f"[xlsx-patch] feuille '2023' ({src}): {', '.join(patched)}", flush=True)
+    else:
+        print("[xlsx-patch] feuille '2023': aucune donnée énergie disponible", flush=True)
+
+    return changes
 
 
 def _build_prefill_sheet_changes(
     entity_name: str,
     actions: List[Dict[str, Any]],
+    energy_changes: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Dict[str, Any]]:
     """
     Build the exact worksheet patch payload used for AMUREBA prefill.
     Reused by both the full IA prefill and the checkbox-based apply flow so
     both routes generate files in the same safe way.
+
+    Parameters
+    ----------
+    entity_name : str
+        Nom de l'entité (injected in Entête C15, Paramètres B3, and AA B1).
+    actions : list
+        Actions d'amélioration (up to 9) returned by Claude.
+    energy_changes : dict, optional
+        {cell: value} patch for the '2023' sheet built by _build_energy_sheet_changes.
     """
     sheet_changes: Dict[str, Dict[str, Any]] = {}
 
     def _s(sheet: str, cell: str, val: Any) -> None:
         sheet_changes.setdefault(sheet, {})[cell] = val
 
+    # ── Entête + Paramètres ─────────────────────────────────────────────────
     if entity_name:
-        _s("Paramètres", "B3", entity_name)
         _s("Entête", "C15", entity_name)
+        # B3 in Paramètres is already a formula =Entête!C15, but we override
+        # it explicitly so the value is visible even before a full recalc.
+        _s("Paramètres", "B3", entity_name)
 
+    # ── 2023 energy accounting sheet ────────────────────────────────────────
+    if energy_changes:
+        sheet_changes["2023"] = energy_changes
+
+    # ── AA1–AA9 ─────────────────────────────────────────────────────────────
     for i, action in enumerate(actions[:9], start=1):
         sh = action.get("sheet") or f"AA{i}"
 
-        # Keep the common header injection that already worked with the
-        # original prefill flow.
         if entity_name:
             _s(sh, "B1", entity_name)
 
-        # Reapply the old safe defaults that produced stable AMUREBA files,
-        # then let selected user values override them.
-        _s(sh, "B9", action.get("intitule") or "")
+        # Core text fields
+        _s(sh, "B9",  action.get("intitule") or "")
         _s(sh, "B13", action.get("type_amelioration") or "")
         _s(sh, "F27", action.get("classification") or "B")
         _s(sh, "K22", action.get("ets") or "NON")
         _s(sh, "K23", action.get("deduction_fiscale") or "OUI")
 
-        optional_text_fields = [
-            ("B16", "situation_existante"),
-            ("B20", "description"),
-        ]
-        for cell, key in optional_text_fields:
+        for cell, key in [("B16", "situation_existante"), ("B20", "description")]:
             value = action.get(key)
-            if value is None:
-                continue
-            _s(sh, cell, str(value))
+            if value is not None:
+                _s(sh, cell, str(value))
 
+        # Numeric fields
         for cell, key in [
             ("G61", "investissement_k_eur"),
             ("G77", "economie_energie_mwh_an"),
             ("G87", "economie_co2_kg_an"),
             ("K18", "duree_amortissement"),
         ]:
-            if key not in action:
-                continue
             val = action.get(key)
             if val is None:
                 continue
@@ -372,6 +591,19 @@ def _build_prefill_sheet_changes(
                 _s(sh, cell, float(val))
             except (TypeError, ValueError):
                 pass
+
+        # Conditions préalables: split on ";" or newline → up to 3 cells
+        conds_raw = action.get("conditions_prealables") or ""
+        if conds_raw:
+            # Try to split multiple conditions; fall back to writing full text in first cell
+            conds = [c.strip() for c in re.split(r"[;\n]+", conds_raw) if c.strip()]
+            for cond_cell, cond_text in zip(_AA_CONDITION_CELLS, conds):
+                _s(sh, cond_cell, cond_text)
+
+    # Log summary of sheets being patched
+    for sname, cells in sheet_changes.items():
+        n = len(cells)
+        print(f"[xlsx-patch] mapping: feuille '{sname}' → {n} cellule(s) à patcher", flush=True)
 
     return sheet_changes
 
@@ -449,6 +681,7 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefill_summary JSONB",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_excel BYTEA",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_at TEXT",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS current_excel_source TEXT",
         "ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS file_hash TEXT",
         # Nouvelle table historique (idempotent)
         """CREATE TABLE IF NOT EXISTS plan_amelioration_history (
@@ -1882,46 +2115,58 @@ def _parse_aa_sheet(ws) -> Optional[Dict[str, Any]]:
 
 _PREFILL_SYSTEM = """\
 Tu es un expert en audit énergétique industriel (méthode AMUREBA belge).
-Tu reçois des données extraites de factures énergétiques d'un bâtiment/entreprise.
+Tu reçois des données d'un projet d'audit : factures analysées par IA, comptabilité
+énergétique de la DB, et éventuellement des données d'audit structurées.
 Tu dois proposer des actions d'amélioration énergétique concrètes et chiffrées,
-adaptées aux consommations détectées, en JSON uniquement — aucun texte autour.
+adaptées aux consommations réelles détectées, en JSON uniquement — aucun texte autour.
+Sois précis sur les chiffres quand les données le permettent. Si une donnée manque,
+estime-la avec une hypothèse raisonnable (secteur/taille) et marque estimated=true.
 """
 
 _PREFILL_USER_TPL = """\
-Données extraites des documents du projet "{project_name}" :
+Données du projet "{project_name}" :
 
 {extracted_json}
 
-Génère entre 1 et 5 actions d'amélioration énergétique réalistes.
+Sources disponibles dans ce projet (utilise ces identifiants EXACTS dans le champ "document" des sources) :
+{doc_list}
+
+Génère entre 3 et {max_actions} actions d'amélioration énergétique réalistes et variées (lighting, HVAC, enveloppe, production, transport, EnR…).
+Propose toujours {max_actions} actions si les données le permettent, même si certaines valeurs sont des estimations raisonnables (estimated: true).
 Réponds UNIQUEMENT avec un tableau JSON de la forme :
 [
   {{
     "intitule": "...",
-    "type_amelioration": "...",   // ex: Efficacité Energétique, SER PV, Electrification…
-    "classification": "A",        // A ou B
-    "investissement_k_eur": 0,    // en k€ (nombre)
-    "economie_energie_mwh_an": 0, // MWh/an
-    "economie_co2_kg_an": 0,      // kg CO2/an
-    "duree_amortissement": 8,     // années
-    "ets": "NON",                 // OUI ou NON
-    "deduction_fiscale": "OUI",   // OUI ou NON
+    "type_amelioration": "...",
+    "classification": "A",
+    "investissement_k_eur": 0,
+    "economie_energie_mwh_an": 0,
+    "economie_co2_kg_an": 0,
+    "duree_amortissement": 8,
+    "ets": "NON",
+    "deduction_fiscale": "OUI",
     "situation_existante": "...",
     "description": "...",
+    "conditions_prealables": "...",
     "sources": {{
-      "investissement_k_eur":    {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
-      "economie_energie_mwh_an": {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": false}},
-      "economie_co2_kg_an":      {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
-      "classification":          {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}},
-      "type_amelioration":       {{"document": "<nom_fichier ou null>", "field": "<champ_source ou null>", "estimated": true}}
+      "intitule":                {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": false}},
+      "investissement_k_eur":    {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": true}},
+      "economie_energie_mwh_an": {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": false}},
+      "economie_co2_kg_an":      {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": true}},
+      "duree_amortissement":     {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": true}},
+      "classification":          {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": true}},
+      "type_amelioration":       {{"document": "<identifiant exact ou null>", "field": "<champ ou null>", "estimated": true}}
     }}
   }}
 ]
-Règles pour "sources" :
-- Si la valeur est directement issue d'un document fourni : "document" = nom exact du fichier,
-  "field" = nom du champ extrait utilisé (ex: "consommation_electricite"), "estimated": false.
-- Si la valeur est estimée / calculée par l'IA sans source directe : "document": null, "field": null, "estimated": true.
-Si les données sont insuffisantes pour chiffrer, utilise 0 pour les valeurs numériques
-et indique des ordres de grandeur raisonnables basés sur le secteur.
+Règles STRICTES pour "sources" (ces sources seront affichées à l'utilisateur) :
+- Si la valeur provient d'un fichier uploadé : "document" = son nom EXACT tel que listé ci-dessus, "estimated": false.
+- Si la valeur provient de la comptabilité énergétique : "document": "energy_accounting_db", "estimated": false.
+- Si la valeur provient des données d'audit : "document": "audit_data_db", "estimated": false.
+- Si la valeur est une estimation IA sans source directe : "document": null, "field": null, "estimated": true.
+- Priorité de citation : fichier uploadé > energy_accounting_db > audit_data_db > estimation IA.
+- Ne mets "estimated": true QUE si aucune donnée disponible ne justifie la valeur.
+Ne mets jamais 0 si une estimation raisonnable est possible.
 """
 
 
@@ -1931,8 +2176,14 @@ async def _get_prefill_actions(
     current_user: models.User,
 ) -> tuple:
     """
-    Shared helper: fetch extracted_data from project documents, call Claude,
-    return (project, entity_name, actions_list).
+    Shared helper: fetch all available data for a project, call Claude,
+    return (project, entity_name, actions_list, energy_record, audit).
+
+    Data passed to Claude:
+      - extracted_data from analyzed documents
+      - energy_accounting DB record (EnergyRecord) if present
+      - Audit.energies / influence_factors / invoices if present
+
     Raises HTTPException on error.
     """
     project = db.query(models.Project).filter(
@@ -1942,12 +2193,12 @@ async def _get_prefill_actions(
     if not project:
         raise HTTPException(status_code=404, detail="Projet introuvable")
 
+    # ── Documents analysés ──────────────────────────────────────────────────
     docs = db.query(models.ProjectDocument).filter(
         models.ProjectDocument.project_id == project_id,
         models.ProjectDocument.extracted_data.isnot(None),
     ).all()
-
-    extracted_parts = [
+    extracted_parts: List[Dict[str, Any]] = [
         {"document": d.original_name, "type": d.doc_type, "data": d.extracted_data}
         for d in docs if d.extracted_data
     ]
@@ -1961,12 +2212,87 @@ async def _get_prefill_actions(
             ),
         )
 
-    entity_name = project.client_name or project.project_name or ""
+    # ── Comptabilité énergétique (DB) ───────────────────────────────────────
+    energy_record = (
+        db.query(models.EnergyRecord)
+        .filter(models.EnergyRecord.project_id == project_id)
+        .order_by(models.EnergyRecord.year.desc())
+        .first()
+    )
+    if energy_record:
+        energy_ctx: Dict[str, Any] = {
+            "year":           energy_record.year,
+            "electricity_kwh": energy_record.electricity,
+            "gas_kwhs":        energy_record.gas,
+            "fuel_litres":     energy_record.fuel,
+            "biogas_kwhs":     energy_record.biogas,
+            "utility1":        energy_record.utility1,
+            "utility2":        energy_record.utility2,
+            "process_kgco2":   energy_record.process,
+            "notes":           energy_record.notes,
+        }
+        # remove null entries to keep prompt concise
+        energy_ctx = {k: v for k, v in energy_ctx.items() if v is not None}
+        if energy_record.details:
+            energy_ctx["section_details"] = energy_record.details
+        extracted_parts.append({
+            "document": "energy_accounting_db",
+            "type":     "comptabilite_energetique",
+            "data":     energy_ctx,
+        })
+        print(f"[prefill] energy_record year={energy_record.year} inclus dans le contexte Claude", flush=True)
+
+    # ── Données d'audit (DB) ────────────────────────────────────────────────
+    audit = (
+        db.query(models.Audit)
+        .filter(models.Audit.project_id == project_id)
+        .first()
+    )
+    if audit:
+        audit_ctx: Dict[str, Any] = {}
+        if audit.energies:
+            audit_ctx["energies"] = audit.energies
+        if audit.influence_factors:
+            audit_ctx["influence_factors"] = audit.influence_factors
+        if audit.invoices:
+            audit_ctx["invoices"] = audit.invoices
+        if audit_ctx:
+            extracted_parts.append({
+                "document": "audit_data_db",
+                "type":     "donnees_audit",
+                "data":     audit_ctx,
+            })
+            print("[prefill] audit data inclus dans le contexte Claude", flush=True)
+
+    # ── Appel Claude ────────────────────────────────────────────────────────
+    entity_name    = project.client_name or project.project_name or ""
+    nb_docs        = sum(1 for p in extracted_parts if p["document"] not in ("energy_accounting_db", "audit_data_db"))
+    has_db_context = any(p["document"] in ("energy_accounting_db", "audit_data_db") for p in extracted_parts)
+    # Always propose at least 3 actions; scale up with more docs; DB context alone justifies 3+
+    max_actions    = min(9, max(3, nb_docs * 2 + (2 if has_db_context else 0)))
     extracted_json = json.dumps(extracted_parts, ensure_ascii=False, indent=2)
+
+    # Build explicit doc-name list so Claude knows exactly what to put in "document"
+    doc_lines: List[str] = []
+    for p in extracted_parts:
+        doc_id = p["document"]
+        doc_type = p.get("type", "")
+        if doc_id == "energy_accounting_db":
+            doc_lines.append('- "energy_accounting_db"  (comptabilité énergétique DB)')
+        elif doc_id == "audit_data_db":
+            doc_lines.append('- "audit_data_db"  (données d\'audit DB)')
+        else:
+            doc_lines.append(f'- "{doc_id}"  (type: {doc_type})')
+    doc_list = "\n".join(doc_lines) if doc_lines else "- (aucune source disponible)"
+
     user_msg = _PREFILL_USER_TPL.format(
         project_name=entity_name,
         extracted_json=extracted_json,
+        max_actions=max_actions,
+        doc_list=doc_list,
     )
+
+    print(f"[prefill] appel Claude — {len(extracted_parts)} sources, max {max_actions} actions", flush=True)
 
     try:
         claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
@@ -1976,16 +2302,83 @@ async def _get_prefill_actions(
             system=_PREFILL_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )
-        raw_text = msg.content[0].text.strip()
-        json_match = re.search(r"\[.*\]", raw_text, re.DOTALL)
+        print(f"[tokens] prefill in={msg.usage.input_tokens} out={msg.usage.output_tokens}", flush=True)
+        raw_text    = msg.content[0].text.strip()
+        json_match  = re.search(r"\[.*\]", raw_text, re.DOTALL)
         if not json_match:
             raise ValueError("Aucun tableau JSON trouvé dans la réponse Claude")
         actions: List[Dict[str, Any]] = json.loads(json_match.group(0))
+        print(f"[prefill] Claude a proposé {len(actions)} action(s)", flush=True)
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
 
-    return project, entity_name, actions
+    return project, entity_name, actions, energy_record, audit
 
+
+
+# Mapping field → cell used to detect conflicts in existing Excel
+_AA_FIELD_CELL = {
+    "intitule":               "B9",
+    "type_amelioration":      "B13",
+    "classification":         "F27",
+    "investissement_k_eur":   "G61",
+    "economie_energie_mwh_an":"G77",
+    "economie_co2_kg_an":     "G87",
+    "duree_amortissement":    "K18",
+}
+
+
+def _read_aa_existing_values(excel_bytes: bytes) -> Dict[str, Dict[str, Any]]:
+    """
+    Read an existing AMUREBA Excel (bytes) and return a dict:
+      { "AA1": { "B9": "some value", ... }, "AA2": { ... }, ... }
+    Only the cells listed in _AA_FIELD_CELL are checked.
+    Uses openpyxl data_only=True (read-only, no writing).
+    """
+    try:
+        wb = load_workbook(io.BytesIO(excel_bytes), data_only=True, keep_links=False)
+    except Exception as exc:
+        print(f"[conflict-check] cannot read Excel for conflict detection: {exc}", flush=True)
+        return {}
+
+    result: Dict[str, Dict[str, Any]] = {}
+    for i in range(1, 10):
+        sheet_name = f"AA{i}"
+        if sheet_name not in wb.sheetnames:
+            continue
+        ws = wb[sheet_name]
+        sheet_vals: Dict[str, Any] = {}
+        for field, cell_ref in _AA_FIELD_CELL.items():
+            cell = ws[cell_ref]
+            val = cell.value
+            if val is not None and str(val).strip() != "":
+                sheet_vals[field] = val
+        if sheet_vals:
+            result[sheet_name] = sheet_vals
+    return result
+
+
+_KNOWN_DB_SOURCES = {"energy_accounting_db", "audit_data_db"}
+
+
+def _get_conflict_type(field: str, sheet: str, existing: Dict[str, Dict[str, Any]], sources: Dict[str, Any]) -> str:
+    """
+    Return conflict category for a proposed value:
+    - "replace"   → cell already has a value in current Excel
+    - "new"       → cell was empty (or no current Excel), value sourced from doc/DB
+    - "uncertain" → IA estimate with no traceable source
+    """
+    sheet_vals = existing.get(sheet, {})
+    if field in sheet_vals:
+        return "replace"
+    src = sources.get(field) or {}
+    doc = src.get("document")
+    # DB sources (energy_accounting_db, audit_data_db) are real, not uncertain
+    if doc and (not src.get("estimated") or doc in _KNOWN_DB_SOURCES):
+        return "new"
+    if src.get("estimated") or not doc:
+        return "uncertain"
+    return "new"
 
 
 @app.post("/projects/{project_id}/improvement-actions/prefill-preview")
@@ -1996,12 +2389,24 @@ async def prefill_preview(
 ):
     """
     Appelle Claude et retourne le JSON des actions proposées sans générer de fichier.
-    Utilisé pour afficher un aperçu avant téléchargement.
+    Inclut conflict_type par champ (new / replace / uncertain) quand un Excel courant existe.
     """
-    _, entity_name, actions = await _get_prefill_actions(project_id, db, current_user)
+    project, entity_name, actions, energy_record, _ = await _get_prefill_actions(project_id, db, current_user)
+
+    # Detect conflicts with the current stored Excel (if any)
+    existing_vals: Dict[str, Dict[str, Any]] = {}
+    current_source = project.current_excel_source or "template"
+    if project.prefilled_excel:
+        print(f"[prefill-preview] running conflict check against {current_source!r} Excel", flush=True)
+        existing_vals = _read_aa_existing_values(project.prefilled_excel)
+
     return {
         "entity_name": entity_name,
         "nb_actions": len(actions),
+        "has_energy_data": energy_record is not None,
+        "energy_year": energy_record.year if energy_record else None,
+        "current_excel_source": current_source,
+        "has_existing_excel": project.prefilled_excel is not None,
         "actions": [
             {
                 "sheet": f"AA{i + 1}",
@@ -2012,8 +2417,14 @@ async def prefill_preview(
                 "economie_energie_mwh_an": a.get("economie_energie_mwh_an"),
                 "economie_co2_kg_an": a.get("economie_co2_kg_an"),
                 "duree_amortissement": a.get("duree_amortissement"),
-                # sources: dict {field: {document, field, estimated}} — peut être absent si Claude ne le fournit pas
+                "conditions_prealables": a.get("conditions_prealables") or "",
                 "sources": a.get("sources") or {},
+                # Per-field conflict type for checklist display
+                "conflict_types": {
+                    field: _get_conflict_type(field, f"AA{i + 1}", existing_vals, a.get("sources") or {})
+                    for field in _AA_FIELD_CELL
+                    if a.get(field) is not None
+                },
             }
             for i, a in enumerate(actions[:9])
         ],
@@ -2027,40 +2438,57 @@ async def prefill_improvement_actions_excel(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Appelle Claude, pré-remplit le template AMUREBA, persiste en base et retourne le .xlsx.
+    Appelle Claude, pré-remplit le template AMUREBA (AA1-AA9 + feuille 2023),
+    persiste en base et retourne le .xlsx.
     """
-    project, entity_name, actions = await _get_prefill_actions(project_id, db, current_user)
+    project, entity_name, actions, energy_record, _ = await _get_prefill_actions(
+        project_id, db, current_user
+    )
 
     if not TEMPLATE_FILE.exists():
         raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
     try:
-        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, actions)
+        file_bytes = _write_template_zipfile(
+            TEMPLATE_FILE, entity_name, actions, energy_record
+        )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la génération du fichier: {e}")
 
     # ── Persistance ───────────────────────────────────────────────────────────
     now = datetime.now(timezone.utc).isoformat()
-    summary = {
+    summary: Dict[str, Any] = {
         "entity_name": entity_name,
-        "nb_actions": len(actions),
+        "nb_actions":  len(actions),
         "actions": [
             {
-                "sheet": f"AA{i + 1}",
-                "intitule": a.get("intitule"),
-                "type_amelioration": a.get("type_amelioration"),
-                "classification": a.get("classification"),
-                "investissement_k_eur": a.get("investissement_k_eur"),
-                "economie_energie_mwh_an": a.get("economie_energie_mwh_an"),
-                "economie_co2_kg_an": a.get("economie_co2_kg_an"),
-                "duree_amortissement": a.get("duree_amortissement"),
-                "sources": a.get("sources") or {},
+                "sheet":                  f"AA{i + 1}",
+                "intitule":               a.get("intitule"),
+                "type_amelioration":      a.get("type_amelioration"),
+                "classification":         a.get("classification"),
+                "investissement_k_eur":   a.get("investissement_k_eur"),
+                "economie_energie_mwh_an":a.get("economie_energie_mwh_an"),
+                "economie_co2_kg_an":     a.get("economie_co2_kg_an"),
+                "duree_amortissement":    a.get("duree_amortissement"),
+                "conditions_prealables":  a.get("conditions_prealables") or "",
+                "sources":                a.get("sources") or {},
             }
             for i, a in enumerate(actions[:9])
         ],
     }
+    if energy_record:
+        summary["energy_sheet"] = {
+            "year":            energy_record.year,
+            "electricity_kwh": energy_record.electricity,
+            "gas_kwhs":        energy_record.gas,
+            "fuel_litres":     energy_record.fuel,
+            "biogas_kwhs":     energy_record.biogas,
+            "process_kgco2":   energy_record.process,
+            "source":          "energy_accounting_db",
+        }
+
     project.prefill_summary = summary
-    project.prefilled_excel = file_bytes
-    project.prefilled_at = now
+    project.prefilled_excel  = file_bytes
+    project.prefilled_at     = now
     flag_modified(project, "prefill_summary")
     db.commit()
 
@@ -2090,6 +2518,7 @@ def get_prefill_status(
         "has_prefilled_excel": project.prefilled_excel is not None,
         "prefilled_at": project.prefilled_at,
         "prefill_summary": project.prefill_summary,
+        "current_excel_source": project.current_excel_source or "template",
     }
 
 
@@ -2120,13 +2549,19 @@ def export_improvement_actions_excel(
             headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
         )
 
-    # Sinon : template vierge avec le nom de l'entité
+    # Sinon : template vierge avec le nom de l'entité (+ données énergie si dispo)
     if not TEMPLATE_FILE.exists():
         raise HTTPException(status_code=500, detail="Template AMUREBA introuvable côté serveur")
 
     entity_name = project.client_name or project.project_name or ""
+    energy_record = (
+        db.query(models.EnergyRecord)
+        .filter(models.EnergyRecord.project_id == project_id)
+        .order_by(models.EnergyRecord.year.desc())
+        .first()
+    )
     try:
-        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, [])
+        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, [], energy_record)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la génération du fichier: {e}")
 
@@ -2146,7 +2581,8 @@ async def apply_prefill(
 ):
     """
     Reçoit la liste des changements sélectionnés/rejetés par l'auditeur.
-    - Injecte uniquement les items sélectionnés dans le xlsx.
+    - Injecte uniquement les items AA sélectionnés dans le xlsx.
+    - Injecte aussi les données de comptabilité énergétique depuis la DB.
     - Sauvegarde le fichier + tous les items (avec statut) en base + historique.
     """
     project = db.query(models.Project).filter(
@@ -2160,11 +2596,19 @@ async def apply_prefill(
         raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
 
     entity_name = project.client_name or project.project_name or ""
+
+    # Fetch energy record for 2023 sheet injection
+    energy_record = (
+        db.query(models.EnergyRecord)
+        .filter(models.EnergyRecord.project_id == project_id)
+        .order_by(models.EnergyRecord.year.desc())
+        .first()
+    )
+
     actions_by_sheet: Dict[str, Dict[str, Any]] = {}
     for item in payload.changes:
         if not item.selected:
             continue
-
         action = actions_by_sheet.setdefault(item.sheet, {"sheet": item.sheet})
         action[item.field] = item.value
 
@@ -2173,27 +2617,41 @@ async def apply_prefill(
         for sheet in sorted(actions_by_sheet.keys(), key=lambda s: int(re.sub(r"[^0-9]", "", s) or 0))
     ]
 
-    print("[DEBUG] apply_prefill selected_actions:", flush=True)
-    for action in selected_actions:
-        print(f"  - {action}", flush=True)
-
-    debug_sheet_changes = _build_prefill_sheet_changes(entity_name, selected_actions)
-    print("[DEBUG] apply_prefill sheet_changes:", flush=True)
-    for sheet_name, changes in debug_sheet_changes.items():
-        print(f"  - {sheet_name}: {changes}", flush=True)
+    # Determine Excel base: use existing stored Excel if available (upload or previous AI),
+    # otherwise start from the blank template.
+    existing_source = project.current_excel_source or "template"
+    has_existing = project.prefilled_excel is not None
+    if has_existing:
+        print(f"[apply-prefill] base = stored Excel (source={existing_source!r}), "
+              f"{len(selected_actions)} action(s) sélectionnée(s), "
+              f"energy_record={'oui' if energy_record else 'non'}", flush=True)
+        new_source = "ai_patched" if existing_source == "manual_upload" else "ai_prefill"
+    else:
+        print(f"[apply-prefill] base = template vierge, "
+              f"{len(selected_actions)} action(s) sélectionnée(s), "
+              f"energy_record={'oui' if energy_record else 'non'}", flush=True)
+        new_source = "ai_prefill"
 
     try:
-        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, selected_actions)
+        if has_existing:
+            file_bytes = _patch_excel_bytes(
+                project.prefilled_excel, entity_name, selected_actions, energy_record
+            )
+        else:
+            file_bytes = _write_template_zipfile(
+                TEMPLATE_FILE, entity_name, selected_actions, energy_record
+            )
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur génération xlsx : {e}")
 
     now = datetime.now(timezone.utc).isoformat()
     all_items = [item.model_dump() for item in payload.changes]
-    summary = {"items": all_items}
+    summary = {"items": all_items, "base_source": existing_source}
 
     project.prefilled_excel = file_bytes
     project.prefill_summary = summary
     project.prefilled_at = now
+    project.current_excel_source = new_source
     flag_modified(project, "prefill_summary")
 
     db.add(models.PlanAmeliorationHistory(
@@ -2330,6 +2788,23 @@ async def import_improvement_actions_excel(
     }
     project.excel_summary = excel_summary
     flag_modified(project, "excel_summary")
+
+    # Store raw Excel bytes as the new "current" version so future exports
+    # return the uploaded file and future AI patching starts from it.
+    print(f"[import-excel] storing {len(content)} bytes as current Excel (manual_upload)", flush=True)
+    project.prefilled_excel = content
+    project.prefilled_at = now
+    project.current_excel_source = "manual_upload"
+    # Use excel_summary as the prefill_summary so prefill-status shows upload info
+    project.prefill_summary = {
+        "source": "manual_upload",
+        "imported_at": now,
+        "nb_actions": len(parsed),
+        "total_investissement_k_eur": excel_summary["total_investissement_k_eur"],
+        "total_economie_energie_mwh_an": excel_summary["total_economie_energie_mwh_an"],
+        "total_economie_co2_kg_an": excel_summary["total_economie_co2_kg_an"],
+    }
+    flag_modified(project, "prefill_summary")
 
     # Historique
     db.add(models.PlanAmeliorationHistory(

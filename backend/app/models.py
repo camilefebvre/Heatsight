@@ -32,6 +32,7 @@ class Project(Base):
     prefill_summary = Column(JSONB, nullable=True)    # actions proposées par Claude (prefill-excel)
     prefilled_excel = Column(LargeBinary, nullable=True)  # fichier xlsx généré par prefill-excel
     prefilled_at = Column(String, nullable=True)      # ISO datetime du dernier prefill
+    current_excel_source = Column(String, nullable=True)  # "template"|"ai_prefill"|"manual_upload"|"ai_patched"
     # audit_data, energy_accounting, report_data → tables dédiées
 
 

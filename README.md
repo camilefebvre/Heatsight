@@ -101,7 +101,7 @@ HeatSight/
 | Table | Description |
 |---|---|
 | `users` | Comptes utilisateurs (email, mot de passe haché, nom) |
-| `projects` | Projets d'audit (métadonnées, statut, fichier Excel, `excel_summary`, `prefill_summary`, `prefilled_excel`) |
+| `projects` | Projets d'audit (métadonnées, statut, fichier Excel, `excel_summary`, `prefill_summary`, `prefilled_excel`, `current_excel_source`) |
 | `events` | Événements agenda (visites, appels, deadlines) |
 | `client_requests` | Demandes de documents envoyées aux clients |
 | `energy_accounting` | Comptabilité énergétique annuelle par projet — inclut `field_sources` (traçabilité IA) |
@@ -118,12 +118,13 @@ HeatSight/
 
 Les tables sont créées/mises à jour au **démarrage du serveur** via des instructions `CREATE TABLE IF NOT EXISTS` et `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` dans `main.py`. Aucun outil de migration externe (pas d'Alembic en production).
 
-**Migrations ACV appliquées :**
+**Migrations appliquées :**
 - `005_add_lca_tables` — tables `lca_materials` et `lca_projects`
 - `006_add_lca_material_fields` — champs de prix, valeur R et indicateurs EF v3.0
 - `007_add_lca_building_fields` — champs bâtiments, parois et composants
 - `008_add_flux_reference` — champ `flux_reference` sur `lca_materials`
 - `009_add_lca_optimisation_cache` — champ `optimisation_cache` sur `lca_projects`
+- `010_add_current_excel_source` — champ `current_excel_source` sur `projects` (`"template"` · `"ai_prefill"` · `"manual_upload"` · `"ai_patched"`)
 
 ---
 
@@ -191,30 +192,35 @@ Workflow en 3 étapes :
 **1. Analyse IA → Checklist**
 - Bouton "Analyser les documents" → appel `POST prefill-preview` → Claude propose 1 à 9 actions chiffrées (AA1–AA9)
 - Checklist interactive par champ : cocher/décocher chaque valeur proposée
-- Champs texte (intitulé, type, classification) affichés en lecture seule comme contexte
-- Champs numériques (investissement, économies énergie/CO₂, durée amort.) : checkables → injectés dans l'Excel
-- Source affichée par valeur (`📄 nom_du_fichier` si issue d'un doc, `🤖 IA` si estimée)
+- **Cartes dépliables par action** : chaque feuille AA est une carte repliable (première ouverte par défaut) ; bouton "Tout ouvrir / replier"
+- **Détection de conflits** : chaque valeur proposée est catégorisée (`Nouveau` / `Remplacement`) par comparaison avec l'Excel existant
+  - Les champs en `Remplacement` sont **pré-décochés** (protection des saisies manuelles)
+  - Bandeau d'avertissement + légende des types de conflit si des remplacements existent
+- Source affichée par valeur (`📄 document` si issue d'un fichier analysé, `🗄 base de données` si issue d'un champ DB, `🤖 Estimation IA` si inférée)
 - Bouton "Tout cocher / décocher"
 
 **2. Appliquer les changements sélectionnés**
-- `POST apply-prefill` : génère le template AMUREBA avec uniquement les valeurs numériques sélectionnées
+- `POST apply-prefill` : génère l'Excel AMUREBA avec les valeurs sélectionnées
+  - Si un Excel existe déjà en base (`prefilled_excel`) → patch **par-dessus** la version existante (manuel ou IA précédent) via `_apply_changes_to_source(bytes, …)`
+  - Sinon → génère depuis le template vierge
+- Données énergie automatiquement injectées dans la feuille `2023` depuis la comptabilité énergétique du projet
 - Téléchargement immédiat du `.xlsx` pré-rempli
-- Sauvegarde automatique en base (`prefilled_excel`, `prefill_summary`, `prefilled_at`)
-- Entrée ajoutée dans l'historique (`AI_PREFILL`)
+- Sauvegarde en base (`prefilled_excel`, `prefill_summary`, `prefilled_at`, `current_excel_source = "ai_patched"`)
+- Entrée ajoutée dans l'historique (`AI_PREFILL`) avec la source de base (`base_source`)
 
 **3. Compléter et uploader**
 - L'auditeur complète les feuilles AA1–AA9 dans Excel
-- Upload via "Uploader l'Excel complété" → `POST import-excel` → sauvegarde des actions en base
+- Upload via "Uploader l'Excel complété" → `POST import-excel` → sauvegarde des actions en base + stockage des bytes (`current_excel_source = "manual_upload"`)
+- Les futurs pré-remplissages IA partiront de ce fichier (pas du template vierge)
 - Entrée ajoutée dans l'historique (`MANUAL_UPLOAD`)
 
 **Fonctionnalités supplémentaires :**
 - Onglets : AMUREBA (actif) · PEB · Autre · Mon propre template (bientôt)
 - **Bandeau de statut** si un Excel pré-rempli existe déjà : date + bouton re-télécharger + bouton "Améliorer l'Excel existant"
-- **Résumé sauvegardé** : affiche les valeurs du dernier pré-remplissage par feuille
-- **Historique** (drawer latéral) : liste chronologique des pré-remplissages IA et uploads manuels, avec détail par feuille
+- **Historique** (drawer latéral) : liste chronologique des pré-remplissages IA et uploads manuels, avec détail par feuille et source de base
 - **Tableau des actions importées** : références AA1–AA9, investissement, économies, PBT, IRR, classification
 
-**Génération Excel sans corruption** : le template AMUREBA contient des named ranges avec `#REF!` et des liens externes. openpyxl les corrompt à l'écriture. Solution : approche `zipfile` + `ElementTree` — seules les cellules cibles sont patchées dans les XMLs des feuilles, `workbook.xml` est copié byte-pour-byte depuis le template.
+**Génération Excel sans corruption** : le template AMUREBA contient des named ranges avec `#REF!` et des liens externes. openpyxl les corrompt à l'écriture. Solution : approche `zipfile` + `ElementTree` — seules les cellules cibles sont patchées, `workbook.xml` est copié byte-pour-byte. La stratégie de sérialisation XML ne ré-écrit que le bloc `<sheetData>` (splice dans les bytes originaux) pour éviter le mangling de préfixes de namespaces (`x14`/`xm` → `ns4`/`ns5`) qui corromprait le fichier. Le `calcChain.xml` est supprimé et `fullCalcOnLoad="1"` est injecté dans `<calcPr>` pour forcer Excel à recalculer les formules à l'ouverture.
 
 ### Analyse du cycle de vie — ACV (`/projects/:id/lca`)
 - Saisie des bâtiments, parois et composants
@@ -462,12 +468,14 @@ Sur Render, configurer le service Web avec :
 ### Template AMUREBA (Plan d'amélioration)
 Le template contient des **named ranges avec `#REF!`** et des **références externes** — openpyxl les corrompt à l'écriture ("Removed Records: Named range").
 
-Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_template()` :
+Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_source()` :
 - `workbook.xml` est copié **byte-pour-byte** depuis le template (aucun named range perdu)
-- Seuls les XMLs des feuilles cibles (AA1–AA9) sont patchés via ElementTree
+- Seuls les XMLs des feuilles cibles (AA1–AA9 + `2023`) sont patchés via ElementTree
+- **Stratégie de sérialisation XML** : seul le bloc `<sheetData>` est re-sérialisé puis spliced dans les bytes originaux — le reste du XML (namespaces `x14`/`xm`, extLst, mc:Ignorable) est préservé tel quel, évitant le mangling de préfixes (`x14` → `ns4`) qui corromprait le fichier
 - Cellules numériques → `<v>N</v>` (formule supprimée pour éviter recalcul à 0)
 - Cellules texte → `t="inlineStr"` + `<is><t>texte</t></is>` (pas de sharedStrings modifié)
-- Tous les namespaces OOXML sont enregistrés avec `ET.register_namespace()` pour éviter le mangling `ns0:`
+- **`calcChain.xml` supprimé** du zip de sortie (la chaîne de calcul stale provoquerait des erreurs à l'ouverture) ; `fullCalcOnLoad="1"` injecté dans `<calcPr>` pour forcer le recalcul complet
+- La fonction accepte une `Path` **ou des `bytes`** : permet de patcher par-dessus un Excel uploadé manuellement (`_apply_changes_to_source(bytes, …)`)
 
 ---
 
