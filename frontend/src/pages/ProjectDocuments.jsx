@@ -9,8 +9,22 @@ const DOC_TYPE_LABELS = {
   facture_fuel: "Facture fuel",
   releve_compteur: "Relevé compteur",
   contrat: "Contrat",
+  plans_batiment: "Plans bâtiment",
+  donnees_techniques: "Données techniques",
+  rapport_existant: "Rapport existant",
   autre: "Autre",
 };
+
+const CHECKLIST_ITEMS = [
+  { id: "facture_electricite", label: "Factures électricité",   icon: "⚡", filterLabel: "Électricité" },
+  { id: "facture_gaz",         label: "Factures gaz",           icon: "🔥", filterLabel: "Factures gaz" },
+  { id: "facture_fuel",        label: "Factures fuel",          icon: "🛢", filterLabel: "Factures fuel" },
+  { id: "releve_compteur",     label: "Relevés de compteur",    icon: "📊", filterLabel: "Relevés de compteur" },
+  { id: "contrat",             label: "Contrats énergie",       icon: "📄", filterLabel: "Contrats énergie" },
+  { id: "plans_batiment",      label: "Plans du bâtiment",      icon: "🏗", filterLabel: "Plans du bâtiment" },
+  { id: "donnees_techniques",  label: "Données techniques",     icon: "⚙", filterLabel: "Données techniques" },
+  { id: "rapport_existant",    label: "Rapport audit existant", icon: "📋", filterLabel: "Rapport d'audit" },
+];
 
 const ENERGY_FIELD_MAP = {
   electricite: "electricity",
@@ -41,6 +55,11 @@ export default function ProjectDocuments() {
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
   const [viewDoc, setViewDoc] = useState(null); // doc à visualiser
+
+  const [checklistOpen, setChecklistOpen] = useState(false);
+  const [filterType, setFilterType] = useState(null); // null = tous
+
+  const uploadCardRef = useRef(null);
 
   // Extracted summary panel
   const [summary, setSummary] = useState(null); // null | { docs, auditPatch, energyPatch, reportPatch }
@@ -304,6 +323,21 @@ export default function ProjectDocuments() {
     }
   }
 
+  // ── Checklist upload shortcut ────────────────────────────────────────────────
+
+  function handleChecklistUpload(itemId) {
+    setDocType(itemId);
+    uploadCardRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+
+  // ── Email draft ───────────────────────────────────────────────────────────────
+
+  const [emailDraft, setEmailDraft] = useState(null); // null | { missingItems }
+
+  function handleEmailClick(missingItems) {
+    setEmailDraft({ missingItems });
+  }
+
   // ── Render ──────────────────────────────────────────────────────────────────
 
   if (loading) return <div style={{ color: "#6b7280", padding: 24 }}>Chargement…</div>;
@@ -328,8 +362,27 @@ export default function ProjectDocuments() {
 
       {error && <div style={errorBox}>{error}</div>}
 
+      {/* ── Checklist panel ── */}
+      <ChecklistPanel
+        docs={documents}
+        open={checklistOpen}
+        onToggle={() => setChecklistOpen((v) => !v)}
+        onUploadClick={handleChecklistUpload}
+        onEmailClick={handleEmailClick}
+      />
+
+      {/* ── Email draft modal ── */}
+      {emailDraft && (
+        <EmailDraftModal
+          project={project}
+          projectId={projectId}
+          missingItems={emailDraft.missingItems}
+          onClose={() => setEmailDraft(null)}
+        />
+      )}
+
       {/* ── Upload card ── */}
-      <div style={card}>
+      <div ref={uploadCardRef} style={card}>
         <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 14 }}>
           Ajouter un document
         </div>
@@ -441,8 +494,65 @@ export default function ProjectDocuments() {
 
       {/* ── Documents list ── */}
       <div style={card}>
-        <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 14 }}>
-          Documents du projet ({documents.length + clientFiles.length})
+        {/* Card title */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>
+            Documents du projet
+            <span style={{ marginLeft: 8, fontSize: 13, fontWeight: 500, color: "#9ca3af" }}>
+              {documents.length + clientFiles.length}
+            </span>
+          </div>
+        </div>
+
+        {/* ── Filter section ── */}
+        <div style={{
+          background: "#f8fafc",
+          border: "1px solid #eef2f7",
+          borderRadius: 12,
+          padding: "12px 14px",
+          marginBottom: 18,
+        }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 10 }}>
+            <span style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", letterSpacing: "0.03em", textTransform: "uppercase" }}>
+              Filtrer les documents
+            </span>
+            {filterType && (
+              <button
+                type="button"
+                style={{ fontSize: 12, color: "#7c3aed", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
+                onClick={() => setFilterType(null)}
+              >
+                Effacer ×
+              </button>
+            )}
+          </div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              style={filterType === null ? activeFilterPill : filterPill}
+              onClick={() => setFilterType(null)}
+            >
+              Tous
+            </button>
+            {CHECKLIST_ITEMS.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                style={filterType === item.id ? activeFilterPill : filterPill}
+                onClick={() => setFilterType(filterType === item.id ? null : item.id)}
+              >
+                <span style={{ opacity: 0.6, marginRight: 4, fontSize: 12 }}>{item.icon}</span>
+                {item.filterLabel}
+              </button>
+            ))}
+            <button
+              type="button"
+              style={filterType === "autre" ? activeFilterPill : filterPill}
+              onClick={() => setFilterType(filterType === "autre" ? null : "autre")}
+            >
+              Autres
+            </button>
+          </div>
         </div>
 
         {documents.length === 0 && clientFiles.length === 0 && (
@@ -452,7 +562,7 @@ export default function ProjectDocuments() {
         )}
 
         <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-          {documents.map((doc) => (
+          {(filterType ? documents.filter((d) => d.doc_type === filterType) : documents).map((doc) => (
             <DocumentRow
               key={doc.id}
               doc={doc}
@@ -481,6 +591,508 @@ export default function ProjectDocuments() {
             </div>
           ))}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ChecklistPanel ──────────────────────────────────────────────────────────
+
+const CHECKLIST_DETAIL = {
+  facture_electricite: [
+    "Factures des 12 derniers mois",
+    "Puissance souscrite (kVA ou kW)",
+    "Numéro EAN / PDL",
+    "Répartition tarifaire (jour/nuit, HPT/HCT)",
+  ],
+  facture_gaz: [
+    "Factures des 12 derniers mois",
+    "Volume consommé (m³) et équivalent kWh",
+    "Numéro EAN gaz",
+  ],
+  facture_fuel: [
+    "Bons de livraison ou factures annuelles",
+    "Volume livré (litres ou tonnes)",
+    "Type de combustible (mazout, pellets, propane…)",
+  ],
+  releve_compteur: [
+    "Index compteur électricité (EAN / PDL)",
+    "Index compteur gaz (EAN)",
+    "Courbes de charge si disponibles",
+    "Sous-compteurs par usage si disponibles",
+  ],
+  contrat: [
+    "Puissance souscrite et structure tarifaire",
+    "Coordonnées et nom du fournisseur",
+    "Date d'échéance et options actives",
+  ],
+  plans_batiment: [
+    "Plans d'architecture (façades, coupes, niveaux)",
+    "Surface chauffée nette (m²) et volume (m³)",
+    "Année de construction et principales rénovations",
+  ],
+  donnees_techniques: [
+    "Fiche chaudière / brûleur (puissance, rendement, année)",
+    "Fiche CTA / ventilation (débit, puissance)",
+    "Fiche production ECS (capacité, type d'énergie)",
+    "Inventaire des puissances installées (éclairage, moteurs…)",
+  ],
+  rapport_existant: [
+    "Rapport d'audit énergétique antérieur",
+    "Certificat PEB ou label énergétique",
+    "Mesures déjà réalisées et leur date",
+    "Recommandations précédentes et suivi",
+  ],
+};
+
+const CL_STATUS = {
+  complete: { dot: "#059669", bg: "#f0fdf4", border: "#d1fae5", badge: "#065f46", badgeBg: "#d1fae5", label: "Complet" },
+  partial:  { dot: "#d97706", bg: "#fffbeb", border: "#fde68a", badge: "#92400e", badgeBg: "#fef3c7", label: "Partiel" },
+  missing:  { dot: "#cbd5e1", bg: "#f8fafc", border: "#e2e8f0", badge: "#94a3b8", badgeBg: "#f1f5f9", label: "Manquant" },
+};
+
+function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
+  const [expandedHints, setExpandedHints] = useState(new Set());
+
+  function toggleHint(id, e) {
+    e.stopPropagation();
+    setExpandedHints((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  const statuses = CHECKLIST_ITEMS.map((item) => {
+    const matching = docs.filter((d) => d.doc_type === item.id);
+    let status = "missing";
+    if (matching.length > 0) {
+      status = matching.some((d) => d.status === "analyzed") ? "complete" : "partial";
+    }
+    return { ...item, status, count: matching.length };
+  });
+
+  const completedCount = statuses.filter((s) => s.status === "complete").length;
+  const total = CHECKLIST_ITEMS.length;
+  const progressPct = (completedCount / total) * 100;
+  const allDone = progressPct === 100;
+
+  return (
+    <div style={{
+      ...card,
+      border: "1px solid #ede9fe",
+      padding: "18px 22px",
+    }}>
+      {/* ── Header ── */}
+      <div
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none" }}
+        onClick={onToggle}
+      >
+        {/* Left: icon + title */}
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{
+            width: 34, height: 34, borderRadius: 10, background: "#ede9fe",
+            display: "flex", alignItems: "center", justifyContent: "center",
+            fontSize: 16, flexShrink: 0, color: "#6d28d9",
+          }}>
+            {open ? "−" : "≡"}
+          </div>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 14, color: "#111827", lineHeight: 1.3 }}>
+              Checklist audit AMUREBA
+            </div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
+              Documents attendus pour un audit complet
+            </div>
+          </div>
+        </div>
+
+        {/* Right: email button + fraction + progress bar */}
+        <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
+          {/* Email button */}
+          <button
+            type="button"
+            style={{
+              border: "1px solid #c4b5fd",
+              background: "white",
+              color: "#6d28d9",
+              padding: "5px 12px",
+              borderRadius: 8,
+              fontSize: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              display: "flex",
+              alignItems: "center",
+              gap: 5,
+              whiteSpace: "nowrap",
+              flexShrink: 0,
+            }}
+            onClick={(e) => {
+              e.stopPropagation();
+              const missing = statuses.filter((s) => s.status !== "complete");
+              onEmailClick(missing);
+            }}
+            onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
+            onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
+          >
+            ✉ Email client
+          </button>
+
+          <div style={{ textAlign: "right" }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: allDone ? "#059669" : "#6d28d9", lineHeight: 1 }}>
+              {completedCount}
+              <span style={{ fontSize: 13, fontWeight: 500, color: "#d1d5db" }}> / {total}</span>
+            </div>
+            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1, letterSpacing: "0.02em" }}>
+              catégories complètes
+            </div>
+          </div>
+          <div style={{ width: 72 }}>
+            <div style={{ height: 4, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+              <div style={{
+                width: `${progressPct}%`, height: "100%", borderRadius: 99,
+                background: allDone
+                  ? "#059669"
+                  : "linear-gradient(90deg, #7c3aed, #6d28d9)",
+                transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)",
+              }} />
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      {open && (
+        <>
+          <div style={{ height: 1, background: "#f3f4f6", margin: "16px -2px 14px" }} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, alignItems: "start" }}>
+            {statuses.map((item) => {
+              const cfg = CL_STATUS[item.status];
+              const hintOpen = expandedHints.has(item.id);
+              const details = CHECKLIST_DETAIL[item.id] || [];
+              return (
+                <div
+                  key={item.id}
+                  style={{
+                    padding: "9px 12px",
+                    background: cfg.bg,
+                    border: `1px solid ${cfg.border}`,
+                    borderRadius: 10,
+                    minWidth: 0,
+                  }}
+                >
+                  {/* Main row */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                    {/* Status dot */}
+                    <div style={{
+                      width: 8, height: 8, borderRadius: "50%",
+                      background: cfg.dot, flexShrink: 0,
+                    }} />
+
+                    {/* Icon + label */}
+                    <span style={{ fontSize: 12, flexShrink: 0, opacity: 0.7 }}>{item.icon}</span>
+                    <span style={{
+                      fontSize: 12, fontWeight: 600, color: "#374151",
+                      flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                    }}>
+                      {item.label}
+                    </span>
+
+                    {/* Doc count badge */}
+                    {item.count > 0 && (
+                      <span style={{
+                        fontSize: 10, fontWeight: 700,
+                        color: cfg.badge, background: cfg.badgeBg,
+                        padding: "2px 6px", borderRadius: 99, flexShrink: 0,
+                      }}>
+                        {item.count}
+                      </span>
+                    )}
+
+                    {/* Detail toggle */}
+                    {details.length > 0 && (
+                      <button
+                        type="button"
+                        title={hintOpen ? "Masquer le détail" : "Voir les documents attendus"}
+                        style={{
+                          border: "none", background: "none", cursor: "pointer",
+                          fontSize: 11, color: "#9ca3af", padding: "0 2px",
+                          flexShrink: 0, lineHeight: 1, fontWeight: 700,
+                        }}
+                        onClick={(e) => toggleHint(item.id, e)}
+                      >
+                        {hintOpen ? "▲" : "▼"}
+                      </button>
+                    )}
+
+                    {/* Upload button */}
+                    <button
+                      type="button"
+                      style={{
+                        border: "1px solid #c4b5fd",
+                        background: "white",
+                        color: "#6d28d9",
+                        padding: "3px 9px",
+                        borderRadius: 6,
+                        fontSize: 11,
+                        fontWeight: 700,
+                        cursor: "pointer",
+                        flexShrink: 0,
+                        lineHeight: 1.5,
+                        whiteSpace: "nowrap",
+                      }}
+                      onClick={(e) => { e.stopPropagation(); onUploadClick(item.id); }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
+                    >
+                      + Upload
+                    </button>
+                  </div>
+
+                  {/* Expandable detail */}
+                  {hintOpen && details.length > 0 && (
+                    <div style={{
+                      marginTop: 8,
+                      paddingTop: 8,
+                      borderTop: `1px solid ${cfg.border}`,
+                    }}>
+                      {details.map((line, i) => (
+                        <div key={i} style={{
+                          display: "flex", gap: 6, alignItems: "flex-start",
+                          fontSize: 11, color: "#6b7280", lineHeight: 1.65,
+                        }}>
+                          <span style={{ color: "#c4b5fd", flexShrink: 0, marginTop: 1 }}>·</span>
+                          {line}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── EmailDraftModal ──────────────────────────────────────────────────────────
+
+function buildEmailText(project, missingItems) {
+  const greeting = project.client_name
+    ? `Madame, Monsieur ${project.client_name},`
+    : "Madame, Monsieur,";
+
+  const addressLine = project.building_address
+    ? ` situé au ${project.building_address}`
+    : "";
+
+  if (missingItems.length === 0) return null;
+
+  const list = missingItems.map((i) => `  • ${i.label}`).join("\n");
+
+  return `${greeting}
+
+Dans le cadre de l'audit énergétique de votre bâtiment${addressLine}, nous constituons actuellement votre dossier selon la méthode AMUREBA.
+
+Afin de compléter notre analyse, nous avons besoin des documents suivants :
+
+${list}
+
+Ces éléments sont indispensables pour établir un bilan énergétique précis et formuler des recommandations d'amélioration adaptées à votre situation.
+
+Pourriez-vous nous les faire parvenir dans les meilleurs délais ? N'hésitez pas à nous contacter si vous avez des questions ou souhaitez nous transmettre ces fichiers par un autre canal.
+
+Nous vous remercions de votre collaboration.
+
+Cordialement,`;
+}
+
+function EmailDraftModal({ project, projectId, missingItems, onClose }) {
+  const allComplete = missingItems.length === 0;
+  const emailBody = buildEmailText(project, missingItems);
+  const subject = `Audit énergétique ${project.project_name} — Documents complémentaires`;
+
+  const [copied, setCopied] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMsg, setSaveMsg] = useState("");
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(emailBody);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      // fallback: select the textarea
+      const el = document.getElementById("email-draft-textarea");
+      if (el) { el.select(); document.execCommand("copy"); }
+    }
+  }
+
+  function handleMailto() {
+    const to = project.client_email || "";
+    const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
+    window.open(url, "_blank");
+  }
+
+  async function handleSaveRequest() {
+    if (!project.client_email) {
+      setSaveMsg("❌ Email client non renseigné dans le projet.");
+      return;
+    }
+    setSaving(true);
+    setSaveMsg("");
+    try {
+      const res = await apiFetch("/client-requests", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          project_id: projectId,
+          client_email: project.client_email,
+          message: emailBody,
+          status: "sent",
+          documents: missingItems.map((i) => ({ type: i.id, label: i.label })),
+        }),
+      });
+      if (!res.ok) throw new Error(`Erreur ${res.status}`);
+      setSaveMsg("✅ Requête client créée avec succès.");
+    } catch (e) {
+      setSaveMsg(`❌ ${e.message}`);
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      style={{
+        position: "fixed", inset: 0, background: "rgba(17,24,39,0.55)",
+        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+      }}
+      onClick={onClose}
+    >
+      <div
+        style={{
+          background: "white", borderRadius: 18, padding: 28, maxWidth: 640,
+          width: "100%", display: "flex", flexDirection: "column", gap: 20,
+          boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        {/* Header */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+          <div>
+            <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
+              Email — documents manquants
+            </div>
+            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>
+              {project.client_email
+                ? `Destinataire : ${project.client_email}`
+                : "Adresse email client non renseignée"}
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{ border: "1px solid #e5e7eb", background: "white", padding: "6px 12px", borderRadius: 10, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
+          >
+            Fermer
+          </button>
+        </div>
+
+        {/* All-complete case */}
+        {allComplete ? (
+          <div style={{
+            background: "#f0fdf4", border: "1px solid #d1fae5", borderRadius: 12,
+            padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
+          }}>
+            <div style={{ fontSize: 22 }}>✅</div>
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#065f46" }}>
+                Tous les documents principaux sont fournis
+              </div>
+              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>
+                La checklist AMUREBA est complète — aucun document ne manque.
+              </div>
+            </div>
+          </div>
+        ) : (
+          <>
+            {/* Missing items recap */}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+              {missingItems.map((item) => {
+                const cfg = CL_STATUS[item.status];
+                return (
+                  <span key={item.id} style={{
+                    fontSize: 11, fontWeight: 700, color: cfg.badge,
+                    background: cfg.badgeBg, border: `1px solid ${cfg.border}`,
+                    padding: "3px 10px", borderRadius: 99,
+                    display: "flex", alignItems: "center", gap: 4,
+                  }}>
+                    <span style={{ opacity: 0.8 }}>{item.icon}</span> {item.label}
+                  </span>
+                );
+              })}
+            </div>
+
+            {/* Email preview */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Aperçu du message
+              </div>
+              <textarea
+                id="email-draft-textarea"
+                readOnly
+                value={emailBody}
+                style={{
+                  width: "100%", height: 240, padding: "14px 16px",
+                  border: "1px solid #e5e7eb", borderRadius: 12,
+                  fontSize: 13, lineHeight: 1.7, color: "#374151",
+                  background: "#f9fafb", resize: "vertical",
+                  fontFamily: "inherit", boxSizing: "border-box",
+                  outline: "none",
+                }}
+              />
+            </div>
+
+            {/* Actions */}
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+              <button
+                type="button"
+                style={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6 }}
+                onClick={handleMailto}
+              >
+                ✉ Ouvrir dans mon client mail
+              </button>
+              <button
+                type="button"
+                style={{ ...importBtn, display: "flex", alignItems: "center", gap: 6 }}
+                onClick={handleCopy}
+              >
+                {copied ? "✅ Copié !" : "⎘ Copier le texte"}
+              </button>
+              <button
+                type="button"
+                style={{ ...secondaryBtn, fontSize: 13, opacity: saving ? 0.7 : 1 }}
+                disabled={saving}
+                onClick={handleSaveRequest}
+                title="Enregistre l'email comme requête client dans le projet"
+              >
+                {saving ? "Sauvegarde…" : "Sauvegarder en requête client"}
+              </button>
+            </div>
+
+            {saveMsg && (
+              <div style={{
+                fontSize: 13, fontWeight: 700,
+                color: saveMsg.startsWith("✅") ? "#065f46" : "#991b1b",
+              }}>
+                {saveMsg}
+              </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );
@@ -995,4 +1607,32 @@ const applyBtn = {
   fontWeight: 700,
   cursor: "pointer",
   fontSize: 12,
+};
+
+const filterPill = {
+  border: "1px solid #e5e7eb",
+  background: "#f3f4f6",
+  color: "#374151",
+  padding: "5px 12px",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 500,
+  cursor: "pointer",
+  lineHeight: 1.5,
+  display: "inline-flex",
+  alignItems: "center",
+};
+
+const activeFilterPill = {
+  border: "1.5px solid #c4b5fd",
+  background: "#ede9fe",
+  color: "#5b21b6",
+  padding: "5px 12px",
+  borderRadius: 8,
+  fontSize: 13,
+  fontWeight: 700,
+  cursor: "pointer",
+  lineHeight: 1.5,
+  display: "inline-flex",
+  alignItems: "center",
 };

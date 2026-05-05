@@ -92,6 +92,11 @@ class ReportUpdate(BaseModel):
     field_sources: Optional[Dict[str, Any]] = None
 
 
+class ReportApplyPrefill(BaseModel):
+    fields: Dict[str, str] = Field(default_factory=dict)
+    field_sources: Optional[Dict[str, Any]] = None
+
+
 # ──────────────────────────────────────────
 # Events
 # ──────────────────────────────────────────

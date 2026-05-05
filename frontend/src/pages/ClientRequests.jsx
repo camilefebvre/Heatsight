@@ -1,7 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { Eye, Trash2, Plus, X, Paperclip } from "lucide-react";
 import { apiFetch } from "../api";
+
+// ─── Types de documents (checklist AMUREBA) ───────────────────────────────────
+const DOC_TYPE_OPTIONS = [
+  { value: "facture_electricite", label: "Factures électricité" },
+  { value: "facture_gaz",         label: "Factures gaz" },
+  { value: "facture_fuel",        label: "Factures fuel" },
+  { value: "releve_compteur",     label: "Relevés de compteur" },
+  { value: "contrat",             label: "Contrats énergie" },
+  { value: "plans_batiment",      label: "Plans du bâtiment" },
+  { value: "donnees_techniques",  label: "Données techniques" },
+  { value: "rapport_existant",    label: "Rapport d'audit" },
+  { value: "autre",               label: "Autre" },
+];
 
 // ─── Config statuts ───────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
@@ -56,6 +69,14 @@ export default function ClientRequests() {
   const [detailId, setDetailId] = useState(null);
   const [feedbackDraft, setFeedbackDraft] = useState("");
 
+  // ── Import fichier client ───────────────────────────────────────────────────
+  const [importFile, setImportFile] = useState(null);
+  const [importDocType, setImportDocType] = useState("autre");
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+  const [importInputKey, setImportInputKey] = useState(0); // reset file input
+  const importInputRef = useRef(null);
+
   const emptyForm = {
     project_id: "",
     client_email: "",
@@ -80,7 +101,43 @@ export default function ClientRequests() {
 
   useEffect(() => {
     if (detailReq) setFeedbackDraft(detailReq.feedback || "");
+    // Reset import form when switching requests
+    setImportFile(null);
+    setImportDocType("autre");
+    setImportMsg("");
+    setImportInputKey((k) => k + 1);
   }, [detailId]);
+
+  // ── Importer un fichier reçu dans les documents projet ─────────────────────
+  async function handleImportFile(reqId) {
+    if (!importFile) return;
+    setImporting(true);
+    setImportMsg("");
+    try {
+      const fd = new FormData();
+      fd.append("file", importFile);
+      fd.append("doc_type", importDocType);
+      const res = await apiFetch(`/client-requests/${reqId}/import-file`, {
+        method: "POST",
+        body: fd,
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `Erreur ${res.status}`);
+      }
+      // Refresh list to get updated received_files
+      const refresh = await apiFetch(`/client-requests`);
+      if (refresh.ok) setRequests(await refresh.json());
+      setImportFile(null);
+      setImportDocType("autre");
+      setImportInputKey((k) => k + 1);
+      setImportMsg("✅ Fichier importé dans le module Documents.");
+    } catch (e) {
+      setImportMsg(`❌ ${e.message}`);
+    } finally {
+      setImporting(false);
+    }
+  }
 
   function projectName(project_id) {
     return projects.find((p) => p.id === project_id)?.project_name || project_id || "—";
@@ -449,30 +506,103 @@ export default function ClientRequests() {
               </div>
             </div>
 
-            {/* Fichiers reçus */}
+            {/* ── Importer un fichier reçu ────────────────────────────────── */}
             <div>
               <div style={{ fontSize: 13, color: "#6b7280", fontWeight: 600, marginBottom: 8 }}>
-                Fichiers reçus
+                Fichiers reçus du client
               </div>
-              {(detailReq.received_files || []).length === 0 ? (
-                <div style={{ color: "#9ca3af", fontSize: 13, fontStyle: "italic" }}>
-                  Aucun fichier reçu pour l'instant.
-                </div>
-              ) : (
-                <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+
+              {/* List of already-imported files */}
+              {(detailReq.received_files || []).length > 0 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 12 }}>
                   {detailReq.received_files.map((f, i) => (
-                    <div key={i} style={{ display: "flex", alignItems: "center", gap: 10,
-                      padding: "9px 14px", border: "1px solid #e5e7eb",
-                      borderRadius: 10, background: "#f9fafb" }}>
+                    <div key={i} style={{
+                      display: "flex", alignItems: "center", gap: 10,
+                      padding: "9px 14px", borderRadius: 10,
+                      border: f.project_doc_id ? "1px solid #d1fae5" : "1px solid #e5e7eb",
+                      background: f.project_doc_id ? "#f0fdf4" : "#f9fafb",
+                    }}>
                       <Paperclip size={14} style={{ color: "#6b7280", flexShrink: 0 }} />
-                      <span style={{ fontSize: 14, color: "#374151", fontWeight: 600 }}>
+                      <span style={{ fontSize: 14, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {f.name}
                       </span>
-                      <span style={{ fontSize: 12, color: "#9ca3af", marginLeft: "auto" }}>
-                        {f.size}
-                      </span>
+                      {f.project_doc_id ? (
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#065f46", background: "#dcfce7", padding: "2px 8px", borderRadius: 99, flexShrink: 0 }}>
+                          ✓ Dans Documents
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0 }}>{f.size}</span>
+                      )}
                     </div>
                   ))}
+                </div>
+              )}
+
+              {/* Upload form */}
+              {detailReq.project_id ? (
+                <div style={{ background: "#f8fafc", border: "1px solid #e2e8f0", borderRadius: 12, padding: 16 }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.04em", marginBottom: 12 }}>
+                    Importer dans le module Documents
+                  </div>
+
+                  <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "flex-end" }}>
+                    {/* Doc type */}
+                    <label style={{ display: "grid", gap: 5 }}>
+                      <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600 }}>Catégorie</span>
+                      <select
+                        value={importDocType}
+                        onChange={(e) => setImportDocType(e.target.value)}
+                        style={{ ...inputStyle, fontSize: 13, minWidth: 180 }}
+                      >
+                        {DOC_TYPE_OPTIONS.map((o) => (
+                          <option key={o.value} value={o.value}>{o.label}</option>
+                        ))}
+                      </select>
+                    </label>
+
+                    {/* File picker */}
+                    <label style={{ display: "grid", gap: 5, flex: 1, minWidth: 160 }}>
+                      <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600 }}>Fichier (PDF, JPG, PNG)</span>
+                      <label style={{
+                        ...btnSecondary, fontSize: 13, padding: "9px 12px", cursor: "pointer",
+                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", display: "block",
+                        color: importFile ? "#374151" : "#9ca3af",
+                      }}>
+                        <input
+                          key={importInputKey}
+                          ref={importInputRef}
+                          type="file"
+                          accept=".pdf,.jpg,.jpeg,.png"
+                          style={{ display: "none" }}
+                          onChange={(e) => { setImportFile(e.target.files[0] || null); setImportMsg(""); }}
+                        />
+                        {importFile ? `📎 ${importFile.name}` : "Choisir un fichier…"}
+                      </label>
+                    </label>
+
+                    {/* Import button */}
+                    <button
+                      type="button"
+                      style={{ ...btnPrimary, fontSize: 13, padding: "9px 16px", opacity: (!importFile || importing) ? 0.6 : 1, alignSelf: "flex-end" }}
+                      disabled={!importFile || importing}
+                      onClick={() => handleImportFile(detailReq.id)}
+                    >
+                      {importing ? "Import…" : "Importer →"}
+                    </button>
+                  </div>
+
+                  {importMsg && (
+                    <div style={{
+                      marginTop: 10, fontSize: 13, fontWeight: 700,
+                      color: importMsg.startsWith("✅") ? "#065f46" : "#991b1b",
+                    }}>
+                      {importMsg}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div style={{ color: "#9ca3af", fontSize: 13, fontStyle: "italic" }}>
+                  Associez cette demande à un projet pour importer des fichiers.
                 </div>
               )}
             </div>

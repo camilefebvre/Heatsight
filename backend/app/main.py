@@ -683,6 +683,10 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS prefilled_at TEXT",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS current_excel_source TEXT",
         "ALTER TABLE project_documents ADD COLUMN IF NOT EXISTS file_hash TEXT",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_docx BYTEA",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_docx_source TEXT",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefill_summary JSONB",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefilled_at TEXT",
         # Nouvelle table historique (idempotent)
         """CREATE TABLE IF NOT EXISTS plan_amelioration_history (
             id TEXT PRIMARY KEY,
@@ -1383,6 +1387,165 @@ def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportR
 
 
 # ==============================
+# REPORT PREFILL HELPERS
+# ==============================
+_REPORT_PREFILL_SYSTEM = """\
+Tu es un expert en audit énergétique (méthode AMUREBA belge).
+Tu reçois les données d'un projet d'audit et tu dois proposer des valeurs pour les champs
+de la page de garde du rapport Word. Réponds UNIQUEMENT avec un objet JSON, sans texte ni
+markdown autour. Propose des valeurs précises basées sur les données du projet.
+"""
+
+_REPORT_PREFILL_USER_TPL = """\
+Données du projet "{project_name}" :
+
+{data_json}
+
+Propose des valeurs pour la page de garde du rapport Word.
+Réponds UNIQUEMENT avec un objet JSON de la forme exacte :
+{{
+  "audit_type": "Audit GLOBAL",
+  "audit_theme": "...",
+  "provider_company": "...",
+  "auditor_name": "...",
+  "amureba_skills": "...",
+  "sources": {{
+    "audit_type":       {{"document": "<nom_fichier ou null>", "estimated": false}},
+    "audit_theme":      {{"document": "<nom_fichier ou null>", "estimated": true}},
+    "provider_company": {{"document": "<nom_fichier ou null>", "estimated": true}},
+    "auditor_name":     {{"document": "<nom_fichier ou null>", "estimated": true}},
+    "amureba_skills":   {{"document": "<nom_fichier ou null>", "estimated": true}}
+  }}
+}}
+
+Règles :
+- audit_type : "Audit GLOBAL" ou "Audit Partiel" selon le type de projet.
+- audit_theme : portée de l'audit (ex: "Audit global – bâtiment complet" ou thématique spécifique HVAC, enveloppe…).
+- provider_company : entreprise qui réalise l'audit (cherche dans les docs ; sinon propose "Heat Sight").
+- auditor_name : nom de l'auditeur responsable (cherche dans les docs ; sinon laisse vide).
+- amureba_skills : compétences AMUREBA exercées, séparées par des virgules (ex: "Audit global, Audit partiel").
+- sources.document : nom EXACT du fichier source, ou null si estimation IA.
+- sources.estimated : true si valeur estimée sans source directe dans les données.
+"""
+
+
+def _generate_report_docx_bytes(project: models.Project, report: Optional[models.Report]) -> bytes:
+    """Render the report .docx template and return raw bytes."""
+    if not REPORT_TEMPLATE_FILE.exists():
+        raise HTTPException(status_code=500, detail="Template rapport introuvable")
+
+    audit_type = (report.audit_type if report else None) or project.audit_type or ""
+    audit_type = audit_type.strip()
+
+    context = {
+        "audit_type":        audit_type,
+        "audit_theme":       (report.theme         if report else "") or "",
+        "provider_company":  (report.provider_name if report else "") or "",
+        "auditor_name":      (report.auditor_name  if report else "") or "",
+        "amureba_skills":    (report.competences   if report else "") or "",
+        "audit_global_box":  "☑" if audit_type.lower() == "audit global"  else "☐",
+        "audit_partiel_box": "☑" if audit_type.lower() == "audit partiel" else "☐",
+    }
+
+    out_path = REPORT_DIR / f"{project.id}_report.docx"
+    doc = DocxTemplate(str(REPORT_TEMPLATE_FILE))
+    doc.render(context)
+    doc.save(str(out_path))
+    with open(str(out_path), "rb") as f:
+        return f.read()
+
+
+async def _get_report_prefill_proposals(
+    project_id: str,
+    db: Session,
+    current_user: models.User,
+) -> tuple:
+    """
+    Fetch all available project data, call Claude, return (project, report, proposed_dict).
+    proposed_dict keys: audit_type, audit_theme, provider_company, auditor_name, amureba_skills, sources.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Projet introuvable")
+
+    report = db.query(models.Report).filter(models.Report.project_id == project_id).first()
+
+    # ── Context building ────────────────────────────────────────────────────
+    data: Dict[str, Any] = {
+        "project": {
+            "project_name":    project.project_name,
+            "client_name":     project.client_name,
+            "building_address": project.building_address,
+            "building_type":   project.building_type,
+            "audit_type":      project.audit_type or "",
+        },
+    }
+
+    if report:
+        data["existing_report"] = {
+            "audit_type":      report.audit_type,
+            "audit_theme":     report.theme,
+            "provider_company": report.provider_name,
+            "auditor_name":    report.auditor_name,
+            "amureba_skills":  report.competences,
+        }
+
+    docs = db.query(models.ProjectDocument).filter(
+        models.ProjectDocument.project_id == project_id,
+        models.ProjectDocument.extracted_data.isnot(None),
+    ).all()
+    if docs:
+        data["analyzed_documents"] = [
+            {"document": d.original_name, "type": d.doc_type, "data": d.extracted_data}
+            for d in docs if d.extracted_data
+        ]
+
+    energy_record = (
+        db.query(models.EnergyRecord)
+        .filter(models.EnergyRecord.project_id == project_id)
+        .order_by(models.EnergyRecord.year.desc())
+        .first()
+    )
+    if energy_record:
+        data["energy_accounting"] = {
+            "year":            energy_record.year,
+            "electricity_kwh": energy_record.electricity,
+            "gas_kwhs":        energy_record.gas,
+            "fuel_litres":     energy_record.fuel,
+        }
+
+    # ── Claude call ─────────────────────────────────────────────────────────
+    data_json = json.dumps(data, ensure_ascii=False, indent=2)
+    user_msg = _REPORT_PREFILL_USER_TPL.format(
+        project_name=project.project_name,
+        data_json=data_json,
+    )
+
+    print(f"[report-prefill] appel Claude pour projet {project_id}", flush=True)
+    try:
+        claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        msg = claude_client.messages.create(
+            model="claude-sonnet-4-20250514",
+            max_tokens=1024,
+            system=_REPORT_PREFILL_SYSTEM,
+            messages=[{"role": "user", "content": user_msg}],
+        )
+        print(f"[tokens] report-prefill in={msg.usage.input_tokens} out={msg.usage.output_tokens}", flush=True)
+        raw_text = msg.content[0].text.strip()
+        json_match = re.search(r"\{.*\}", raw_text, re.DOTALL)
+        if not json_match:
+            raise ValueError("Aucun objet JSON trouvé dans la réponse Claude")
+        proposed: Dict[str, Any] = json.loads(json_match.group(0))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
+
+    return project, report, proposed
+
+
+# ==============================
 # ROUTES: REPORT
 # ==============================
 @app.get("/projects/{project_id}/report")
@@ -1456,33 +1619,191 @@ def download_project_report_docx(project_id: str, db: Session = Depends(get_db),
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if not REPORT_TEMPLATE_FILE.exists():
-        raise HTTPException(status_code=500, detail="Report template not found")
+    safe_name = _safe_filename(project.project_name)
+
+    # Serve stored docx if available (from AI prefill or manual upload)
+    if project.report_docx:
+        return StreamingResponse(
+            io.BytesIO(project.report_docx),
+            media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            headers={"Content-Disposition": f'attachment; filename="{safe_name}_rapport.docx"'},
+        )
+
+    # Regenerate from DB data + template
+    report = db.query(models.Report).filter(models.Report.project_id == project_id).first()
+    docx_bytes = _generate_report_docx_bytes(project, report)
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_rapport.docx"'},
+    )
+
+
+@app.get("/projects/{project_id}/report/status")
+def get_report_status(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retourne le statut du rapport pour ce projet (docx stocké, source, prefill summary)."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
 
     report = db.query(models.Report).filter(models.Report.project_id == project_id).first()
-    audit_type = (report.audit_type if report else None) or project.audit_type or ""
-    audit_type = audit_type.strip()
 
-    context = {
-        "audit_type":        audit_type,
-        "audit_theme":       (report.theme          if report else "") or "",
-        "provider_company":  (report.provider_name  if report else "") or "",
-        "auditor_name":      (report.auditor_name   if report else "") or "",
-        "amureba_skills":    (report.competences    if report else "") or "",
-        "audit_global_box":  "☑" if audit_type.lower() == "audit global"  else "☐",
-        "audit_partiel_box": "☑" if audit_type.lower() == "audit partiel" else "☐",
+    return {
+        "has_report_docx":       project.report_docx is not None,
+        "report_docx_source":    project.report_docx_source,
+        "report_prefilled_at":   project.report_prefilled_at,
+        "report_prefill_summary": project.report_prefill_summary,
+        "report_fields": {
+            "audit_type":      report.audit_type      if report else None,
+            "audit_theme":     report.theme           if report else None,
+            "provider_company": report.provider_name  if report else None,
+            "auditor_name":    report.auditor_name    if report else None,
+            "amureba_skills":  report.competences     if report else None,
+        },
     }
 
-    out_path = REPORT_DIR / f"{project.id}_report.docx"
-    doc = DocxTemplate(str(REPORT_TEMPLATE_FILE))
-    doc.render(context)
-    doc.save(str(out_path))
 
-    return FileResponse(
-        path=str(out_path),
-        filename=f"{_safe_filename(project.project_name)}_rapport.docx",
-        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    )
+@app.post("/projects/{project_id}/report/prefill-preview")
+async def report_prefill_preview(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Appelle Claude et retourne les valeurs proposées pour la page de garde du rapport,
+    avec le conflict_type par champ (new / replace / uncertain).
+    """
+    project, report, proposed = await _get_report_prefill_proposals(project_id, db, current_user)
+
+    existing = {
+        "audit_type":      report.audit_type      if report else None,
+        "audit_theme":     report.theme           if report else None,
+        "provider_company": report.provider_name  if report else None,
+        "auditor_name":    report.auditor_name    if report else None,
+        "amureba_skills":  report.competences     if report else None,
+    }
+
+    sources = proposed.get("sources", {})
+    fields_out = []
+    for field in ["audit_type", "audit_theme", "provider_company", "auditor_name", "amureba_skills"]:
+        current_val  = existing.get(field)
+        proposed_val = proposed.get(field, "")
+        src          = sources.get(field, {})
+
+        if current_val:
+            conflict_type = "replace"
+        elif src.get("estimated"):
+            conflict_type = "uncertain"
+        else:
+            conflict_type = "new"
+
+        fields_out.append({
+            "field":          field,
+            "current_value":  current_val,
+            "proposed_value": proposed_val,
+            "source":         src,
+            "conflict_type":  conflict_type,
+        })
+
+    return {
+        "fields":           fields_out,
+        "has_existing_docx": project.report_docx is not None,
+        "report_docx_source": project.report_docx_source,
+    }
+
+
+@app.post("/projects/{project_id}/report/apply-prefill")
+async def report_apply_prefill(
+    project_id: str,
+    payload: schemas.ReportApplyPrefill,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """
+    Reçoit les champs sélectionnés par l'auditeur, met à jour le rapport en DB,
+    génère le .docx et le persiste sur le projet.
+    """
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    report = db.query(models.Report).filter(models.Report.project_id == project_id).first()
+    if not report:
+        report = models.Report(id=str(uuid4()), project_id=project_id)
+        db.add(report)
+
+    _field_attr_map = {
+        "audit_type":      "audit_type",
+        "audit_theme":     "theme",
+        "provider_company": "provider_name",
+        "auditor_name":    "auditor_name",
+        "amureba_skills":  "competences",
+    }
+    for k, v in payload.fields.items():
+        attr = _field_attr_map.get(k)
+        if attr:
+            setattr(report, attr, v)
+
+    if payload.field_sources:
+        merged_fs = {**(report.field_sources or {}), **payload.field_sources}
+        report.field_sources = merged_fs
+        flag_modified(report, "field_sources")
+
+    db.commit()
+    db.refresh(report)
+
+    # Generate and persist docx
+    now = datetime.now(timezone.utc).isoformat()
+    docx_bytes = _generate_report_docx_bytes(project, report)
+    project.report_docx         = docx_bytes
+    project.report_docx_source  = "ai_prefill"
+    project.report_prefilled_at = now
+    project.report_prefill_summary = {
+        "applied_fields": list(payload.fields.keys()),
+        "applied_at":     now,
+    }
+    flag_modified(project, "report_prefill_summary")
+    db.commit()
+
+    return {"status": "ok", "applied_fields": list(payload.fields.keys())}
+
+
+@app.post("/projects/{project_id}/report/upload-docx")
+async def upload_report_docx(
+    project_id: str,
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Stocke un .docx uploadé manuellement comme rapport du projet."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    if not (file.filename or "").lower().endswith(".docx"):
+        raise HTTPException(status_code=400, detail="Seuls les fichiers .docx sont acceptés")
+
+    content = await file.read()
+    now = datetime.now(timezone.utc).isoformat()
+    project.report_docx        = content
+    project.report_docx_source = "manual_upload"
+    project.report_prefilled_at = now
+    db.commit()
+
+    return {"status": "ok", "filename": file.filename, "size": len(content)}
 
 
 # ==============================
@@ -1575,6 +1896,62 @@ def delete_client_request(request_id: str, db: Session = Depends(get_db), curren
     db.delete(cr)
     db.commit()
     return {"status": "deleted", "id": request_id}
+
+
+@app.post("/client-requests/{request_id}/import-file")
+async def import_client_file(
+    request_id: str,
+    file: UploadFile = File(...),
+    doc_type: str = Form("autre"),
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Import un fichier reçu du client : crée un ProjectDocument + met à jour received_files."""
+    cr = db.query(models.ClientRequest).filter(
+        models.ClientRequest.id == request_id
+    ).first()
+    if not cr:
+        raise HTTPException(status_code=404, detail="Requête client introuvable")
+    if not cr.project_id:
+        raise HTTPException(status_code=422, detail="Cette requête n'est pas associée à un projet")
+
+    content_type = file.content_type or ""
+    if content_type not in ("application/pdf", "image/jpeg", "image/png"):
+        raise HTTPException(status_code=400, detail="Type non supporté. Utilisez PDF, JPEG ou PNG.")
+
+    file_bytes = await file.read()
+    file_hash = hashlib.sha256(file_bytes).hexdigest()
+    now = datetime.now(timezone.utc).isoformat()
+
+    doc = models.ProjectDocument(
+        id=str(uuid4()),
+        project_id=cr.project_id,
+        owner_id=current_user.id,
+        filename=file.filename or "document",
+        original_name=file.filename or "document",
+        file_type=content_type,
+        doc_type=doc_type,
+        file_data=file_bytes,
+        file_hash=file_hash,
+        status="pending",
+        created_at=now,
+    )
+    db.add(doc)
+
+    received = list(cr.received_files or [])
+    received.append({
+        "name": file.filename or "document",
+        "size": f"{round(len(file_bytes) / 1024)} Ko",
+        "project_doc_id": doc.id,
+        "doc_type": doc_type,
+        "imported_at": now,
+    })
+    cr.received_files = received
+    flag_modified(cr, "received_files")
+
+    db.commit()
+    db.refresh(doc)
+    return _doc_to_dict(doc)
 
 
 # ==============================
@@ -1742,6 +2119,20 @@ def _analyze_one(doc: models.ProjectDocument, db_session=None) -> None:
         doc.extracted_data = extracted
         doc.status = "analyzed"
         flag_modified(doc, "extracted_data")
+
+        # Auto-classify doc_type if user left default "autre"
+        if doc.doc_type in ("autre", None):
+            _AI_TYPE_MAP = {
+                "facture_electricite": "facture_electricite",
+                "facture_gaz":         "facture_gaz",
+                "facture_fuel":        "facture_fuel",
+                "releve":              "releve_compteur",
+                "contrat":             "contrat",
+            }
+            ai_type = (extracted or {}).get("type_document", "")
+            mapped  = _AI_TYPE_MAP.get(ai_type)
+            if mapped:
+                doc.doc_type = mapped
     except json.JSONDecodeError as e:
         print(f"[analyze] ERREUR JSONDecodeError: {str(e)}", flush=True)
         traceback.print_exc()
