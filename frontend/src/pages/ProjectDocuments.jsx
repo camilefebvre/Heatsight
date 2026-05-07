@@ -73,20 +73,30 @@ export default function ProjectDocuments() {
       setLoading(true);
       setError("");
 
+      // Use .catch(() => null) so a network error on any single request
+      // does not cause Promise.all to reject and hide the whole page.
       const [projRes, docsRes, crRes] = await Promise.all([
-        apiFetch("/projects"),
-        apiFetch(`/projects/${projectId}/documents`),
-        apiFetch(`/client-requests?project_id=${projectId}`),
+        apiFetch("/projects").catch(() => null),
+        apiFetch(`/projects/${projectId}/documents`).catch(() => null),
+        apiFetch(`/client-requests?project_id=${projectId}`).catch(() => null),
       ]);
 
-      if (!projRes.ok) throw new Error(`GET /projects (${projRes.status})`);
-      const list = await projRes.json();
-      setProject(list.find((x) => x.id === projectId) || null);
+      const list = projRes?.ok ? await projRes.json().catch(() => []) : [];
+      const found = list.find((x) => String(x.id) === String(projectId)) || null;
+      console.log("[ProjectDocuments] load projectId=", projectId, "found=", found?.project_name ?? null, "list.length=", list.length);
+      setProject(found);
 
-      if (docsRes.ok) setDocuments(await docsRes.json());
+      if (docsRes?.ok) {
+        const docs = await docsRes.json().catch(() => []);
+        console.log("[ProjectDocuments] docs loaded:", docs.length);
+        setDocuments(docs);
+        buildSummary(docs);
+      } else {
+        console.warn("[ProjectDocuments] /documents response not ok:", docsRes?.status);
+      }
 
-      if (crRes.ok) {
-        const crs = await crRes.json();
+      if (crRes?.ok) {
+        const crs = await crRes.json().catch(() => []);
         const files = [];
         for (const cr of crs) {
           for (const f of cr.received_files || []) {
@@ -96,6 +106,7 @@ export default function ProjectDocuments() {
         setClientFiles(files);
       }
     } catch (e) {
+      console.error("[ProjectDocuments] load error:", e);
       setError(e.message || "Chargement échoué");
     } finally {
       setLoading(false);

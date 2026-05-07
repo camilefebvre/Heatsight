@@ -92,9 +92,17 @@ class ReportUpdate(BaseModel):
     field_sources: Optional[Dict[str, Any]] = None
 
 
+class ReportFieldItem(BaseModel):
+    section: str                             # "page_de_garde" | "description_batiment" | ...
+    field: str                               # "audit_type" | "batiment_surface" | ...
+    value: str
+    source: Optional[Dict[str, Any]] = None
+    conflict_type: Optional[str] = None
+    selected: Optional[bool] = True
+
+
 class ReportApplyPrefill(BaseModel):
-    fields: Dict[str, str] = Field(default_factory=dict)
-    field_sources: Optional[Dict[str, Any]] = None
+    items: List[ReportFieldItem]
 
 
 # ──────────────────────────────────────────

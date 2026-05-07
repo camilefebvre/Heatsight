@@ -130,6 +130,19 @@ def _safe_filename(name: str) -> str:
     return name or 'projet'
 
 
+def _sanitize_for_json(obj):
+    """Remplace récursivement les float NaN/Inf (non-sérialisables JSON) par None.
+    Évite ValueError dans json.dumps quand des colonnes Float DB contiennent NaN."""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_for_json(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_for_json(v) for v in obj]
+    return obj
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # ZIPFILE-BASED XLSX WRITER (fixes named-range corruption from openpyxl)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -687,7 +700,9 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_docx_source TEXT",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefill_summary JSONB",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefilled_at TEXT",
-        # Nouvelle table historique (idempotent)
+        # Colonne sections étendues du rapport
+        "ALTER TABLE reports ADD COLUMN IF NOT EXISTS extra_sections JSONB",
+        # Table historique plan d'amélioration (idempotent)
         """CREATE TABLE IF NOT EXISTS plan_amelioration_history (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -695,6 +710,36 @@ def _ensure_extra_project_columns():
             action_type TEXT NOT NULL,
             changes JSONB,
             created_at TEXT NOT NULL
+        )""",
+        # Table historique rapport (idempotent)
+        """CREATE TABLE IF NOT EXISTS report_history (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            owner_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            action_type TEXT NOT NULL,
+            changes JSONB,
+            created_at TEXT NOT NULL
+        )""",
+        # Colonnes fichier historique plan d'amélioration (idempotent)
+        "ALTER TABLE plan_amelioration_history ADD COLUMN IF NOT EXISTS file_bytes BYTEA",
+        "ALTER TABLE plan_amelioration_history ADD COLUMN IF NOT EXISTS file_name TEXT",
+        "ALTER TABLE plan_amelioration_history ADD COLUMN IF NOT EXISTS file_mime_type TEXT",
+        "ALTER TABLE plan_amelioration_history ADD COLUMN IF NOT EXISTS file_size INTEGER",
+        # Colonnes fichier historique rapport (idempotent)
+        "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_bytes BYTEA",
+        "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_name TEXT",
+        "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_mime_type TEXT",
+        "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_size INTEGER",
+        # Table ACV projets (idempotent — peut être absente sur anciennes DB)
+        """CREATE TABLE IF NOT EXISTS lca_projects (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
+            elements JSONB NOT NULL DEFAULT '[]',
+            parois JSONB NOT NULL DEFAULT '[]',
+            batiment JSONB NOT NULL DEFAULT '{}',
+            batiments JSONB NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
         )""",
     ]
     with engine.begin() as conn:
@@ -1390,10 +1435,17 @@ def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportR
 # REPORT PREFILL HELPERS
 # ==============================
 _REPORT_PREFILL_SYSTEM = """\
-Tu es un expert en audit énergétique (méthode AMUREBA belge).
-Tu reçois les données d'un projet d'audit et tu dois proposer des valeurs pour les champs
-de la page de garde du rapport Word. Réponds UNIQUEMENT avec un objet JSON, sans texte ni
-markdown autour. Propose des valeurs précises basées sur les données du projet.
+Tu es un expert en audit énergétique suivant la méthode AMUREBA belge.
+Tu dois rédiger du contenu concret et professionnel pour 4 sections d'un rapport d'audit énergétique.
+
+RÈGLES OBLIGATOIRES :
+- Utilise UNIQUEMENT les données fournies dans le contexte. Ne fabrique pas de valeurs numériques.
+- Si une donnée est disponible (comptabilité énergétique, actions AMUREBA, audit, ACV, documents),
+  utilise-la DIRECTEMENT — cite les valeurs exactes.
+- Si une donnée est indisponible, utilise une formulation neutre et indique "estimated": true.
+- Tous les champs sont des strings. Formate les chiffres (ex: "250 000 kWh/an", "150 k€", "1 200 m²").
+- Le texte doit être directement intégrable dans un rapport professionnel : complet, rédigé, sans placeholder.
+- Réponds UNIQUEMENT avec un objet JSON valide, sans texte ni markdown autour.
 """
 
 _REPORT_PREFILL_USER_TPL = """\
@@ -1401,32 +1453,120 @@ Données du projet "{project_name}" :
 
 {data_json}
 
-Propose des valeurs pour la page de garde du rapport Word.
-Réponds UNIQUEMENT avec un objet JSON de la forme exacte :
+Propose des valeurs pour les 4 sections du rapport Word AMUREBA.
+Réponds UNIQUEMENT avec un objet JSON de la forme exacte suivante (tous les champs sont des strings) :
 {{
-  "audit_type": "Audit GLOBAL",
-  "audit_theme": "...",
-  "provider_company": "...",
-  "auditor_name": "...",
-  "amureba_skills": "...",
-  "sources": {{
-    "audit_type":       {{"document": "<nom_fichier ou null>", "estimated": false}},
-    "audit_theme":      {{"document": "<nom_fichier ou null>", "estimated": true}},
-    "provider_company": {{"document": "<nom_fichier ou null>", "estimated": true}},
-    "auditor_name":     {{"document": "<nom_fichier ou null>", "estimated": true}},
-    "amureba_skills":   {{"document": "<nom_fichier ou null>", "estimated": true}}
+  "page_de_garde": {{
+    "audit_type": "Audit GLOBAL",
+    "audit_theme": "...",
+    "provider_company": "...",
+    "auditor_name": "...",
+    "amureba_skills": "...",
+    "sources": {{
+      "audit_type":       {{"document": null, "estimated": false}},
+      "audit_theme":      {{"document": null, "estimated": true}},
+      "provider_company": {{"document": null, "estimated": true}},
+      "auditor_name":     {{"document": null, "estimated": true}},
+      "amureba_skills":   {{"document": null, "estimated": true}}
+    }}
+  }},
+  "description_batiment": {{
+    "batiment_usage": "...",
+    "batiment_surface": "...",
+    "batiment_description": "...",
+    "sources": {{
+      "batiment_usage":       {{"document": null, "estimated": true}},
+      "batiment_surface":     {{"document": null, "estimated": true}},
+      "batiment_description": {{"document": null, "estimated": true}}
+    }}
+  }},
+  "synthese_energetique": {{
+    "energie_electricite_kwh": "...",
+    "energie_gaz_kwh": "...",
+    "energie_synthese": "...",
+    "sources": {{
+      "energie_electricite_kwh": {{"document": null, "estimated": false}},
+      "energie_gaz_kwh":         {{"document": null, "estimated": false}},
+      "energie_synthese":        {{"document": null, "estimated": true}}
+    }}
+  }},
+  "plan_amelioration": {{
+    "actions_nb": "...",
+    "actions_investissement_total": "...",
+    "actions_economie_energie": "...",
+    "actions_synthese": "...",
+    "sources": {{
+      "actions_nb":                  {{"document": null, "estimated": false}},
+      "actions_investissement_total": {{"document": null, "estimated": false}},
+      "actions_economie_energie":    {{"document": null, "estimated": false}},
+      "actions_synthese":            {{"document": null, "estimated": true}}
+    }}
   }}
 }}
 
-Règles :
-- audit_type : "Audit GLOBAL" ou "Audit Partiel" selon le type de projet.
-- audit_theme : portée de l'audit (ex: "Audit global – bâtiment complet" ou thématique spécifique HVAC, enveloppe…).
-- provider_company : entreprise qui réalise l'audit (cherche dans les docs ; sinon propose "Heat Sight").
-- auditor_name : nom de l'auditeur responsable (cherche dans les docs ; sinon laisse vide).
-- amureba_skills : compétences AMUREBA exercées, séparées par des virgules (ex: "Audit global, Audit partiel").
-- sources.document : nom EXACT du fichier source, ou null si estimation IA.
-- sources.estimated : true si valeur estimée sans source directe dans les données.
+Règles détaillées par champ :
+- page_de_garde.audit_type : "Audit GLOBAL" ou "Audit Partiel" selon project.audit_type.
+- page_de_garde.audit_theme : phrase complète décrivant la portée (ex: "Audit énergétique global
+  portant sur l'ensemble des consommations — électricité, gaz, chauffage — conformément à la
+  méthode AMUREBA belge").
+- page_de_garde.provider_company : cherche dans les documents analysés ; sinon "Heat Sight".
+- page_de_garde.auditor_name : cherche dans les docs ; sinon "".
+- page_de_garde.amureba_skills : liste les modules AMUREBA pertinents (ex: "Audit global (AG),
+  Isolation thermique (IT), Systèmes de chauffage (CH)").
+
+- description_batiment.batiment_usage : usage principal (bureau, logement, industrie, commerce…).
+- description_batiment.batiment_surface : surface totale en m² — cherche dans ACV ou audit.
+  Format : "1 200 m²". Si inconnue, "Non renseignée".
+- description_batiment.batiment_description : 3 à 5 phrases décrivant le bâtiment —
+  type de construction, année estimée, état général, équipements principaux (chauffage,
+  ventilation, éclairage), enveloppe thermique. Utilise les données des documents analysés
+  (factures, plans, descriptions) et de l'audit.
+
+- synthese_energetique.energie_electricite_kwh : consommation électricité totale de la dernière
+  année disponible, en kWh/an. Format : "250 000 kWh/an". Source : energy_accounting.
+- synthese_energetique.energie_gaz_kwh : même logique pour le gaz.
+- synthese_energetique.energie_synthese : 3 à 5 phrases — consommation totale (kWh/an et kgCO₂/an
+  si disponible), répartition électricité/gaz/fuel, ratio kWh/m²/an si la surface est connue,
+  évolution sur plusieurs années si plusieurs années disponibles, comparaison aux références belges.
+  Basé exclusivement sur energy_accounting.
+
+- plan_amelioration.actions_nb : nombre total d'actions du plan AMUREBA (entier en string).
+- plan_amelioration.actions_investissement_total : somme des investissements en k€.
+  Format : "150 k€".
+- plan_amelioration.actions_economie_energie : somme des économies d'énergie en MWh/an.
+  Format : "45 MWh/an".
+- plan_amelioration.actions_synthese : 3 à 5 phrases — nombre d'actions, investissement total,
+  économie d'énergie totale, réduction CO₂ totale, retour sur investissement moyen, type
+  d'actions (isolation, PV, HVAC…). Basé sur improvement_actions.
+
+Sources :
+- sources.document : nom EXACT du fichier source, "energy_accounting_db",
+  "improvement_actions_db", "audit_data_db", ou null si estimation IA.
+- sources.estimated : true si aucune source directe disponible.
+- Si 'already_applied' est présent dans les données : pour les champs déjà remplis,
+  ne propose une nouvelle valeur que si elle est clairement meilleure (plus précise,
+  plus complète). Sinon, reprends la valeur existante telle quelle.
 """
+
+
+_EXTRA_SECTIONS_META = [
+    ("description_batiment", "Description du bâtiment", [
+        ("batiment_usage",       "Usage"),
+        ("batiment_surface",     "Surface"),
+        ("batiment_description", "Description"),
+    ]),
+    ("synthese_energetique", "Situation énergétique", [
+        ("energie_electricite_kwh", "Électricité"),
+        ("energie_gaz_kwh",         "Gaz"),
+        ("energie_synthese",        "Synthèse"),
+    ]),
+    ("plan_amelioration", "Plan d'amélioration", [
+        ("actions_nb",                   "Nombre d'actions"),
+        ("actions_investissement_total",  "Investissement total"),
+        ("actions_economie_energie",      "Économie d'énergie"),
+        ("actions_synthese",             "Synthèse"),
+    ]),
+]
 
 
 def _generate_report_docx_bytes(project: models.Project, report: Optional[models.Report]) -> bytes:
@@ -1437,6 +1577,8 @@ def _generate_report_docx_bytes(project: models.Project, report: Optional[models
     audit_type = (report.audit_type if report else None) or project.audit_type or ""
     audit_type = audit_type.strip()
 
+    extra = (report.extra_sections or {}) if report else {}
+
     context = {
         "audit_type":        audit_type,
         "audit_theme":       (report.theme         if report else "") or "",
@@ -1445,12 +1587,40 @@ def _generate_report_docx_bytes(project: models.Project, report: Optional[models
         "amureba_skills":    (report.competences   if report else "") or "",
         "audit_global_box":  "☑" if audit_type.lower() == "audit global"  else "☐",
         "audit_partiel_box": "☑" if audit_type.lower() == "audit partiel" else "☐",
+        # Extra sections (ignored if template doesn't use them)
+        **extra.get("description_batiment", {}),
+        **extra.get("synthese_energetique", {}),
+        **extra.get("plan_amelioration", {}),
     }
+
+    print(f"[docx] context keys: {list(context.keys())}", flush=True)
+    print(f"[docx] extra_sections: { {k: list(v.keys()) for k, v in extra.items()} }", flush=True)
 
     out_path = REPORT_DIR / f"{project.id}_report.docx"
     doc = DocxTemplate(str(REPORT_TEMPLATE_FILE))
     doc.render(context)
     doc.save(str(out_path))
+
+    # Append extra sections using python-docx since the template has no Jinja placeholders for them
+    from docx import Document as _DocxDoc
+    d2 = _DocxDoc(str(out_path))
+    appended_any = False
+    for sec_id, sec_label, fields in _EXTRA_SECTIONS_META:
+        sec_data = extra.get(sec_id, {})
+        non_empty = [(fk, fl, sec_data[fk]) for fk, fl in fields if sec_data.get(fk)]
+        if not non_empty:
+            continue
+        if not appended_any:
+            d2.add_paragraph()
+            appended_any = True
+        d2.add_heading(sec_label, level=1)
+        for fk, fl, val in non_empty:
+            p = d2.add_paragraph()
+            p.add_run(f"{fl} : ").bold = True
+            p.add_run(val)
+        print(f"[docx] section '{sec_id}': {[fk for fk, _, _ in non_empty]}", flush=True)
+    d2.save(str(out_path))
+
     with open(str(out_path), "rb") as f:
         return f.read()
 
@@ -1462,7 +1632,8 @@ async def _get_report_prefill_proposals(
 ) -> tuple:
     """
     Fetch all available project data, call Claude, return (project, report, proposed_dict).
-    proposed_dict keys: audit_type, audit_theme, provider_company, auditor_name, amureba_skills, sources.
+    proposed_dict has 4 top-level keys: page_de_garde, description_batiment,
+    synthese_energetique, plan_amelioration — each with a 'sources' sub-dict.
     """
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
@@ -1476,21 +1647,22 @@ async def _get_report_prefill_proposals(
     # ── Context building ────────────────────────────────────────────────────
     data: Dict[str, Any] = {
         "project": {
-            "project_name":    project.project_name,
-            "client_name":     project.client_name,
+            "project_name":     project.project_name,
+            "client_name":      project.client_name,
             "building_address": project.building_address,
-            "building_type":   project.building_type,
-            "audit_type":      project.audit_type or "",
+            "building_type":    project.building_type,
+            "audit_type":       project.audit_type or "",
         },
     }
 
     if report:
         data["existing_report"] = {
-            "audit_type":      report.audit_type,
-            "audit_theme":     report.theme,
+            "audit_type":       report.audit_type,
+            "audit_theme":      report.theme,
             "provider_company": report.provider_name,
-            "auditor_name":    report.auditor_name,
-            "amureba_skills":  report.competences,
+            "auditor_name":     report.auditor_name,
+            "amureba_skills":   report.competences,
+            "extra_sections":   report.extra_sections or {},
         }
 
     docs = db.query(models.ProjectDocument).filter(
@@ -1503,33 +1675,107 @@ async def _get_report_prefill_proposals(
             for d in docs if d.extracted_data
         ]
 
-    energy_record = (
+    # All energy accounting years (not just the most recent)
+    energy_records = (
         db.query(models.EnergyRecord)
         .filter(models.EnergyRecord.project_id == project_id)
         .order_by(models.EnergyRecord.year.desc())
-        .first()
+        .all()
     )
-    if energy_record:
-        data["energy_accounting"] = {
-            "year":            energy_record.year,
-            "electricity_kwh": energy_record.electricity,
-            "gas_kwhs":        energy_record.gas,
-            "fuel_litres":     energy_record.fuel,
+    if energy_records:
+        data["energy_accounting"] = [
+            {
+                "year":            r.year,
+                "electricity_kwh": r.electricity,
+                "gas_kwh":         r.gas,
+                "fuel_kwh":        r.fuel,
+                "biogas_kwh":      r.biogas,
+                "notes":           r.notes,
+            }
+            for r in energy_records
+        ]
+
+    # Audit data
+    audit = db.query(models.Audit).filter(models.Audit.project_id == project_id).first()
+    if audit:
+        data["audit"] = {
+            "energies":          audit.energies,
+            "influence_factors": audit.influence_factors,
+            "invoices":          audit.invoices,
         }
 
-    # ── Claude call ─────────────────────────────────────────────────────────
-    data_json = json.dumps(data, ensure_ascii=False, indent=2)
-    user_msg = _REPORT_PREFILL_USER_TPL.format(
-        project_name=project.project_name,
-        data_json=data_json,
+    # Improvement actions
+    actions = (
+        db.query(models.ImprovementAction)
+        .filter(models.ImprovementAction.project_id == project_id)
+        .all()
     )
+    if actions:
+        data["improvement_actions"] = [
+            {
+                "reference":       a.reference,
+                "intitule":        a.intitule,
+                "type_amelioration": a.type_amelioration,
+                "classification":  a.classification,
+                "investissement":  a.investissement,
+                "economie_energie": a.economie_energie,
+                "economie_co2":    a.economie_co2,
+                "duree_amortissement": a.duree_amortissement,
+            }
+            for a in actions
+        ]
 
-    print(f"[report-prefill] appel Claude pour projet {project_id}", flush=True)
+    # LCA project (optional — table peut être absente sur anciennes DB)
     try:
-        claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+        lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
+        if lca:
+            data["lca_project"] = {
+                "batiment":  lca.batiment,
+                "batiments": lca.batiments,
+            }
+    except Exception as lca_err:
+        print(f"[report-prefill] ACV indisponible, ignorée ({type(lca_err).__name__}: {lca_err})", flush=True)
+        db.rollback()  # remettre la session dans un état propre après l'erreur SQL
+
+    # Passer les valeurs déjà appliquées à Claude pour éviter les redondances
+    already_applied: Dict[str, Any] = {}
+    if report:
+        page_vals = {
+            "audit_type":       report.audit_type,
+            "audit_theme":      report.theme,
+            "provider_company": report.provider_name,
+            "auditor_name":     report.auditor_name,
+            "amureba_skills":   report.competences,
+        }
+        page_non_null = {k: v for k, v in page_vals.items() if v}
+        if page_non_null:
+            already_applied["page_de_garde"] = page_non_null
+        extra_existing = report.extra_sections or {}
+        for sec_key in ("description_batiment", "synthese_energetique", "plan_amelioration"):
+            sec_vals = extra_existing.get(sec_key, {})
+            if sec_vals:
+                already_applied[sec_key] = sec_vals
+    if already_applied:
+        data["already_applied"] = already_applied
+        print(f"[report-prefill] {sum(len(v) for v in already_applied.values())} champs déjà appliqués transmis à Claude", flush=True)
+
+    # ── Claude call ─────────────────────────────────────────────────────────
+    print(f"[report-prefill] contexte construit pour projet {project_id}, appel Claude…", flush=True)
+    try:
+        data_json = json.dumps(_sanitize_for_json(data), ensure_ascii=False, indent=2)
+        user_msg = _REPORT_PREFILL_USER_TPL.format(
+            project_name=project.project_name,
+            data_json=data_json,
+        )
+
+        api_key = os.environ.get("ANTHROPIC_API_KEY")
+        if not api_key:
+            raise ValueError("ANTHROPIC_API_KEY manquant dans les variables d'environnement")
+
+        claude_client = anthropic.Anthropic(api_key=api_key)
         msg = claude_client.messages.create(
             model="claude-sonnet-4-20250514",
-            max_tokens=1024,
+            max_tokens=4096,
             system=_REPORT_PREFILL_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
         )
@@ -1539,8 +1785,11 @@ async def _get_report_prefill_proposals(
         if not json_match:
             raise ValueError("Aucun objet JSON trouvé dans la réponse Claude")
         proposed: Dict[str, Any] = json.loads(json_match.group(0))
+    except HTTPException:
+        raise
     except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
+        print(f"[report-prefill] ERREUR: {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=502, detail=f"Erreur lors du pré-remplissage IA : {e}")
 
     return project, report, proposed
 
@@ -1565,6 +1814,7 @@ def get_project_report(project_id: str, db: Session = Depends(get_db), current_u
         "auditor_name":     report.auditor_name or "",
         "amureba_skills":   report.competences or "",
         "field_sources":    report.field_sources or {},
+        "extra_sections":   report.extra_sections or {},
     }
 
 
@@ -1677,44 +1927,117 @@ async def report_prefill_preview(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Appelle Claude et retourne les valeurs proposées pour la page de garde du rapport,
-    avec le conflict_type par champ (new / replace / uncertain).
+    Appelle Claude et retourne les propositions groupées par section, avec conflict_type par champ.
     """
-    project, report, proposed = await _get_report_prefill_proposals(project_id, db, current_user)
+    print(f"[report-prefill-preview] début — project_id={project_id}", flush=True)
+    try:
+        project, report, proposed = await _get_report_prefill_proposals(project_id, db, current_user)
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"[report-prefill-preview] ERREUR non-catchée: {type(e).__name__}: {e}", flush=True)
+        raise HTTPException(status_code=500, detail=f"Erreur interne : {e}")
 
-    existing = {
-        "audit_type":      report.audit_type      if report else None,
-        "audit_theme":     report.theme           if report else None,
+    extra = (report.extra_sections or {}) if report else {}
+
+    # Current values per section/field
+    existing_page = {
+        "audit_type":       report.audit_type      if report else None,
+        "audit_theme":      report.theme           if report else None,
         "provider_company": report.provider_name  if report else None,
-        "auditor_name":    report.auditor_name    if report else None,
-        "amureba_skills":  report.competences     if report else None,
+        "auditor_name":     report.auditor_name    if report else None,
+        "amureba_skills":   report.competences     if report else None,
     }
+    existing_batiment      = extra.get("description_batiment", {})
+    existing_energetique   = extra.get("synthese_energetique", {})
+    existing_plan          = extra.get("plan_amelioration", {})
 
-    sources = proposed.get("sources", {})
-    fields_out = []
-    for field in ["audit_type", "audit_theme", "provider_company", "auditor_name", "amureba_skills"]:
-        current_val  = existing.get(field)
-        proposed_val = proposed.get(field, "")
-        src          = sources.get(field, {})
+    _section_defs = [
+        {
+            "id": "page_de_garde",
+            "label": "Page de garde",
+            "fields": [
+                ("audit_type",       "Type d'audit"),
+                ("audit_theme",      "Thématique"),
+                ("provider_company", "Prestataire"),
+                ("auditor_name",     "Auditeur(trice)"),
+                ("amureba_skills",   "Compétences AMUREBA"),
+            ],
+            "existing": existing_page,
+        },
+        {
+            "id": "description_batiment",
+            "label": "Description du bâtiment",
+            "fields": [
+                ("batiment_usage",       "Usage du bâtiment"),
+                ("batiment_surface",     "Surface"),
+                ("batiment_description", "Description"),
+            ],
+            "existing": existing_batiment,
+        },
+        {
+            "id": "synthese_energetique",
+            "label": "Situation énergétique",
+            "fields": [
+                ("energie_electricite_kwh", "Électricité (kWh)"),
+                ("energie_gaz_kwh",         "Gaz (kWh)"),
+                ("energie_synthese",        "Synthèse énergétique"),
+            ],
+            "existing": existing_energetique,
+        },
+        {
+            "id": "plan_amelioration",
+            "label": "Plan d'amélioration",
+            "fields": [
+                ("actions_nb",                   "Nombre d'actions"),
+                ("actions_investissement_total",  "Investissement total"),
+                ("actions_economie_energie",      "Économie d'énergie"),
+                ("actions_synthese",             "Synthèse"),
+            ],
+            "existing": existing_plan,
+        },
+    ]
 
-        if current_val:
-            conflict_type = "replace"
-        elif src.get("estimated"):
-            conflict_type = "uncertain"
-        else:
-            conflict_type = "new"
+    sections_out = []
+    for sec_def in _section_defs:
+        sec_id   = sec_def["id"]
+        sec_data = proposed.get(sec_id, {})
+        sources  = sec_data.get("sources", {})
+        existing = sec_def["existing"]
 
-        fields_out.append({
-            "field":          field,
-            "current_value":  current_val,
-            "proposed_value": proposed_val,
-            "source":         src,
-            "conflict_type":  conflict_type,
+        fields_out = []
+        for field_key, field_label in sec_def["fields"]:
+            proposed_val = sec_data.get(field_key, "")
+            current_val  = existing.get(field_key) or None
+            src          = sources.get(field_key, {})
+
+            if proposed_val and current_val and proposed_val.strip() == str(current_val).strip():
+                conflict_type = "applied"
+            elif current_val:
+                conflict_type = "replace"
+            elif src.get("estimated"):
+                conflict_type = "uncertain"
+            else:
+                conflict_type = "new"
+
+            fields_out.append({
+                "field":          field_key,
+                "label":          field_label,
+                "current_value":  current_val,
+                "proposed_value": proposed_val,
+                "source":         src,
+                "conflict_type":  conflict_type,
+            })
+
+        sections_out.append({
+            "id":     sec_id,
+            "label":  sec_def["label"],
+            "fields": fields_out,
         })
 
     return {
-        "fields":           fields_out,
-        "has_existing_docx": project.report_docx is not None,
+        "sections":           sections_out,
+        "has_existing_docx":  project.report_docx is not None,
         "report_docx_source": project.report_docx_source,
     }
 
@@ -1727,8 +2050,8 @@ async def report_apply_prefill(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Reçoit les champs sélectionnés par l'auditeur, met à jour le rapport en DB,
-    génère le .docx et le persiste sur le projet.
+    Reçoit les items sélectionnés (groupés par section), met à jour le rapport en DB,
+    génère le .docx et le persiste sur le projet. Crée une ligne d'historique.
     """
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
@@ -1737,30 +2060,49 @@ async def report_apply_prefill(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    print(f"[apply-prefill] {len(payload.items)} items reçus", flush=True)
+    for item in payload.items:
+        print(f"  [{item.section}] {item.field} = {repr(str(item.value)[:80])}", flush=True)
+
     report = db.query(models.Report).filter(models.Report.project_id == project_id).first()
     if not report:
         report = models.Report(id=str(uuid4()), project_id=project_id)
         db.add(report)
 
-    _field_attr_map = {
-        "audit_type":      "audit_type",
-        "audit_theme":     "theme",
+    _page_garde_map = {
+        "audit_type":       "audit_type",
+        "audit_theme":      "theme",
         "provider_company": "provider_name",
-        "auditor_name":    "auditor_name",
-        "amureba_skills":  "competences",
+        "auditor_name":     "auditor_name",
+        "amureba_skills":   "competences",
     }
-    for k, v in payload.fields.items():
-        attr = _field_attr_map.get(k)
-        if attr:
-            setattr(report, attr, v)
 
-    if payload.field_sources:
-        merged_fs = {**(report.field_sources or {}), **payload.field_sources}
-        report.field_sources = merged_fs
-        flag_modified(report, "field_sources")
+    extra = dict(report.extra_sections or {})
+    sections_applied = set()
+
+    for item in payload.items:
+        sec = item.section
+        field = item.field
+        val = item.value
+        sections_applied.add(sec)
+
+        if sec == "page_de_garde":
+            attr = _page_garde_map.get(field)
+            if attr:
+                setattr(report, attr, val)
+        else:
+            if sec not in extra:
+                extra[sec] = {}
+            extra[sec][field] = val
+
+    report.extra_sections = extra
+    flag_modified(report, "extra_sections")
 
     db.commit()
     db.refresh(report)
+
+    print(f"[apply-prefill] sections DB: {list(sections_applied)}", flush=True)
+    print(f"[apply-prefill] extra_sections: { {k: list(v.keys()) for k, v in extra.items()} }", flush=True)
 
     # Generate and persist docx
     now = datetime.now(timezone.utc).isoformat()
@@ -1769,13 +2111,49 @@ async def report_apply_prefill(
     project.report_docx_source  = "ai_prefill"
     project.report_prefilled_at = now
     project.report_prefill_summary = {
-        "applied_fields": list(payload.fields.keys()),
-        "applied_at":     now,
+        "applied_fields":   [i.field for i in payload.items],
+        "sections_applied": list(sections_applied),
+        "applied_at":       now,
     }
     flag_modified(project, "report_prefill_summary")
+
+    safe_name = _safe_filename(project.project_name)
+    docx_filename = f"{safe_name}_rapport.docx"
+
+    # Create history entry
+    history_entry = models.ReportHistory(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        action_type="AI_PREFILL",
+        changes={
+            "items": [
+                {
+                    "section":       i.section,
+                    "field":         i.field,
+                    "value":         i.value,
+                    "source":        i.source,
+                    "conflict_type": i.conflict_type,
+                    "selected":      i.selected,
+                }
+                for i in payload.items
+            ],
+            "sections_applied": list(sections_applied),
+        },
+        file_bytes=docx_bytes,
+        file_name=docx_filename,
+        file_mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        file_size=len(docx_bytes),
+        created_at=now,
+    )
+    db.add(history_entry)
     db.commit()
 
-    return {"status": "ok", "applied_fields": list(payload.fields.keys())}
+    return StreamingResponse(
+        io.BytesIO(docx_bytes),
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="{safe_name}_rapport.docx"'},
+    )
 
 
 @app.post("/projects/{project_id}/report/upload-docx")
@@ -1798,12 +2176,94 @@ async def upload_report_docx(
 
     content = await file.read()
     now = datetime.now(timezone.utc).isoformat()
-    project.report_docx        = content
-    project.report_docx_source = "manual_upload"
+    project.report_docx         = content
+    project.report_docx_source  = "manual_upload"
     project.report_prefilled_at = now
+
+    # Create history entry
+    history_entry = models.ReportHistory(
+        id=str(uuid4()),
+        project_id=project_id,
+        owner_id=current_user.id,
+        action_type="MANUAL_UPLOAD",
+        changes={"filename": file.filename, "size": len(content)},
+        file_bytes=content,
+        file_name=file.filename,
+        file_mime_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        file_size=len(content),
+        created_at=now,
+    )
+    db.add(history_entry)
     db.commit()
 
     return {"status": "ok", "filename": file.filename, "size": len(content)}
+
+
+@app.get("/projects/{project_id}/report/history")
+def get_report_history(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Retourne l'historique des modifications du rapport (IA prefill + uploads)."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    rows = (
+        db.query(models.ReportHistory)
+        .filter(models.ReportHistory.project_id == project_id)
+        .order_by(models.ReportHistory.created_at.desc())
+        .all()
+    )
+    return [
+        {
+            "id":          r.id,
+            "action_type": r.action_type,
+            "changes":     r.changes,
+            "has_file":    r.file_bytes is not None,
+            "file_name":   r.file_name,
+            "file_size":   r.file_size,
+            "created_at":  r.created_at,
+        }
+        for r in rows
+    ]
+
+
+@app.get("/projects/{project_id}/report/history/{history_id}/file")
+def download_report_history_file(
+    project_id: str,
+    history_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Télécharge le fichier Word stocké dans une entrée d'historique du rapport."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    entry = db.query(models.ReportHistory).filter(
+        models.ReportHistory.id == history_id,
+        models.ReportHistory.project_id == project_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    if not entry.file_bytes:
+        raise HTTPException(status_code=404, detail="Aucun fichier disponible pour cette entrée")
+
+    filename = entry.file_name or f"rapport_{history_id}.docx"
+    mime = entry.file_mime_type or "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+    return StreamingResponse(
+        io.BytesIO(entry.file_bytes),
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ==============================
@@ -2811,8 +3271,15 @@ async def prefill_preview(
                 "conditions_prealables": a.get("conditions_prealables") or "",
                 "sources": a.get("sources") or {},
                 # Per-field conflict type for checklist display
+                "existing_values": existing_vals.get(f"AA{i + 1}", {}),
                 "conflict_types": {
-                    field: _get_conflict_type(field, f"AA{i + 1}", existing_vals, a.get("sources") or {})
+                    field: (
+                        "applied"
+                        if str(a.get(field)).strip() == str(
+                            existing_vals.get(f"AA{i + 1}", {}).get(field, "")
+                        ).strip()
+                        else _get_conflict_type(field, f"AA{i + 1}", existing_vals, a.get("sources") or {})
+                    )
                     for field in _AA_FIELD_CELL
                     if a.get(field) is not None
                 },
@@ -3045,21 +3512,26 @@ async def apply_prefill(
     project.current_excel_source = new_source
     flag_modified(project, "prefill_summary")
 
+    safe_name = _safe_filename(project.project_name)
+    xlsx_filename = f"AMUREBA_prefill_{safe_name}.xlsx"
     db.add(models.PlanAmeliorationHistory(
         id=str(uuid4()),
         project_id=project_id,
         owner_id=current_user.id,
         action_type="AI_PREFILL",
         changes=summary,
+        file_bytes=file_bytes,
+        file_name=xlsx_filename,
+        file_mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        file_size=len(file_bytes),
         created_at=now,
     ))
     db.commit()
 
-    safe_name = _safe_filename(project.project_name)
     return StreamingResponse(
         io.BytesIO(file_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
+        headers={"Content-Disposition": f'attachment; filename="{xlsx_filename}"'},
     )
 
 
@@ -3085,13 +3557,49 @@ def get_prefill_history(
     )
     return [
         {
-            "id": e.id,
+            "id":          e.id,
             "action_type": e.action_type,
-            "changes": e.changes,
-            "created_at": e.created_at,
+            "changes":     e.changes,
+            "has_file":    e.file_bytes is not None,
+            "file_name":   e.file_name,
+            "file_size":   e.file_size,
+            "created_at":  e.created_at,
         }
         for e in entries
     ]
+
+
+@app.get("/projects/{project_id}/improvement-actions/history/{history_id}/file")
+def download_plan_amelioration_history_file(
+    project_id: str,
+    history_id: str,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Télécharge le fichier Excel stocké dans une entrée d'historique du plan d'amélioration."""
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id,
+        models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+
+    entry = db.query(models.PlanAmeliorationHistory).filter(
+        models.PlanAmeliorationHistory.id == history_id,
+        models.PlanAmeliorationHistory.project_id == project_id,
+    ).first()
+    if not entry:
+        raise HTTPException(status_code=404, detail="History entry not found")
+    if not entry.file_bytes:
+        raise HTTPException(status_code=404, detail="Aucun fichier disponible pour cette entrée")
+
+    filename = entry.file_name or f"plan_amelioration_{history_id}.xlsx"
+    mime = entry.file_mime_type or "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return StreamingResponse(
+        io.BytesIO(entry.file_bytes),
+        media_type=mime,
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @app.post("/projects/{project_id}/improvement-actions/import-excel")
@@ -3204,6 +3712,10 @@ async def import_improvement_actions_excel(
         owner_id=current_user.id,
         action_type="MANUAL_UPLOAD",
         changes={"excel_summary": excel_summary},
+        file_bytes=content,
+        file_name=file.filename or "AMUREBA.xlsx",
+        file_mime_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        file_size=len(content),
         created_at=now,
     ))
 

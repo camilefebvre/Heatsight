@@ -101,12 +101,13 @@ HeatSight/
 | Table | Description |
 |---|---|
 | `users` | Comptes utilisateurs (email, mot de passe haché, nom) |
-| `projects` | Projets d'audit (métadonnées, statut, fichier Excel, `excel_summary`, `prefill_summary`, `prefilled_excel`, `current_excel_source`) |
+| `projects` | Projets d'audit (métadonnées, statut, fichier Excel, `excel_summary`, `prefill_summary`, `prefilled_excel`, `current_excel_source`, `report_docx`, `report_docx_source`, `report_prefill_summary`, `report_prefilled_at`) |
 | `events` | Événements agenda (visites, appels, deadlines) |
 | `client_requests` | Demandes de documents envoyées aux clients |
 | `energy_accounting` | Comptabilité énergétique annuelle par projet — inclut `field_sources` (traçabilité IA) |
 | `audits` | Données audit par projet (énergies, facteurs d'influence, factures) — inclut `field_sources` |
-| `reports` | Données rapport par projet (type, thème, auditeur, compétences) — inclut `field_sources` |
+| `reports` | Données rapport par projet (type, thème, auditeur, compétences) — inclut `field_sources`, `extra_sections` (JSONB : page_de_garde, description_batiment, synthese_energetique, plan_amelioration) |
+| `report_history` | Historique des pré-remplissages IA et uploads manuels du rapport Word (action_type, changes JSONB, fichier bytea) |
 | `project_documents` | Fichiers uploadés par projet — stockés en `BYTEA`, avec `file_hash` SHA-256, statut IA et données extraites |
 | `improvement_actions` | Actions du plan d'amélioration (référence AA1–AA9, investissement, économies, IRR, PBT…) |
 | `plan_amelioration_history` | Historique des pré-remplissages IA et uploads manuels AMUREBA |
@@ -181,9 +182,38 @@ Les tables sont créées/mises à jour au **démarrage du serveur** via des inst
 - **Highlighting** : champs remplis depuis un document (bordure violette + tooltip)
 
 ### Rapport (`/projects/:id/report`)
-- Formulaire : type d'audit, thématique, prestataire, auditeur, compétences AMUREBA
-- Génération d'un `.docx` à partir d'un template Word (variables `{{ }}`)
-- **Highlighting** identique à la Comptabilité (traçabilité IA)
+
+Workflow de pré-remplissage IA du rapport Word, symétrique au module AMUREBA :
+
+**1. Analyse IA → Checklist**
+- Bouton "Analyser avec l'IA" → `POST prefill-preview` → Claude analyse l'ensemble des données du projet (audit, comptabilité énergétique, actions AMUREBA, documents) et propose des valeurs pour 4 sections du rapport
+- Sections : Page de garde · Description du bâtiment · Situation énergétique · Plan d'amélioration
+- Checklist interactive par champ : cocher/décocher chaque valeur proposée
+- **Cartes dépliables par section** avec compteur de champs sélectionnés / total
+- **Barre de filtres** : À traiter · Nouvelles · Remplacements · Estimations · Déjà appliquées · Toutes
+  - "À traiter" actif par défaut (masque les items déjà appliqués)
+  - "Déjà appliquées" affiche en lecture seule les propositions identiques à la valeur courante
+- **Légende fixe** toujours visible : Champ vide · Remplace valeur existante · Estimation sans source · Déjà appliquée
+- Champs `Remplace valeur existante` : pré-décochés + label "Proposé" + affichage de la valeur courante
+- Champs `Déjà appliquée` : non-cochables (opacité réduite, curseur désactivé)
+- Source affichée par valeur (document, base de données, estimation IA)
+- Boutons "Tout cocher / décocher", "Tout ouvrir / replier"
+
+**2. Appliquer les changements sélectionnés**
+- `POST apply-prefill` : génère le `.docx` avec les champs sélectionnés appliqués dans le template Word
+- Téléchargement immédiat du fichier Word
+- Sauvegarde en base (`report_docx`, `report_prefill_summary`, `report_prefilled_at`, `report_docx_source = "ai_prefill"`)
+- Entrée ajoutée dans l'historique (`AI_PREFILL`)
+
+**3. Upload / import d'un rapport modifié**
+- L'auditeur complète le `.docx` et le réimporte → `POST upload-docx`
+- Le fichier uploadé devient la version courante (base des prochains pré-remplissages)
+- Entrée ajoutée dans l'historique (`MANUAL_UPLOAD`)
+
+**Fonctionnalités supplémentaires :**
+- **Bandeau de statut** : indique si un rapport Word est disponible, sa source et sa date
+- Bouton "Télécharger la version courante" → `GET report/docx`
+- **Historique** (drawer latéral) : liste chronologique des pré-remplissages IA et uploads manuels avec détail par section et téléchargement des fichiers
 
 ### Plan d'amélioration AMUREBA (`/projects/:id/plan-amelioration`)
 
@@ -193,9 +223,13 @@ Workflow en 3 étapes :
 - Bouton "Analyser les documents" → appel `POST prefill-preview` → Claude propose 1 à 9 actions chiffrées (AA1–AA9)
 - Checklist interactive par champ : cocher/décocher chaque valeur proposée
 - **Cartes dépliables par action** : chaque feuille AA est une carte repliable (première ouverte par défaut) ; bouton "Tout ouvrir / replier"
-- **Détection de conflits** : chaque valeur proposée est catégorisée (`Nouveau` / `Remplacement`) par comparaison avec l'Excel existant
-  - Les champs en `Remplacement` sont **pré-décochés** (protection des saisies manuelles)
-  - Bandeau d'avertissement + légende des types de conflit si des remplacements existent
+- **Détection de conflits** : chaque valeur proposée est catégorisée par comparaison avec l'Excel existant
+  - `Champ vide` — cellule actuellement vide
+  - `Remplace valeur existante` — pré-décoché (protection des saisies manuelles), affiche "Proposé" + valeur courante
+  - `Estimation sans source` — valeur inférée sans document source
+  - `Déjà appliquée` — valeur identique à l'Excel courant, non-cochable (lecture seule)
+- **Barre de filtres** : À traiter (défaut) · Nouvelles · Remplacements · Estimations · Déjà appliquées · Toutes
+- **Légende fixe** toujours visible dans le panel (remplace l'ancien bandeau conditionnel)
 - Source affichée par valeur (`📄 document` si issue d'un fichier analysé, `🗄 base de données` si issue d'un champ DB, `🤖 Estimation IA` si inférée)
 - Bouton "Tout cocher / décocher"
 
@@ -317,9 +351,15 @@ Workflow en 3 étapes :
 
 | Méthode | Route | Description |
 |---|---|---|
-| GET | `/projects/{id}/report` | Récupère les données rapport |
+| GET | `/projects/{id}/report` | Récupère les données rapport (métadonnées) |
 | PATCH | `/projects/{id}/report` | Sauvegarde les données rapport |
-| GET | `/projects/{id}/report/docx` | Génère et télécharge le rapport Word |
+| GET | `/projects/{id}/report/status` | Statut du rapport Word (`has_report_docx`, source, date, `report_fields`) |
+| POST | `/projects/{id}/report/prefill-preview` | Claude propose les valeurs par section (JSON — pas de fichier) |
+| POST | `/projects/{id}/report/apply-prefill` | Applique la sélection → génère `.docx` + entrée historique |
+| POST | `/projects/{id}/report/upload-docx` | Importe un `.docx` modifié → version courante + historique |
+| GET | `/projects/{id}/report/docx` | Télécharge le `.docx` sauvegardé (ou régénéré depuis le template) |
+| GET | `/projects/{id}/report/history` | Historique des pré-remplissages et uploads |
+| GET | `/projects/{id}/report/history/{entry_id}/file` | Télécharge un `.docx` historique |
 
 ### Plan d'amélioration AMUREBA
 

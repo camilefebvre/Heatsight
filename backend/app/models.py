@@ -33,6 +33,10 @@ class Project(Base):
     prefilled_excel = Column(LargeBinary, nullable=True)  # fichier xlsx généré par prefill-excel
     prefilled_at = Column(String, nullable=True)      # ISO datetime du dernier prefill
     current_excel_source = Column(String, nullable=True)  # "template"|"ai_prefill"|"manual_upload"|"ai_patched"
+    report_docx = Column(LargeBinary, nullable=True)  # fichier .docx rapport stocké
+    report_docx_source = Column(String, nullable=True)  # "ai_prefill"|"manual_upload"
+    report_prefill_summary = Column(JSONB, nullable=True)  # champs appliqués par AI prefill
+    report_prefilled_at = Column(String, nullable=True)  # ISO datetime du dernier prefill rapport
     # audit_data, energy_accounting, report_data → tables dédiées
 
 
@@ -143,6 +147,7 @@ class Report(Base):
     auditor_name = Column(String, nullable=True)
     competences = Column(String, nullable=True)
     field_sources = Column(JSONB, nullable=True)  # { field: { source, doc_name, doc_id } }
+    extra_sections = Column(JSONB, nullable=True)  # { description_batiment: {...}, synthese_energetique: {...}, plan_amelioration: {...} }
 
 
 class ImprovementAction(Base):
@@ -172,6 +177,22 @@ class ImprovementAction(Base):
     created_at = Column(String, nullable=False)
 
 
+class ReportHistory(Base):
+    """Un event du rapport : pré-remplissage IA ou upload manuel."""
+    __tablename__ = "report_history"
+
+    id = Column(String, primary_key=True)
+    project_id = Column(String, ForeignKey("projects.id", ondelete="CASCADE"), nullable=False)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    action_type = Column(String, nullable=False)  # "AI_PREFILL" | "MANUAL_UPLOAD"
+    changes = Column(JSONB, nullable=True)         # { items:[...], sections_applied:[...] } ou { filename, size }
+    file_bytes = Column(LargeBinary, nullable=True)   # snapshot du .docx associé à cette action
+    file_name = Column(String, nullable=True)
+    file_mime_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
+    created_at = Column(String, nullable=False)
+
+
 class PlanAmeliorationHistory(Base):
     """Un event du plan d'amélioration : pré-remplissage IA ou upload manuel."""
     __tablename__ = "plan_amelioration_history"
@@ -181,6 +202,10 @@ class PlanAmeliorationHistory(Base):
     owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     action_type = Column(String, nullable=False)  # "AI_PREFILL" | "MANUAL_UPLOAD"
     changes = Column(JSONB, nullable=True)         # { items:[...] } ou { excel_summary:{...} }
+    file_bytes = Column(LargeBinary, nullable=True)   # snapshot du .xlsx associé à cette action
+    file_name = Column(String, nullable=True)
+    file_mime_type = Column(String, nullable=True)
+    file_size = Column(Integer, nullable=True)
     created_at = Column(String, nullable=False)
 
 

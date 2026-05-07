@@ -45,10 +45,26 @@ const SOURCE_META = {
 
 /* ── Conflict type metadata ──────────────────────────────────── */
 const CONFLICT_META = {
-  new:       { label: "Nouveau",    color: "#059669", bg: "#d1fae5", title: "Cellule vide dans l'Excel courant" },
-  replace:   { label: "Remplacement", color: "#b45309", bg: "#fef3c7", title: "Remplacera une valeur existante" },
-  uncertain: { label: "Estimation IA", color: "#6b7280", bg: "#f3f4f6", title: "Valeur estimée par l'IA, aucun document source" },
+  new:      { label: "Champ vide",               color: "#059669", bg: "#d1fae5", title: "Ce champ est actuellement vide dans le fichier" },
+  replace:  { label: "Remplace valeur existante", color: "#b45309", bg: "#fef3c7", title: "Remplacera une valeur déjà présente" },
+  uncertain:{ label: "Estimation sans source",    color: "#6b7280", bg: "#f3f4f6", title: "Valeur estimée par l'IA, sans document source" },
+  applied:  { label: "Déjà appliquée",            color: "#0369a1", bg: "#e0f2fe", title: "Cette valeur est déjà dans le fichier courant" },
 };
+
+const FILTER_OPTIONS = [
+  { id: "todo",      label: "À traiter",       count: (items) => items.filter(i => i.conflict_type !== "applied").length },
+  { id: "new",       label: "Nouvelles",       count: (items) => items.filter(i => i.conflict_type === "new").length },
+  { id: "replace",   label: "Remplacements",   count: (items) => items.filter(i => i.conflict_type === "replace").length },
+  { id: "uncertain", label: "Estimations",     count: (items) => items.filter(i => i.conflict_type === "uncertain").length },
+  { id: "applied",   label: "Déjà appliquées", count: (items) => items.filter(i => i.conflict_type === "applied").length },
+  { id: "all",       label: "Toutes",          count: (items) => items.length },
+];
+
+function filterItems(items, filterId) {
+  if (filterId === "todo") return items.filter(i => i.conflict_type !== "applied");
+  if (filterId === "all")  return items;
+  return items.filter(i => i.conflict_type === filterId);
+}
 
 function buildChecklistItems(preview) {
   const items = [];
@@ -57,6 +73,9 @@ function buildChecklistItems(preview) {
     Object.entries(FIELD_META).forEach(([field, meta]) => {
       const val = action[field];
       if (val == null || val === "") return;
+      const ct = conflictTypes[field];
+      if (ct === undefined) return; // safety: field not proposed at all
+      const currentValue = action.existing_values?.[field] ?? null;
       items.push({
         id:           `${action.sheet}_${field}`,
         sheet:        action.sheet,
@@ -64,10 +83,11 @@ function buildChecklistItems(preview) {
         field,
         label:        `${action.sheet} → ${meta.label}`,
         value:        val,
+        current_value: currentValue !== null ? String(currentValue) : null,
         is_numeric:   meta.numeric,
         source:       action.sources?.[field] || null,
-        conflict_type: conflictTypes[field] || (preview.has_existing_excel ? "new" : "new"),
-        selected:     conflictTypes[field] !== "replace", // pre-deselect replacements
+        conflict_type: ct,
+        selected:     ct !== "replace" && ct !== "applied",
       });
     });
   });
@@ -491,6 +511,7 @@ export default function ProjectPlanAmelioration() {
           history={history}
           loading={historyLoading}
           onClose={() => setHistoryOpen(false)}
+          projectId={projectId}
         />
       )}
 
@@ -543,7 +564,13 @@ function CurrentVersionBanner({ prefillStatus, downloading, onDownload }) {
         <button
           onClick={onDownload}
           disabled={downloading}
-          style={{ ...s.ghostBtn, fontSize: 12, padding: "7px 12px", opacity: downloading ? 0.7 : 1 }}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
+            border: "1px solid #166534", background: "#dcfce7", color: "#166534",
+            cursor: downloading ? "default" : "pointer",
+            opacity: downloading ? 0.7 : 1,
+          }}
         >
           <Download size={13} />
           {downloading ? "Téléchargement…" : "Télécharger la version courante"}
@@ -631,13 +658,17 @@ function UploadSection({ uploading, uploadMsg, uploadError, fileRef, onUpload })
 
 /* ── Panel checklist ────────────────────────────────────────── */
 function ChecklistPanel({ items, applying, selectedCount, previewContext, onToggle, onToggleAll, onApply, onClose, error }) {
-  const sheets = [...new Set(items.map((i) => i.sheet))];
   const allSelected   = items.length > 0 && items.every((i) => i.selected);
   const totalReplaces = items.filter((i) => i.conflict_type === "replace").length;
 
+  const [activeFilter, setActiveFilter] = useState("todo");
+
+  const visibleItems = filterItems(items, activeFilter);
+  const sheets = [...new Set(visibleItems.map((i) => i.sheet))];
+
   // Expand/collapse state per sheet — first sheet open by default
   const [expanded, setExpanded] = useState(() =>
-    Object.fromEntries(sheets.map((sh, idx) => [sh, idx === 0]))
+    Object.fromEntries([...new Set(items.map((i) => i.sheet))].map((sh, idx) => [sh, idx === 0]))
   );
   const allExpanded = sheets.every((sh) => expanded[sh]);
 
@@ -678,24 +709,49 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
         </div>
       </div>
 
-      {/* ── Bandeau conflits ─────────────────────────────── */}
-      {previewContext?.has_existing_excel && totalReplaces > 0 && (
-        <div style={{ padding: "8px 18px", background: "#fffbeb", borderBottom: "1px solid #fde68a", display: "flex", flexWrap: "wrap", gap: 10 }}>
-          <ConflictLegend />
-          <div style={{ ...s.infoBanner, flex: 1, minWidth: 200 }}>
-            <AlertTriangle size={13} style={{ flexShrink: 0, color: "#b45309" }} />
-            Les <strong>Remplacements</strong> sont pré-décochés. Cochez uniquement ceux à appliquer.
-          </div>
-        </div>
-      )}
+      {/* ── Barre de filtre ──────────────────────────────── */}
+      <div style={{ padding: "8px 18px", borderBottom: "1px solid #ede9fe", display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {FILTER_OPTIONS.map(opt => {
+          const cnt = opt.count(items);
+          const isActive = activeFilter === opt.id;
+          return (
+            <button key={opt.id} onClick={() => setActiveFilter(opt.id)} style={{
+              fontSize: 11, fontWeight: isActive ? 700 : 500, borderRadius: 999,
+              padding: "3px 10px", cursor: "pointer",
+              background: isActive ? "#6d28d9" : "#f3f4f6",
+              color: isActive ? "white" : "#374151",
+              border: isActive ? "none" : "1px solid #e5e7eb",
+            }}>
+              {opt.label} {cnt > 0 && <span style={{ opacity: 0.7 }}>({cnt})</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* ── Légende fixe ─────────────────────────────────── */}
+      <div style={{ padding: "6px 18px", background: "#fafafa", borderBottom: "1px solid #ede9fe", display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: "#9ca3af", fontWeight: 600 }}>Légende :</span>
+        {Object.entries(CONFLICT_META).map(([type, m]) => (
+          <span key={type} title={m.title} style={{
+            fontSize: 10, fontWeight: 700, color: m.color, background: m.bg,
+            padding: "2px 8px", borderRadius: 999, whiteSpace: "nowrap", cursor: "help",
+          }}>{m.label}</span>
+        ))}
+        {totalReplaces > 0 && (
+          <span style={{ fontSize: 11, color: "#b45309", marginLeft: 4 }}>
+            <AlertTriangle size={12} style={{ verticalAlign: "middle" }} /> {totalReplaces} remplacement{totalReplaces > 1 ? "s" : ""} pré-décoché{totalReplaces > 1 ? "s" : ""}
+          </span>
+        )}
+      </div>
 
       {/* ── Corps — cartes par action ─────────────────────── */}
       <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
         {sheets.map((sheet) => {
-          const sheetItems   = items.filter((i) => i.sheet === sheet);
-          const intitule     = sheetItems.find((i) => i.field === "intitule")?.value || "";
-          const classif      = sheetItems.find((i) => i.field === "classification")?.value || "";
-          const type         = sheetItems.find((i) => i.field === "type_amelioration")?.value || "";
+          const allSheetItems = items.filter((i) => i.sheet === sheet);
+          const sheetItems   = visibleItems.filter((i) => i.sheet === sheet);
+          const intitule     = allSheetItems.find((i) => i.field === "intitule")?.value || "";
+          const classif      = allSheetItems.find((i) => i.field === "classification")?.value || "";
+          const type         = allSheetItems.find((i) => i.field === "type_amelioration")?.value || "";
           const totalFields  = sheetItems.length;
           const selFields    = sheetItems.filter((i) => i.selected).length;
           const replFields   = sheetItems.filter((i) => i.conflict_type === "replace").length;
@@ -789,41 +845,73 @@ function ConflictLegend() {
   );
 }
 
+/* ── Valeur tronquable ──────────────────────────────────────── */
+function TruncatableValue({ value }) {
+  const [expanded, setExpanded] = useState(false);
+  const str = value !== null && value !== undefined ? String(value) : "";
+  const isLong = str.length > 120;
+  if (!str) return <span style={{ opacity: 0.4, fontStyle: "italic" }}>vide</span>;
+  if (!isLong) return <span style={{ color: "#6d28d9", fontWeight: 600 }}>{str}</span>;
+  return (
+    <span style={{ color: "#6d28d9" }}>
+      {expanded ? str : str.slice(0, 120) + "…"}
+      <button
+        onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
+        style={{ marginLeft: 6, fontSize: 10, color: "#7c3aed", background: "none",
+          border: "none", cursor: "pointer", padding: 0 }}>
+        {expanded ? "Réduire" : "Voir tout"}
+      </button>
+    </span>
+  );
+}
+
 /* ── Ligne de la checklist ──────────────────────────────────── */
 function ChecklistRow({ item, onToggle }) {
+  const isApplied = item.conflict_type === "applied";
   const label = item.label.split(" → ")[1] || item.label;
   const cm = CONFLICT_META[item.conflict_type] || CONFLICT_META.new;
 
   return (
     <div
-      onClick={() => onToggle(item.id)}
+      onClick={isApplied ? undefined : () => onToggle(item.id)}
       style={{
-        display: "flex", alignItems: "center", gap: 8,
-        padding: "7px 14px",
+        display: "flex", alignItems: "flex-start", gap: 8,
+        padding: "8px 14px",
         borderBottom: "1px solid #f3f4f6",
-        background: item.selected ? "white" : "#fafafa",
-        cursor: "pointer",
+        background: isApplied ? "#f9fafb" : (item.selected ? "white" : "#fafafa"),
+        cursor: isApplied ? "default" : "pointer",
+        opacity: isApplied ? 0.65 : 1,
       }}
     >
       {/* Checkbox */}
-      <span style={{ flexShrink: 0, color: item.selected ? "#6d28d9" : "#d1d5db", display: "flex" }}>
-        {item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
+      <span style={{ flexShrink: 0, color: isApplied ? "#d1d5db" : (item.selected ? "#6d28d9" : "#d1d5db"), display: "flex", marginTop: 2 }}>
+        {isApplied ? <Square size={15} /> : item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
       </span>
 
       {/* Cellule ref */}
-      <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace", flexShrink: 0, minWidth: 30 }}>
+      <span style={{ fontSize: 10, color: "#9ca3af", fontFamily: "monospace", flexShrink: 0, minWidth: 30, marginTop: 3 }}>
         {item.cell}
       </span>
 
       {/* Champ */}
-      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0 }}>
+      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0, marginTop: 2 }}>
         {label}
       </span>
 
-      {/* Valeur proposée */}
-      <span style={{ fontSize: 12, color: "#6d28d9", fontWeight: 700, flexShrink: 0, maxWidth: 120, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-        {fmtValue(item.field, item.value)}
-      </span>
+      {/* Valeur proposée + actuel */}
+      <div style={{ flexShrink: 0, maxWidth: 150 }}>
+        {item.conflict_type === "replace" && (
+          <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginBottom: 2 }}>Proposé</div>
+        )}
+        <div style={{ fontSize: 13 }}>
+          <TruncatableValue value={item.is_numeric ? fmtValue(item.field, item.value) : item.value} />
+        </div>
+        {item.current_value && item.conflict_type !== "applied" && (
+          <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>
+            Actuel : {item.current_value}
+          </div>
+        )}
+      </div>
 
       {/* Source */}
       <SourceTag source={item.source} />
@@ -881,7 +969,7 @@ function SourceChip({ color, label, title }) {
 }
 
 /* ── Drawer historique ──────────────────────────────────────── */
-function HistoryDrawer({ history, loading, onClose }) {
+function HistoryDrawer({ history, loading, onClose, projectId }) {
   return (
     <>
       <div
@@ -920,7 +1008,7 @@ function HistoryDrawer({ history, loading, onClose }) {
               Aucun historique enregistré.
             </div>
           ) : (
-            history.map((entry) => <HistoryEntry key={entry.id} entry={entry} />)
+            history.map((entry) => <HistoryEntry key={entry.id} entry={entry} projectId={projectId} />)
           )}
         </div>
       </div>
@@ -929,9 +1017,30 @@ function HistoryDrawer({ history, loading, onClose }) {
 }
 
 /* ── Entrée d'historique ────────────────────────────────────── */
-function HistoryEntry({ entry }) {
+function HistoryEntry({ entry, projectId }) {
   const isAI = entry.action_type === "AI_PREFILL";
   const [open, setOpen] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  async function handleDownload(e) {
+    e.stopPropagation();
+    setDownloading(true);
+    try {
+      const res = await apiFetch(`/projects/${projectId}/improvement-actions/history/${entry.id}/file`);
+      if (!res.ok) throw new Error("Fichier indisponible");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = entry.file_name || `plan_amelioration_${entry.id}.xlsx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      alert(err.message || "Erreur lors du téléchargement");
+    } finally {
+      setDownloading(false);
+    }
+  }
 
   const dateStr = new Date(entry.created_at).toLocaleString("fr-BE", {
     day: "2-digit", month: "2-digit", year: "numeric",
@@ -964,6 +1073,20 @@ function HistoryEntry({ entry }) {
           )}
           <div style={{ fontSize: 11, color: "#9ca3af" }}>{dateStr}</div>
         </div>
+        {entry.has_file ? (
+          <button
+            onClick={handleDownload}
+            disabled={downloading}
+            style={{
+              padding: "4px 10px", fontSize: 11, borderRadius: 6,
+              border: "1px solid #d8b4fe", background: "#faf5ff",
+              color: "#6d28d9", cursor: downloading ? "default" : "pointer",
+              whiteSpace: "nowrap", flexShrink: 0,
+            }}
+          >
+            {downloading ? "…" : "⬇ Télécharger"}
+          </button>
+        ) : null}
         <span style={{ fontSize: 12, color: "#9ca3af" }}>{open ? "▲" : "▼"}</span>
       </div>
 
