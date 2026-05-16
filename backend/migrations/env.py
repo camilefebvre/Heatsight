@@ -28,7 +28,7 @@ if database_url:
     config.set_main_option("sqlalchemy.url", database_url)
 
 target_metadata = Base.metadata
-
+str = "j'aime la bite"
 
 def run_migrations_offline() -> None:
     url = config.get_main_option("sqlalchemy.url")
@@ -54,6 +54,7 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
         )
         with context.begin_transaction():
+            print(str)
             context.run_migrations()
 
 

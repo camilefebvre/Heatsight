@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, Fragment } from "react";
+import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
 import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X } from "lucide-react";
@@ -96,12 +96,24 @@ function computeConfigHash(bat, materials) {
       if (!co.is_fixed) changeables.push({ id: co.material_id, q: String(co.surface_m2 ?? ""), e: String(co.efficacite ?? 100) });
     }
     for (const bv of paroi.baiesVitrees) {
-      if (!bv.is_fixed) changeables.push({ id: bv.material_id, q: String(bv.surface_vitree_m2 ?? ""), e: String(bv.efficacite ?? 100) });
+      const bvSpu = parseFloat(bv.surface_par_unite);
+      const bvQs = (isFinite(bvSpu) && bvSpu > 0)
+        ? String((parseFloat(bv.quantite) || 1) * bvSpu)
+        : String(bv.surface_vitree_m2 ?? "");
+      if (!bv.is_fixed) changeables.push({ id: bv.material_id, q: bvQs, e: String(bv.efficacite ?? 100) });
     }
   }
   changeables.sort((a, b) => a.id.localeCompare(b.id));
 
-  const matLib = materials.map(m => ({ i: m.id, p: m.prix ?? null, r: m.valeur_r ?? null }));
+  const matLib = materials.map(m => ({
+    i:  m.id,
+    p:  m.prix ?? null,
+    r:  m.valeur_r ?? null,
+    g:  extractImpact(m.impacts, "gwp100", "gwp_100") ?? null,
+    en: extractImpact(m.impacts, "energy_nonrenewable") ?? null,
+    pm: extractImpact(m.impacts, "particulate_matter") ?? null,
+    lu: extractImpact(m.impacts, "land_use") ?? null,
+  }));
   matLib.sort((a, b) => a.i.localeCompare(b.i));
 
   const ch = CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
@@ -116,6 +128,7 @@ function buildCombinations(bat, materials) {
   const PER_SLOT   = 5; // max candidats par slot pour éviter l'explosion combinatoire
 
   const slots = [];
+  const fixedDueToConstraint = []; // composants sans alternative thermiquement acceptable
 
   for (const paroi of bat.parois) {
     for (const co of paroi.composantsOpaques) {
@@ -123,10 +136,28 @@ function buildCombinations(bat, materials) {
       const curMat = materials.find(m => m.id === co.material_id);
       const curCat = curMat ? (curMat.category || "Autre") : "Autre";
 
-      let altMats = materials
+      let allCatMats = materials
         .filter(m => !isFenetreCategory(m.category || "Autre") && (m.category || "Autre") === curCat)
-        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0))
-        .slice(0, PER_SLOT);
+        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0));
+
+      const hadAlternatives = allCatMats.some(m => m.id !== co.material_id);
+
+      // Filtre de non-dégradation thermique : U_alternatif ≤ U_effectif_actuel
+      const rCurrentEff = getComposantREffectif(co);
+      const ep = parseFloat(co.epaisseur_cm);
+      if (rCurrentEff != null && rCurrentEff > 0 && isFinite(ep) && ep > 0) {
+        allCatMats = allCatMats.filter(m => {
+          if (m.id === co.material_id) return true; // toujours conserver le matériau courant
+          const lambda = parseFloat(m.valeur_r);
+          if (!isFinite(lambda) || lambda <= 0) return false;
+          return (ep / 100) / lambda >= rCurrentEff; // R_candidat >= R_actuel_effectif
+        });
+        if (hadAlternatives && !allCatMats.some(m => m.id !== co.material_id)) {
+          fixedDueToConstraint.push({ compName: co.material_name || (curMat?.name ?? "?"), paroiNom: paroi.nom });
+        }
+      }
+
+      let altMats = allCatMats.slice(0, PER_SLOT);
 
       // S'assurer que le matériau courant est inclus
       if (!altMats.find(m => m.id === co.material_id) && curMat) {
@@ -149,17 +180,36 @@ function buildCombinations(bat, materials) {
       }));
 
       if (candidates.length > 0) {
-        slots.push({ paroiId: paroi.id, compId: co.id, type: "opaque", candidates });
+        slots.push({ paroiId: paroi.id, compId: co.id, type: "opaque", candidates, originalId: co.material_id });
       }
     }
 
     for (const bv of paroi.baiesVitrees) {
       if (bv.is_fixed) continue;
 
-      let altMats = materials
+      let allFenMats = materials
         .filter(m => isFenetreCategory(m.category || "Autre"))
-        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0))
-        .slice(0, PER_SLOT);
+        .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0));
+
+      const hadAlternatives = allFenMats.some(m => m.id !== bv.material_id);
+
+      // Filtre de non-dégradation thermique : R_alternatif >= R_effectif_actuel
+      const bvRLocal = parseFloat(bv.r_local);
+      const bvR = (isFinite(bvRLocal) && bvRLocal > 0) ? bvRLocal : parseFloat(bv.valeur_r);
+      const bvEff = (parseFloat(bv.efficacite) || 100) / 100;
+      const bvREff = (isFinite(bvR) && bvR > 0) ? bvR * bvEff : null;
+      if (bvREff != null && bvREff > 0) {
+        allFenMats = allFenMats.filter(m => {
+          if (m.id === bv.material_id) return true; // toujours conserver le matériau courant
+          const r = parseFloat(m.valeur_r);
+          return isFinite(r) && r > 0 && r >= bvREff; // U_candidat <= U_actuel_effectif
+        });
+        if (hadAlternatives && !allFenMats.some(m => m.id !== bv.material_id)) {
+          fixedDueToConstraint.push({ compName: bv.material_name, paroiNom: paroi.nom });
+        }
+      }
+
+      let altMats = allFenMats.slice(0, PER_SLOT);
 
       if (!altMats.find(m => m.id === bv.material_id)) {
         const curMat = materials.find(m => m.id === bv.material_id);
@@ -180,7 +230,7 @@ function buildCombinations(bat, materials) {
       }));
 
       if (candidates.length > 0) {
-        slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree", candidates });
+        slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree", candidates, originalId: bv.material_id });
       }
     }
   }
@@ -201,17 +251,19 @@ function buildCombinations(bat, materials) {
 
   const combos = [];
 
-  function enumerate(idx, curBat, choices, accPm, accLu) {
+  function enumerate(idx, curBat, choices, accPm, accLu, accRenovCost) {
     if (idx === slots.length) {
       const st = calcBatimentStats(curBat);
       combos.push({
-        cost:       st.total_cout ?? 0,
-        gwp:        st.total_gwp  ?? 0,
-        energy_kwh: st.energy_kwh ?? null,
-        dep_wk:     st.dep_wk     ?? null,
-        pm:         accPm,
-        lu:         accLu,
+        cost:           st.total_cout ?? 0,
+        renovation_cost: accRenovCost,
+        gwp:            st.total_gwp  ?? 0,
+        energy_kwh:     st.energy_kwh ?? null,
+        dep_wk:         st.dep_wk     ?? null,
+        pm:             accPm,
+        lu:             accLu,
         choices,
+        paroi_u_moyens: curBat.parois.map(p => calcParoiStats(p)?.u_moyen ?? null),
       });
       return;
     }
@@ -220,6 +272,7 @@ function buildCombinations(bat, materials) {
       const qty = slot.type === "opaque"
         ? (parseFloat(cand.surface_m2) || 0)
         : (parseFloat(cand.quantite)   || 1);
+      const isChanged = cand.material_id !== slot.originalId;
       enumerate(
         idx + 1,
         applyChoice(curBat, slot, cand),
@@ -230,20 +283,22 @@ function buildCombinations(bat, materials) {
         }],
         accPm + (cand.pm_unit || 0) * qty,
         accLu + (cand.lu_unit || 0) * qty,
+        accRenovCost + (isChanged ? (cand.prix_unit || 0) * qty : 0),
       );
     }
   }
 
-  enumerate(0, bat, [], 0, 0);
+  enumerate(0, bat, [], 0, 0, 0);
 
   // Fix 1 : tri déterministe — coût croissant, puis GWP croissant
   combos.sort((a, b) => a.cost !== b.cost ? a.cost - b.cost : a.gwp - b.gwp);
-  return combos.slice(0, MAX_COMBOS);
+  return { combos: combos.slice(0, MAX_COMBOS), fixedDueToConstraint };
 }
 
 function computePhares(combos, bat, materials) {
   const sqSt     = calcBatimentStats(bat);
-  const sqCost   = sqSt.total_cout   ?? 0;
+  const isRenovation = bat.type_batiment === "renovation";
+  const sqCost   = isRenovation ? 0 : (sqSt.total_cout ?? 0);
   const sqGwp    = sqSt.total_gwp    ?? 0;
   const sqEnergy = sqSt.energy_kwh   ?? null;
 
@@ -268,59 +323,225 @@ function computePhares(combos, bat, materials) {
     }
   }
 
-  const statuQuo = { cost: sqCost, gwp: sqGwp, energy_kwh: sqEnergy, pm: sqPm, lu: sqLu, choices: [] };
+  const statuQuo = { cost: sqCost, renovation_cost: 0, gwp: sqGwp, energy_kwh: sqEnergy, pm: sqPm, lu: sqLu, choices: [] };
 
   if (combos.length === 0) {
     return { statuQuo, economique: null, ecologique: null, roi: null, topsis: null };
   }
 
-  const economique = [...combos].sort((a, b) => a.cost - b.cost)[0];
-  const ecologique = [...combos].sort((a, b) => a.gwp  - b.gwp )[0];
+  let economique;
+  if (isRenovation) {
+    const withRenov = combos.filter(c => c.renovation_cost > 0);
+    economique = withRenov.length > 0
+      ? withRenov.reduce((a, b) => a.renovation_cost < b.renovation_cost ? a : b)
+      : combos[0];
+  } else {
+    economique = [...combos].sort((a, b) => a.cost - b.cost)[0];
+  }
+
+  // Profil Écologique : minimise normMM(GWP_construction) + normMM(CO2_exploitation)
+  // Les deux termes sont en kg CO2eq — GWP matériaux (A1-A3) + CO2 chauffage annuel (B6)
+  const ecoCh      = CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
+  const co2Factor  = ecoCh.co2; // kg CO2/kWh selon le moyen de chauffage
+  const ecoCandidates = combos.filter(c => c.energy_kwh != null);
+  let ecologique;
+  if (ecoCandidates.length === 0) {
+    ecologique = [...combos].sort((a, b) => a.gwp - b.gwp)[0];
+  } else {
+    const minG  = Math.min(...ecoCandidates.map(c => c.gwp ?? 0));
+    const maxG  = Math.max(...ecoCandidates.map(c => c.gwp ?? 0));
+    const minC2 = Math.min(...ecoCandidates.map(c => c.energy_kwh * co2Factor));
+    const maxC2 = Math.max(...ecoCandidates.map(c => c.energy_kwh * co2Factor));
+    const normMM = (v, lo, hi) => hi === lo ? 0 : (v - lo) / (hi - lo);
+    ecologique = ecoCandidates.reduce((best, c) => {
+      const sC = normMM(c.gwp ?? 0, minG, maxG) + normMM(c.energy_kwh * co2Factor, minC2, maxC2);
+      const sB = normMM(best.gwp ?? 0, minG, maxG) + normMM(best.energy_kwh * co2Factor, minC2, maxC2);
+      return sC < sB ? c : best;
+    });
+  }
 
   // ROI : (économies énergie sur 20 ans à 0,20 €/kWh) / surcoût
   const PRICE = 0.20, HORIZON = 20;
   let roi = null;
   if (sqEnergy != null) {
-    const cands = combos.filter(c => c.cost > sqCost && c.energy_kwh != null);
-    if (cands.length > 0) {
-      roi = cands.reduce((best, c) => {
-        const r = (sqEnergy - c.energy_kwh) * PRICE * HORIZON / (c.cost - sqCost);
-        const b = (sqEnergy - best.energy_kwh) * PRICE * HORIZON / (best.cost - sqCost);
+    const renovCands = isRenovation
+      ? combos.filter(c => c.renovation_cost > 0 && c.energy_kwh != null && (sqEnergy - c.energy_kwh) > 0)
+      : combos.filter(c => c.cost > sqCost && c.energy_kwh != null);
+    if (renovCands.length > 0) {
+      roi = renovCands.reduce((best, c) => {
+        const invest  = isRenovation ? c.renovation_cost       : (c.cost - sqCost);
+        const investB = isRenovation ? best.renovation_cost    : (best.cost - sqCost);
+        const r = (sqEnergy - c.energy_kwh)    * PRICE * HORIZON / invest;
+        const b = (sqEnergy - best.energy_kwh) * PRICE * HORIZON / investB;
         return r > b ? c : best;
       });
     }
   }
 
-  // TOPSIS 5 critères : coût(×1), GWP(×1), énergie(×1), PM(×0.5), LU(×0.5)
+  // TOPSIS pur — même calcul TOPSIS, aucun bonus efficience marginale
   const valid = combos.filter(c => c.energy_kwh != null);
-  let topsis = null;
+  let topsisPur = null;
   if (valid.length > 1) {
-    const vals = k => valid.map(c => c[k] ?? 0);
-    const mn = k => Math.min(...vals(k));
-    const mx = k => Math.max(...vals(k));
-    const [minC, maxC] = [mn("cost"), mx("cost")];
-    const [minG, maxG] = [mn("gwp"),  mx("gwp")];
-    const [minE, maxE] = [mn("energy_kwh"), mx("energy_kwh")];
-    const [minP, maxP] = [mn("pm"), mx("pm")];
-    const [minL, maxL] = [mn("lu"), mx("lu")];
-    const n = (v, lo, hi) => hi === lo ? 0 : (v - lo) / (hi - lo);
-    const scored = valid.map(c => {
-      const nc = n(c.cost,       minC, maxC);
-      const ng = n(c.gwp,        minG, maxG);
-      const ne = n(c.energy_kwh, minE, maxE);
-      const np = n(c.pm ?? 0,    minP, maxP) * 0.5;
-      const nl = n(c.lu ?? 0,    minL, maxL) * 0.5;
-      const dI = Math.sqrt(nc*nc + ng*ng + ne*ne + np*np + nl*nl);
-      const dA = Math.sqrt((1-nc)**2 + (1-ng)**2 + (1-ne)**2 + (0.5-np)**2 + (0.5-nl)**2);
+    const rawSavP = valid.map(c => sqEnergy != null ? (sqEnergy - c.energy_kwh) * PRICE : 0);
+    const rawGwpP = valid.map(c => c.gwp        ?? 0);
+    const rawEnP  = valid.map(c => c.energy_kwh ?? 0);
+    const rawPmP  = valid.map(c => c.pm         ?? 0);
+    const rawLuP  = valid.map(c => c.lu         ?? 0);
+
+    const eucNormP = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
+    const normVecP = (arr, w) => {
+      const norm = eucNormP(arr);
+      return norm === 0 ? arr.map(() => 0) : arr.map(v => (v / norm) * w);
+    };
+
+    const vSavP = normVecP(rawSavP, 1.0);
+    const vGwpP = normVecP(rawGwpP, 1.0);
+    const vEnP  = normVecP(rawEnP,  1.0);
+    const vPmP  = normVecP(rawPmP,  0.5);
+    const vLuP  = normVecP(rawLuP,  0.5);
+
+    const aP_savP = Math.max(...vSavP); const aM_savP = Math.min(...vSavP);
+    const aP_gwpP = Math.min(...vGwpP); const aM_gwpP = Math.max(...vGwpP);
+    const aP_enP  = Math.min(...vEnP);  const aM_enP  = Math.max(...vEnP);
+    const aP_pmP  = Math.min(...vPmP);  const aM_pmP  = Math.max(...vPmP);
+    const aP_luP  = Math.min(...vLuP);  const aM_luP  = Math.max(...vLuP);
+
+    const scoredP = valid.map((c, i) => {
+      const dI = Math.sqrt(
+        (vSavP[i] - aP_savP)**2 + (vGwpP[i] - aP_gwpP)**2 + (vEnP[i] - aP_enP)**2 +
+        (vPmP[i]  - aP_pmP)**2  + (vLuP[i]  - aP_luP)**2
+      );
+      const dA = Math.sqrt(
+        (vSavP[i] - aM_savP)**2 + (vGwpP[i] - aM_gwpP)**2 + (vEnP[i] - aM_enP)**2 +
+        (vPmP[i]  - aM_pmP)**2  + (vLuP[i]  - aM_luP)**2
+      );
       return { c, score: (dI + dA) > 0 ? dA / (dI + dA) : 0 };
     });
-    scored.sort((a, b) => b.score - a.score);
-    topsis = scored[0].c;
+    scoredP.sort((a, b) => b.score - a.score);
+    topsisPur = scoredP[0].c;
+  } else if (valid.length === 1) {
+    topsisPur = valid[0];
+  }
+
+  // TOPSIS 5 critères — normalisation euclidienne r_ij = x_ij / √(Σ x_ij²)
+  // Critères : économies €/an (×1, à maximiser), GWP (×1), énergie (×1), PM (×0.5), LU (×0.5)
+  let topsis = null;
+  if (valid.length > 1) {
+    const rawSav = valid.map(c => sqEnergy != null ? (sqEnergy - c.energy_kwh) * PRICE : 0);
+    const rawGwp = valid.map(c => c.gwp        ?? 0);
+    const rawEn  = valid.map(c => c.energy_kwh ?? 0);
+    const rawPm  = valid.map(c => c.pm         ?? 0);
+    const rawLu  = valid.map(c => c.lu         ?? 0);
+
+    const eucNorm = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
+    const normVec = (arr, w) => {
+      const norm = eucNorm(arr);
+      return norm === 0 ? arr.map(() => 0) : arr.map(v => (v / norm) * w);
+    };
+
+    const vSav = normVec(rawSav, 1.0);
+    const vGwp = normVec(rawGwp, 1.0);
+    const vEn  = normVec(rawEn,  1.0);
+    const vPm  = normVec(rawPm,  0.5);
+    const vLu  = normVec(rawLu,  0.5);
+
+    // Économies : à maximiser → A⁺ = max, A⁻ = min
+    // GWP, énergie, PM, LU : à minimiser → A⁺ = min, A⁻ = max
+    const aP_sav = Math.max(...vSav); const aM_sav = Math.min(...vSav);
+    const aP_gwp = Math.min(...vGwp); const aM_gwp = Math.max(...vGwp);
+    const aP_en  = Math.min(...vEn);  const aM_en  = Math.max(...vEn);
+    const aP_pm  = Math.min(...vPm);  const aM_pm  = Math.max(...vPm);
+    const aP_lu  = Math.min(...vLu);  const aM_lu  = Math.max(...vLu);
+
+    const scored = valid.map((c, i) => {
+      const dI = Math.sqrt(
+        (vSav[i] - aP_sav)**2 + (vGwp[i] - aP_gwp)**2 + (vEn[i] - aP_en)**2 +
+        (vPm[i]  - aP_pm)**2  + (vLu[i]  - aP_lu)**2
+      );
+      const dA = Math.sqrt(
+        (vSav[i] - aM_sav)**2 + (vGwp[i] - aM_gwp)**2 + (vEn[i] - aM_en)**2 +
+        (vPm[i]  - aM_pm)**2  + (vLu[i]  - aM_lu)**2
+      );
+      return { c, score: (dI + dA) > 0 ? dA / (dI + dA) : 0 };
+    });
+    // Bonus efficience marginale : ΔGWP100 / Δcoût → ×1.15 pour les combinaisons > P75
+    const efficiencies = scored.map(({ c }) => {
+      const deltaGwp  = sqGwp - (c.gwp ?? 0);
+      const deltaCost = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost);
+      return deltaCost === 0 ? 0 : deltaGwp / deltaCost;
+    });
+    const sortedEff = [...efficiencies].sort((a, b) => a - b);
+    const p75 = sortedEff[Math.floor((sortedEff.length - 1) * 0.75)];
+    const finalScored = scored.map((item, i) => ({
+      ...item,
+      score: efficiencies[i] > p75 ? item.score * 1.15 : item.score,
+    }));
+    finalScored.sort((a, b) => b.score - a.score);
+    topsis = finalScored[0].c;
   } else if (valid.length === 1) {
     topsis = valid[0];
   }
 
-  return { statuQuo, economique, ecologique, roi, topsis };
+  // TOPSIS 2.0 : même calcul TOPSIS, bonus efficience marginale raffiné
+  // Δcoût ≤ 0 → efficience infinie (toujours boosté) ; ΔGWP100 ≤ 0 → nulle ; P75 sur finies positives seulement
+  let topsis2 = null;
+  if (valid.length > 1) {
+    const rawSav2 = valid.map(c => sqEnergy != null ? (sqEnergy - c.energy_kwh) * PRICE : 0);
+    const rawGwp2 = valid.map(c => c.gwp        ?? 0);
+    const rawEn2  = valid.map(c => c.energy_kwh ?? 0);
+    const rawPm2  = valid.map(c => c.pm         ?? 0);
+    const rawLu2  = valid.map(c => c.lu         ?? 0);
+
+    const eucNorm2 = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
+    const normVec2 = (arr, w) => {
+      const norm = eucNorm2(arr);
+      return norm === 0 ? arr.map(() => 0) : arr.map(v => (v / norm) * w);
+    };
+
+    const vSav2 = normVec2(rawSav2, 1.0);
+    const vGwp2 = normVec2(rawGwp2, 1.0);
+    const vEn2  = normVec2(rawEn2,  1.0);
+    const vPm2  = normVec2(rawPm2,  0.5);
+    const vLu2  = normVec2(rawLu2,  0.5);
+
+    const aP_sav2 = Math.max(...vSav2); const aM_sav2 = Math.min(...vSav2);
+    const aP_gwp2 = Math.min(...vGwp2); const aM_gwp2 = Math.max(...vGwp2);
+    const aP_en2  = Math.min(...vEn2);  const aM_en2  = Math.max(...vEn2);
+    const aP_pm2  = Math.min(...vPm2);  const aM_pm2  = Math.max(...vPm2);
+    const aP_lu2  = Math.min(...vLu2);  const aM_lu2  = Math.max(...vLu2);
+
+    const scored2 = valid.map((c, i) => {
+      const dI = Math.sqrt(
+        (vSav2[i] - aP_sav2)**2 + (vGwp2[i] - aP_gwp2)**2 + (vEn2[i] - aP_en2)**2 +
+        (vPm2[i]  - aP_pm2)**2  + (vLu2[i]  - aP_lu2)**2
+      );
+      const dA = Math.sqrt(
+        (vSav2[i] - aM_sav2)**2 + (vGwp2[i] - aM_gwp2)**2 + (vEn2[i] - aM_en2)**2 +
+        (vPm2[i]  - aM_pm2)**2  + (vLu2[i]  - aM_lu2)**2
+      );
+      return { c, score: (dI + dA) > 0 ? dA / (dI + dA) : 0 };
+    });
+
+    const efficiencies2 = scored2.map(({ c }) => {
+      const deltaGwp  = sqGwp - (c.gwp ?? 0);
+      const deltaCost = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost);
+      if (deltaCost <= 0) return Infinity;
+      if (deltaGwp  <= 0) return 0;
+      return deltaGwp / deltaCost;
+    });
+    const finitePos2 = efficiencies2.filter(e => isFinite(e) && e > 0).sort((a, b) => a - b);
+    const p75_2 = finitePos2.length > 0 ? finitePos2[Math.floor((finitePos2.length - 1) * 0.75)] : 0;
+    const finalScored2 = scored2.map((item, i) => ({
+      ...item,
+      score: efficiencies2[i] > p75_2 ? item.score * 1.15 : item.score,
+    }));
+    finalScored2.sort((a, b) => b.score - a.score);
+    topsis2 = finalScored2[0].c;
+  } else if (valid.length === 1) {
+    topsis2 = valid[0];
+  }
+
+  return { statuQuo, economique, ecologique, roi, topsisPur, topsis, topsis2 };
 }
 
 // ─── R of a composant opaque (m²·K/W) ────────────────────────────────────────
@@ -352,11 +573,15 @@ function calcParoiStats(paroi) {
   let cout_vitree = 0;
   let gwp_vitree = 0;
   for (const bv of paroi.baiesVitrees) {
-    const sv = parseFloat(bv.surface_vitree_m2);
-    const vr = parseFloat(bv.valeur_r);
     const qty = parseFloat(bv.quantite) || 1;
+    const spuParsed = parseFloat(bv.surface_par_unite);
+    const sv = (isFinite(spuParsed) && spuParsed > 0)
+      ? qty * spuParsed
+      : (parseFloat(bv.surface_vitree_m2) || 0);
+    const bvRLocal = parseFloat(bv.r_local);
+    const vr = (isFinite(bvRLocal) && bvRLocal > 0) ? bvRLocal : parseFloat(bv.valeur_r);
     const bvEff = (parseFloat(bv.efficacite) || 100) / 100;
-    if (isFinite(sv) && sv > 0) {
+    if (sv > 0) {
       s_vitree += sv;
       if (isFinite(vr) && vr > 0) ua_vitree += sv * (1 / vr) / bvEff;
     }
@@ -453,6 +678,10 @@ export default function ProjectLCA() {
   const [optBatId,        setOptBatId]        = useState(null);   // id du bâtiment dont le panneau optim est ouvert
   const [optCachedHash,   setOptCachedHash]   = useState(null);   // hash sauvegardé côté serveur
   const [optCachedResult, setOptCachedResult] = useState(null);   // cache sauvegardé côté serveur
+  const [batModal,        setBatModal]        = useState(false);
+  const [batForm,         setBatForm]         = useState({ nom: "", type_batiment: "neuf" });
+  const [editingBatId,    setEditingBatId]    = useState(null);
+  const [editBatNom,      setEditBatNom]      = useState("");
 
   const saveTimerRef  = useRef(null);
   const skipNextSave  = useRef(false);  // bloque la sauvegarde lors de la réhydratation initiale
@@ -532,13 +761,19 @@ export default function ProjectLCA() {
 
   // ── Building CRUD ──────────────────────────────────────────────────────────
 
-  function addBatiment() {
-    const n = batiments.length + 1;
+  function openAddBatiment() {
+    setBatForm({ nom: `Bâtiment ${batiments.length + 1}`, type_batiment: "neuf" });
+    setBatModal(true);
+  }
+
+  function confirmAddBatiment() {
     setBatiments((prev) => [...prev, {
-      id: newId(), nom: `Bâtiment ${n}`,
+      id: newId(), nom: batForm.nom.trim() || `Bâtiment ${prev.length + 1}`,
+      type_batiment: batForm.type_batiment || "neuf",
       surface_plancher: "", hauteur: "", temperature_interieure: 20,
       moyen_chauffage: "gaz", degres_jours: 2500, parois: [],
     }]);
+    setBatModal(false);
   }
 
   function updateBatiment(id, field, value) {
@@ -593,7 +828,7 @@ export default function ProjectLCA() {
   // ── Composant CRUD ─────────────────────────────────────────────────────────
 
   function openAddComposant(batId, paroiId, type) {
-    setCompForm({ material_id: "", quantite: "1", epaisseur_cm: "", surface_m2: "", surface_vitree_m2: "", lambda_custom: "", r_custom: "", unite_autre: "" });
+    setCompForm({ material_id: "", quantite: "1", epaisseur_cm: "", surface_m2: "", surface_par_unite: "", lambda_custom: "", r_custom: "", unite_autre: "" });
     setCompModal({ batId, paroiId, type });
   }
 
@@ -613,7 +848,7 @@ export default function ProjectLCA() {
         valeur_r: rVal,
         r_custom: compForm.r_custom !== "" ? compForm.r_custom : "",
         quantite: parseFloat(compForm.quantite) || 1,
-        surface_vitree_m2: compForm.surface_vitree_m2,
+        surface_par_unite: compForm.surface_par_unite,
         is_fixed: false,
         efficacite: 100,
         prix_unit: parseFloat(mat.prix) || 0,
@@ -760,7 +995,7 @@ export default function ProjectLCA() {
       )}
 
       <div style={{ marginTop: 18 }}>
-        <button type="button" onClick={addBatiment}
+        <button type="button" onClick={openAddBatiment}
           style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 8 }}>
           <Plus size={15} /> Nouveau bâtiment
         </button>
@@ -795,7 +1030,34 @@ export default function ProjectLCA() {
                       <div style={{ color: "#6d28d9" }}>
                         {isSelected ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </div>
-                      <div style={{ fontWeight: 700, fontSize: 15 }}>{bat.nom}</div>
+                      {editingBatId === bat.id ? (
+                        <input
+                          type="text" autoFocus
+                          value={editBatNom}
+                          onChange={(e) => setEditBatNom(e.target.value)}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { updateBatiment(bat.id, "nom", editBatNom.trim() || bat.nom); setEditingBatId(null); }
+                            else if (e.key === "Escape") { setEditingBatId(null); }
+                          }}
+                          onBlur={() => { updateBatiment(bat.id, "nom", editBatNom.trim() || bat.nom); setEditingBatId(null); }}
+                          style={{ ...miniInput, fontWeight: 700, fontSize: 15, width: 170 }}
+                        />
+                      ) : (
+                        <div
+                          style={{ fontWeight: 700, fontSize: 15 }}
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => { e.stopPropagation(); setEditBatNom(bat.nom); setEditingBatId(bat.id); }}
+                        >
+                          {bat.nom}
+                        </div>
+                      )}
+                      {bat.type_batiment === "renovation" ? (
+                        <span style={{ fontSize: 11, background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa", borderRadius: 6, padding: "2px 7px", fontWeight: 700, flexShrink: 0 }}>À rénover</span>
+                      ) : (
+                        <span style={{ fontSize: 11, background: "#f0fdf4", color: "#166534", border: "1px solid #bbf7d0", borderRadius: 6, padding: "2px 7px", fontWeight: 700, flexShrink: 0 }}>Neuf</span>
+                      )}
                       <div style={{ fontSize: 12, color: "#9ca3af" }}>
                         {bat.parois.length} paroi{bat.parois.length !== 1 ? "s" : ""}
                       </div>
@@ -846,6 +1108,32 @@ export default function ProjectLCA() {
           </div>
         )}
       </div>
+
+      {/* Add Bâtiment Modal */}
+      {batModal && (
+        <ModalOverlay onClose={() => setBatModal(false)}>
+          <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 16 }}>Nouveau bâtiment</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+            <Field label="Nom">
+              <input type="text" value={batForm.nom} autoFocus
+                onChange={(e) => setBatForm((f) => ({ ...f, nom: e.target.value }))}
+                style={inputStyle} placeholder="ex : Bâtiment principal" />
+            </Field>
+            <Field label="Type de bâtiment">
+              <select value={batForm.type_batiment}
+                onChange={(e) => setBatForm((f) => ({ ...f, type_batiment: e.target.value }))}
+                style={inputStyle}>
+                <option value="neuf">Neuf</option>
+                <option value="renovation">À rénover</option>
+              </select>
+            </Field>
+          </div>
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 20 }}>
+            <button type="button" onClick={() => setBatModal(false)} style={cancelBtn}>Annuler</button>
+            <button type="button" onClick={confirmAddBatiment} style={primaryBtn}>Créer</button>
+          </div>
+        </ModalOverlay>
+      )}
 
       {/* Add Paroi Modal */}
       {paroiModal && (
@@ -923,6 +1211,14 @@ function BuildingDetail({
 
       <div style={sectionLabel}>Paramètres énergétiques</div>
       <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginBottom: 18 }}>
+        <Field label="Type de bâtiment">
+          <select value={bat.type_batiment || "neuf"}
+            onChange={(e) => updateBatiment(bat.id, "type_batiment", e.target.value)}
+            style={inputStyle}>
+            <option value="neuf">Neuf</option>
+            <option value="renovation">À rénover</option>
+          </select>
+        </Field>
         <Field label="Surface plancher (m²)">
           <input type="number" min="0" step="any" value={bat.surface_plancher}
             onChange={(e) => updateBatiment(bat.id, "surface_plancher", e.target.value)}
@@ -1006,6 +1302,8 @@ function ParoiCard({
   toggleParoi, setTab, updateParoi, removeParoi,
   openAddComposant, updateComposant, updateBaieVitree, removeComposant,
 }) {
+  const [editingName, setEditingName] = useState(false);
+  const [editNameVal, setEditNameVal] = useState("");
   return (
     <div style={paroiCardStyle}>
       {/* Header */}
@@ -1015,7 +1313,29 @@ function ParoiCard({
         </div>
         <div style={{ flex: 1 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-            <span style={{ fontWeight: 700, fontSize: 14 }}>{paroi.nom}</span>
+            {editingName ? (
+                <input
+                  type="text" autoFocus
+                  value={editNameVal}
+                  onChange={(e) => setEditNameVal(e.target.value)}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => e.stopPropagation()}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") { updateParoi("nom", editNameVal.trim() || paroi.nom); setEditingName(false); }
+                    else if (e.key === "Escape") { setEditingName(false); }
+                  }}
+                  onBlur={() => { updateParoi("nom", editNameVal.trim() || paroi.nom); setEditingName(false); }}
+                  style={{ ...miniInput, fontWeight: 700, fontSize: 14, width: 150 }}
+                />
+              ) : (
+                <span
+                  style={{ fontWeight: 700, fontSize: 14 }}
+                  onClick={(e) => e.stopPropagation()}
+                  onDoubleClick={(e) => { e.stopPropagation(); setEditNameVal(paroi.nom); setEditingName(true); }}
+                >
+                  {paroi.nom}
+                </span>
+              )}
             <span style={{ fontSize: 11, background: "#ede9fe", color: "#6d28d9", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>
               {PAROI_TYPE_LABELS[paroi.type] || paroi.type}
             </span>
@@ -1169,7 +1489,7 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
                     <input type="number" min="0" max="100" step="1"
                       value={co.efficacite ?? 100}
                       onChange={(e) => updateComposant(co.id, "efficacite", Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-                      style={{ ...miniInput, width: 40 }} />
+                      style={{ ...miniInput, width: 56 }} />
                     {eff < 100 && uEff != null && (
                       <div style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>U: {fmtDec(uEff)}</div>
                     )}
@@ -1208,6 +1528,7 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
               <th style={th}>Matériau</th>
               <th style={th}>R (m²K/W)</th>
               <th style={th}>Qté</th>
+              <th style={th}>S/unité (m²)</th>
               <th style={th}>S vitrée (m²)</th>
               <th style={th}>Eff. %</th>
               <th style={{ ...th, textAlign: "center" }}>Fixe</th>
@@ -1217,27 +1538,46 @@ function ConsommationTab({ paroi, stats, dep_contrib, energy_contrib, co2_contri
           <tbody>
             {paroi.baiesVitrees.map((bv) => {
               const bvEff = parseFloat(bv.efficacite) || 100;
-              const vr = parseFloat(bv.valeur_r);
+              const bvRLocal = parseFloat(bv.r_local);
+              const vr = (isFinite(bvRLocal) && bvRLocal > 0) ? bvRLocal : parseFloat(bv.valeur_r);
+              const rIsCustom = bv.r_local !== "" && bv.r_local != null;
               const uEff = isFinite(vr) && vr > 0 ? (1 / vr) / (bvEff / 100) : null;
+              const qty = parseFloat(bv.quantite) || 1;
+              const spuParsed = parseFloat(bv.surface_par_unite);
+              const svTotal = (isFinite(spuParsed) && spuParsed > 0) ? qty * spuParsed : null;
               return (
                 <tr key={bv.id} style={{ borderTop: "1px solid #f3f4f6" }}>
                   <td style={td}>{bv.material_name}</td>
-                  <td style={td}>{fmtDec(bv.valeur_r)}</td>
+                  <td style={td}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                      <input type="number" min="0" step="any"
+                        value={bv.r_local !== "" && bv.r_local != null ? bv.r_local : (bv.valeur_r ?? "")}
+                        onChange={(e) => updateBaieVitree(bv.id, "r_local", e.target.value)}
+                        style={miniInput}
+                        placeholder={bv.valeur_r != null ? fmtDec(bv.valeur_r) : "—"} />
+                      {rIsCustom && <Pencil size={10} color="#f59e0b" />}
+                    </div>
+                  </td>
                   <td style={td}>
                     <input type="number" min="1" value={bv.quantite}
                       onChange={(e) => updateBaieVitree(bv.id, "quantite", e.target.value)}
                       style={miniInput} />
                   </td>
                   <td style={td}>
-                    <input type="number" min="0" step="any" value={bv.surface_vitree_m2}
-                      onChange={(e) => updateBaieVitree(bv.id, "surface_vitree_m2", e.target.value)}
+                    <input type="number" min="0" step="any" value={bv.surface_par_unite ?? ""}
+                      onChange={(e) => updateBaieVitree(bv.id, "surface_par_unite", e.target.value)}
                       style={miniInput} placeholder="m²" />
+                  </td>
+                  <td style={{ ...td, color: svTotal != null ? "#111827" : "#9ca3af", fontSize: 12 }}>
+                    {svTotal != null
+                      ? fmtDec(svTotal, 2)
+                      : (bv.surface_vitree_m2 ? fmtDec(parseFloat(bv.surface_vitree_m2), 2) : "—")}
                   </td>
                   <td style={td}>
                     <input type="number" min="0" max="100" step="1"
                       value={bv.efficacite ?? 100}
                       onChange={(e) => updateBaieVitree(bv.id, "efficacite", Math.min(100, Math.max(0, parseInt(e.target.value, 10) || 0)))}
-                      style={{ ...miniInput, width: 40 }} />
+                      style={{ ...miniInput, width: 56 }} />
                     {bvEff < 100 && uEff != null && (
                       <div style={{ fontSize: 10, color: "#dc2626", marginTop: 2 }}>U: {fmtDec(uEff)}</div>
                     )}
@@ -1492,16 +1832,83 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   const [computedAt, setComputedAt] = useState(null);
   const [isStale, setIsStale] = useState(false);
   const [expandedProfile, setExpandedProfile] = useState(null);
+  const [fixedComponents, setFixedComponents] = useState([]);
   const [prixKwh, setPrixKwh] = useState(PRIX_KWH_BY_CHAUFFAGE[bat.moyen_chauffage] ?? 0.20);
+  const isRenovation = bat.type_batiment === "renovation";
+
+  const [budgetMax, setBudgetMax] = useState("");
+  const [roiMax,    setRoiMax]    = useState("");
+  const [gwpMax,    setGwpMax]    = useState("");
+  const [uMoyenMax, setUMoyenMax] = useState("");
+  const [rawCombos, setRawCombos] = useState(null);
+
+  const filteredPhares = useMemo(() => {
+    if (rawCombos === null) return null;
+    const budgetVal = parseFloat(budgetMax);
+    const roiVal    = parseFloat(roiMax);
+    const gwpVal    = parseFloat(gwpMax);
+    const uVal      = parseFloat(uMoyenMax);
+    if (!isFinite(budgetVal) && !isFinite(roiVal) && !isFinite(gwpVal) && !isFinite(uVal))
+      return null;
+
+    const sqSt    = calcBatimentStats(bat);
+    const sqCost  = isRenovation ? 0 : (sqSt.total_cout ?? 0);
+    const sqEnergy = sqSt.energy_kwh;
+
+    const filtered = rawCombos.filter(c => {
+      if (isFinite(budgetVal)) {
+        const d = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost);
+        if (d > budgetVal) return false;
+      }
+      if (isFinite(roiVal)) {
+        const surCout = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost);
+        if (surCout > 0) {
+          if (sqEnergy != null && c.energy_kwh != null) {
+            const econKwh = sqEnergy - c.energy_kwh;
+            if (econKwh > 0) {
+              if (surCout / (econKwh * prixKwh) > roiVal) return false;
+            } else {
+              return false; // coût supplémentaire sans économie d'énergie → ROI infini
+            }
+          }
+        }
+      }
+      if (isFinite(gwpVal) && (c.gwp ?? 0) > gwpVal) return false;
+      if (isFinite(uVal) && c.paroi_u_moyens?.some(u => u != null && u > uVal)) return false;
+      return true;
+    });
+
+    const mostRestrictive = (() => {
+      if (filtered.length > 0) return null;
+      const sqSt2   = calcBatimentStats(bat);
+      const sqCost2  = isRenovation ? 0 : (sqSt2.total_cout ?? 0);
+      const sqEnergy2 = sqSt2.energy_kwh;
+      const counts = {
+        budget:  isFinite(budgetVal) ? rawCombos.filter(c => { const d = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost2); return d > budgetVal; }).length : 0,
+        roi:     isFinite(roiVal)    ? rawCombos.filter(c => { const sc = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost2); if (sc <= 0) return false; if (sqEnergy2 != null && c.energy_kwh != null) { const ek = sqEnergy2 - c.energy_kwh; if (ek > 0) return sc / (ek * prixKwh) > roiVal; return true; } return false; }).length : 0,
+        gwp:     isFinite(gwpVal)    ? rawCombos.filter(c => (c.gwp ?? 0) > gwpVal).length : 0,
+        uMoyen:  isFinite(uVal)      ? rawCombos.filter(c => c.paroi_u_moyens?.some(u => u != null && u > uVal)).length : 0,
+      };
+      return Object.entries(counts).reduce((best, [k, v]) => v > best[1] ? [k, v] : best, ["", -1])[0] || null;
+    })();
+
+    return { filtered, phares: computePhares(filtered, bat, materials), mostRestrictive };
+  }, [rawCombos, budgetMax, roiMax, gwpMax, uMoyenMax, prixKwh, isRenovation, bat, materials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (materials.length === 0) return;
     if (phase !== "init") return;
     if (cachedResult?.solutions) {
       setPhares(cachedResult.solutions);
+      setFixedComponents(cachedResult.fixed_components ?? []);
       setComputedAt(cachedResult.computed_at ?? null);
       setIsStale(cachedHash !== configHash);
       setPhase("done");
+      // Calcul async des combos bruts pour permettre le filtrage CSP en temps réel
+      setTimeout(() => {
+        const { combos } = buildCombinations(bat, materials);
+        setRawCombos(combos);
+      }, 0);
     } else {
       runCompute();
     }
@@ -1510,14 +1917,16 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   function runCompute() {
     setPhase("computing");
     setTimeout(() => {
-      const combos = buildCombinations(bat, materials);
+      const { combos, fixedDueToConstraint } = buildCombinations(bat, materials);
+      setRawCombos(combos);
       const result = computePhares(combos, bat, materials);
       const now = new Date().toISOString();
       setPhares(result);
+      setFixedComponents(fixedDueToConstraint);
       setComputedAt(now);
       setIsStale(false);
       setPhase("done");
-      const payload = { hash: configHash, cache: { computed_at: now, solutions: result } };
+      const payload = { hash: configHash, cache: { computed_at: now, solutions: result, fixed_components: fixedDueToConstraint } };
       apiFetch(`/projects/${projectId}/lca/optimisation-cache`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
@@ -1533,10 +1942,14 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   }
 
   function calcROI(sol, sq) {
-    const surCout = sol.cost - sq.cost;
+    const surCout = isRenovation ? (sol.renovation_cost ?? 0) : (sol.cost - sq.cost);
     const econKwh = (sq.energy_kwh ?? 0) - (sol.energy_kwh ?? 0);
     if (surCout > 0 && econKwh > 0)   return { type: "years",    value: surCout / (econKwh * prixKwh) };
-    if (surCout <= 0 && econKwh > 0)  return { type: "immediate"                                       };
+    if (surCout <= 0 && econKwh > 0) {
+      const coutTotal = isRenovation ? (sol.renovation_cost ?? 0) : (sol.cost ?? 0);
+      if (coutTotal > 0) return { type: "absolute_years", value: coutTotal / (econKwh * prixKwh) };
+      return { type: "immediate" };
+    }
     if (surCout <= 0 && econKwh <= 0) return { type: "cheaper"                                         };
     return { type: "infinite" };
   }
@@ -1547,6 +1960,11 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
       const v = roi.value;
       const c = v < 15 ? "#059669" : v <= 25 ? "#d97706" : "#dc2626";
       return <span style={{ fontWeight: 700, color: c }}>{fmtDec(v, 1)} ans</span>;
+    }
+    if (roi.type === "absolute_years") {
+      const v = roi.value;
+      const c = v < 15 ? "#059669" : v <= 25 ? "#d97706" : "#dc2626";
+      return <span style={{ fontWeight: 700, color: c }}>{fmtDec(v, 1)} ans (coût total)</span>;
     }
     if (roi.type === "immediate")
       return <span style={{ fontWeight: 700, color: "#059669", fontSize: 11 }}>Économie construction + gains</span>;
@@ -1651,27 +2069,46 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
 
   const PHARE_DEFS = [
     { key: "statuQuo",   label: "Statu quo",    color: "#6b7280", icon: "○" },
-    { key: "economique", label: "Économique",   color: "#059669", icon: "€" },
+    { key: "economique", label: "Maximum économique", color: "#059669", icon: "💰" },
     { key: "ecologique", label: "Écologique",   color: "#16a34a", icon: "🌿" },
     { key: "roi",        label: "Meilleur ROI", color: "#2563eb", icon: "↩" },
-    { key: "topsis",     label: "TOPSIS",       color: "#6d28d9", icon: "★" },
+    { key: "topsisPur",  label: "TOPSIS pur (sans bonus)",       color: "#6b7280", icon: "⚪" },
+    { key: "topsis",     label: "TOPSIS",                    color: "#6d28d9", icon: "★" },
+    { key: "topsis2",    label: "TOPSIS 2.0 (bonus efficience)", color: "#7c3aed", icon: "✨" },
   ];
 
-  const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsis"];
-  const noPmData = phares == null || ALL_PHARE_KEYS.every(k => !(phares[k]?.pm > 0));
-  const noLuData = phares == null || ALL_PHARE_KEYS.every(k => !(phares[k]?.lu > 0));
+  const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsisPur", "topsis", "topsis2"];
 
-  const allDominatedOrEqual = phares != null && phares.statuQuo != null &&
+  // Quand des filtres CSP sont actifs et les combos bruts disponibles, on utilise les phares filtrés
+  const displayPhares = (filteredPhares != null && filteredPhares.filtered.length > 0)
+    ? filteredPhares.phares
+    : phares;
+
+  const noPmData = displayPhares == null || ALL_PHARE_KEYS.every(k => !(displayPhares[k]?.pm > 0));
+  const noLuData = displayPhares == null || ALL_PHARE_KEYS.every(k => !(displayPhares[k]?.lu > 0));
+
+  const allDominatedOrEqual = !isRenovation && displayPhares != null && displayPhares.statuQuo != null &&
     ["economique", "ecologique", "roi", "topsis"].every(k => {
-      const s = phares[k];
+      const s = displayPhares[k];
       if (!s) return true;
-      const sq = phares.statuQuo;
+      const sq = displayPhares.statuQuo;
       return (s.cost == null || sq.cost == null || s.cost >= sq.cost) &&
              (s.gwp  == null || sq.gwp  == null || s.gwp  >= sq.gwp ) &&
              (s.energy_kwh == null || sq.energy_kwh == null || s.energy_kwh >= sq.energy_kwh) &&
              (s.pm == null || sq.pm == null || sq.pm === 0 || s.pm >= sq.pm) &&
              (s.lu == null || sq.lu == null || sq.lu === 0 || s.lu >= sq.lu);
     });
+
+  const FILTER_LABELS = {
+    budget:  "Budget max (Δcoût)",
+    roi:     "ROI max (ans)",
+    gwp:     "GWP100 max (kg CO₂eq)",
+    uMoyen:  "U_moyen max (W/m²K)",
+  };
+
+  const ecoFactor = (CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0]).co2;
+  const ECO_AMORT = 30;
+  const co2Total  = sol => sol?.energy_kwh != null ? (sol.gwp ?? 0) / ECO_AMORT + sol.energy_kwh * ecoFactor : null;
 
   return (
     <>
@@ -1693,6 +2130,60 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
         </div>
 
         <div style={{ flex: 1, overflowY: "auto", padding: "16px 20px" }}>
+
+          {/* ── Panneau Filtres CSP ────────────────────────────────────────── */}
+          <div style={{ background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+            <div style={{ fontWeight: 700, fontSize: 12, color: "#374151", marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+              Filtres
+            </div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>Budget max (€)</label>
+                <input
+                  type="number" min="0" step="100"
+                  value={budgetMax}
+                  onChange={(e) => setBudgetMax(e.target.value)}
+                  placeholder="ex : 5000"
+                  style={{ width: 100, fontSize: 12, padding: "4px 6px", border: "1px solid #d1d5db", borderRadius: 4 }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>ROI max (ans)</label>
+                <input
+                  type="number" min="0" step="1"
+                  value={roiMax}
+                  onChange={(e) => setRoiMax(e.target.value)}
+                  placeholder="ex : 15"
+                  style={{ width: 100, fontSize: 12, padding: "4px 6px", border: "1px solid #d1d5db", borderRadius: 4 }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>GWP100 max (kg CO₂eq)</label>
+                <input
+                  type="number" min="0" step="100"
+                  value={gwpMax}
+                  onChange={(e) => setGwpMax(e.target.value)}
+                  placeholder="ex : 10000"
+                  style={{ width: 130, fontSize: 12, padding: "4px 6px", border: "1px solid #d1d5db", borderRadius: 4 }}
+                />
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 3 }}>
+                <label style={{ fontSize: 11, color: "#6b7280", fontWeight: 600 }}>U_moyen max (W/m²K)</label>
+                <input
+                  type="number" min="0" step="0.1"
+                  value={uMoyenMax}
+                  onChange={(e) => setUMoyenMax(e.target.value)}
+                  placeholder="ex : 0.5"
+                  style={{ width: 120, fontSize: 12, padding: "4px 6px", border: "1px solid #d1d5db", borderRadius: 4 }}
+                />
+              </div>
+            </div>
+            {rawCombos === null && (budgetMax || roiMax || gwpMax || uMoyenMax) && (
+              <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", marginTop: 8 }}>
+                Calcul en cours pour activer les filtres…
+              </div>
+            )}
+          </div>
 
           {materials.length === 0 && (
             <div style={{ textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 13 }}>
@@ -1737,6 +2228,19 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 </div>
               )}
 
+              {filteredPhares != null && filteredPhares.filtered.length === 0 && (
+                <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: filteredPhares.mostRestrictive ? 4 : 0 }}>
+                    Aucune solution ne satisfait ces contraintes — essayez d'assouplir vos critères
+                  </div>
+                  {filteredPhares.mostRestrictive && (
+                    <div style={{ fontSize: 12, color: "#b91c1c" }}>
+                      Filtre le plus restrictif : {FILTER_LABELS[filteredPhares.mostRestrictive]}
+                    </div>
+                  )}
+                </div>
+              )}
+
               {allDominatedOrEqual && (
                 <div style={{ textAlign: "center", padding: "16px 20px", marginBottom: 14, background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10 }}>
                   <div style={{ fontSize: 16, marginBottom: 6 }}>✓</div>
@@ -1770,7 +2274,8 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                       <th style={{ ...th, textAlign: "right" }}>Coût différentiel (€)</th>
                       <th style={{ ...th, textAlign: "right" }}>GWP100 (kg)</th>
                       <th style={{ ...th, textAlign: "right" }}>Énergie (kWh/an)</th>
-                      <th style={{ ...th, textAlign: "right" }}>Économies (kWh)</th>
+                      <th style={{ ...th, textAlign: "right" }} title="GWP construction / 30 ans + CO₂ exploitation annuel (kg CO₂eq/an)">CO₂ total (kg/an)</th>
+                      <th style={{ ...th, textAlign: "right" }} title="Économies annuelles sur la facture énergétique">Économies (€/an)</th>
                       <th style={{ ...th, textAlign: "right" }}>ROI (ans)</th>
                       <th style={{ ...th, textAlign: "right" }} title="Particulate Matter — EN 15804+A2">Particules (PM)</th>
                       <th style={{ ...th, textAlign: "right" }} title="Land Use — EN 15804+A2 (Pt)">Terres (Pt)</th>
@@ -1780,17 +2285,17 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                   <tbody>
                     {PHARE_DEFS.map(({ key, label, color, icon }) => {
                       if (allDominatedOrEqual && key !== "statuQuo") return null;
-                      const sol = phares[key];
+                      const sol = displayPhares[key];
                       const isExpanded = expandedProfile === key;
                       if (!sol) return (
                         <tr key={key} style={{ borderTop: "1px solid #f3f4f6", opacity: 0.4 }}>
-                          <td style={td} colSpan={9}>
+                          <td style={td} colSpan={10}>
                             <span style={{ fontWeight: 600, color: "#9ca3af" }}>{icon} {label}</span>
                             <span style={{ color: "#d1d5db", marginLeft: 8, fontSize: 11 }}>Non disponible</span>
                           </td>
                         </tr>
                       );
-                      const sq = phares.statuQuo;
+                      const sq = displayPhares.statuQuo;
                       const roi = key === "statuQuo" ? null : calcROI(sol, sq);
                       const econKwh = key === "statuQuo" ? null
                         : (sq.energy_kwh != null && sol.energy_kwh != null)
@@ -1813,23 +2318,38 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                               </span>
                               {icon} {label}
                             </td>
-                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: key === "statuQuo" ? "#374151" : cmpColor(sol.cost, sq.cost) }}>
-                              {(() => { const d = sol.cost - sq.cost; return (d > 0 ? "+" : "") + fmt(d) + " €"; })()}
+                            <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>
+                              {(() => {
+                                const d = isRenovation
+                                  ? (key === "statuQuo" ? 0 : (sol.renovation_cost ?? 0))
+                                  : (sol.cost - sq.cost);
+                                if (d > 0) return <span style={{ color: "#dc2626" }}>+{fmt(d)} €</span>;
+                                if (d < 0) return <span style={{ color: "#059669" }}>Économie construction : {fmt(Math.abs(d))} €</span>;
+                                return <span style={{ color: "#9ca3af" }}>0 €</span>;
+                              })()}
                             </td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.gwp, sq.gwp) }}>{fmt(sol.gwp)}</td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.energy_kwh, sq.energy_kwh) }}>{sol.energy_kwh != null ? fmt(sol.energy_kwh) : "—"}</td>
-                            <td style={{ ...td, textAlign: "right", fontWeight: 600, color: econKwh != null && econKwh > 0 ? "#059669" : (econKwh != null && econKwh < 0 ? "#dc2626" : "#9ca3af") }}>
-                              {econKwh != null ? (econKwh >= 0 ? "+" : "") + fmt(econKwh) : "—"}
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(co2Total(sol), co2Total(sq)) }}>
+                              {co2Total(sol) != null ? fmt(co2Total(sol)) : "—"}
                             </td>
+                            {(() => {
+                              const econEur = econKwh != null ? econKwh * prixKwh : null;
+                              return (
+                                <td style={{ ...td, textAlign: "right", fontWeight: 600, color: econEur != null && econEur > 0 ? "#059669" : (econEur != null && econEur < 0 ? "#dc2626" : "#9ca3af") }}>
+                                  {econEur != null ? (econEur >= 0 ? "+" : "") + fmtDec(econEur, 1) : "—"}
+                                </td>
+                              );
+                            })()}
                             <td style={{ ...td, textAlign: "right" }}>
                               {renderROICell(roi)}
                             </td>
-                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.pm, phares.statuQuo?.pm) }}>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.pm, displayPhares.statuQuo?.pm) }}>
                               {noPmData
                                 ? <span style={{ color: "#d1d5db", fontSize: 10 }}>n/d</span>
                                 : fmtSmall(sol.pm ?? null)}
                             </td>
-                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.lu, phares.statuQuo?.lu) }}>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.lu, displayPhares.statuQuo?.lu) }}>
                               {noLuData
                                 ? <span style={{ color: "#d1d5db", fontSize: 10 }}>n/d</span>
                                 : fmtSmall(sol.lu ?? null)}
@@ -1846,7 +2366,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                           </tr>
                           {isExpanded && (
                             <tr style={{ background: color + "08" }}>
-                              <td colSpan={9} style={{ padding: "10px 16px 14px" }}>
+                              <td colSpan={10} style={{ padding: "10px 16px 14px" }}>
                                 {key !== "statuQuo" && (() => {
                                   const warnings = [];
                                   if (sol.gwp != null && sq.gwp != null && sol.gwp > sq.gwp)
@@ -1929,6 +2449,9 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                       : "ℹ️ Données Land Use insuffisantes dans la bibliothèque."}
                 </div>
               )}
+              <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
+                Le profil Écologique minimise le CO₂ total (construction + exploitation), ce qui peut accepter un GWP construction plus élevé si compensé par des économies d'exploitation importantes.
+              </div>
             </>
           )}
         </div>
@@ -2276,9 +2799,9 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
               onChange={(e) => setForm((f) => ({ ...f, quantite: e.target.value }))}
               style={inputStyle} autoFocus />
           </Field>
-          <Field label="Surface vitrée (m²)">
-            <input type="number" min="0" step="any" value={form.surface_vitree_m2}
-              onChange={(e) => setForm((f) => ({ ...f, surface_vitree_m2: e.target.value }))}
+          <Field label="Surface par unité (m²)">
+            <input type="number" min="0" step="any" value={form.surface_par_unite ?? ""}
+              onChange={(e) => setForm((f) => ({ ...f, surface_par_unite: e.target.value }))}
               style={inputStyle} placeholder="ex : 1.5" />
           </Field>
           <Field label={
