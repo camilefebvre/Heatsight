@@ -53,7 +53,6 @@ def run_migrations_online() -> None:
             target_metadata=target_metadata,
         )
         with context.begin_transaction():
-            print(str)
             context.run_migrations()
 
 
