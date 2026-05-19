@@ -4,10 +4,10 @@ import { apiFetch } from "../api";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
-const CATEGORIES = ["mur", "toiture", "plancher", "fenetre", "fondation", "autre"];
+const CATEGORIES = ["mur", "toiture", "plancher", "fenetre", "fondation", "isolant", "autre"];
 const CATEGORY_LABELS = {
   mur: "Mur", toiture: "Toiture", plancher: "Plancher",
-  fenetre: "Fenêtre", fondation: "Fondation", autre: "Autre",
+  fenetre: "Fenêtre", fondation: "Fondation", isolant: "Isolant", autre: "Autre",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -30,6 +30,7 @@ function fmtImpact(v) {
 const EMPTY_IMP_FORM = {
   file: null, name: "", category: "mur",
   functionalUnit: "", unit: "", prix: "", valeurR: "",
+  dvrMateriau: "", fluxReference: "", valeurLambda: "",
   importing: false, result: null,
 };
 
@@ -39,7 +40,7 @@ const IMPACT_INDICATORS = [
   { label: "GWP100",                                  unit: "kg CO₂eq",      keys: ["gwp100"] },
   { label: "Acidification",                           unit: "mol H⁺ eq",     keys: ["acidification", "ap"] },
   { label: "Écotoxicité freshwater",                  unit: "CTUe",          keys: ["ecotoxicity_fw", "ecotoxicity freshwater", "freshwater ecotoxicity", "faetp"] },
-  { label: "Énergie non renouvelable",                unit: "MJ",            keys: ["energy_nr", "penr", "nre", "non-renewable energy", "energy non-renewable"] },
+  { label: "Énergie non renouvelable",                unit: "MJ",            keys: ["energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penr", "nre", "non-renewable energy", "energy non-renewable"] },
   { label: "Eutrophisation freshwater",               unit: "kg P eq",       keys: ["eutrophication_fw", "eutrophication freshwater", "freshwater eutrophication", "ep_fw"] },
   { label: "Eutrophisation marine",                   unit: "kg N eq",       keys: ["eutrophication_marine", "eutrophication marine", "marine eutrophication", "ep_marine"] },
   { label: "Eutrophisation terrestre",                unit: "mol N eq",      keys: ["eutrophication_terrestrial", "eutrophication terrestrial", "terrestrial eutrophication", "ep_ter"] },
@@ -50,7 +51,7 @@ const IMPACT_INDICATORS = [
   { label: "Ressources minérales",                    unit: "kg Sb eq",      keys: ["mineral_resources", "mineral resources", "resource use minerals", "mru"] },
   { label: "Appauvrissement ozone",                   unit: "kg CFC-11 eq",  keys: ["ozone_depletion", "ozone depletion", "odp"] },
   { label: "Particules fines",                        unit: "impact santé",  keys: ["particulate_matter", "particulate matter", "pm"] },
-  { label: "Oxydants photochimiques",                 unit: "kg NMVOC eq",   keys: ["photochemical_ozone", "photochemical ozone formation", "pocp"] },
+  { label: "Oxydants photochimiques",                 unit: "kg NMVOC eq",   keys: ["photochemical_oxidant_hh", "photochemical_oxidant", "photochemical_ozone", "photochemical ozone formation", "pocp"] },
   { label: "Utilisation eau",                         unit: "m³ eq",         keys: ["water_use", "water use", "wu"] },
   { label: "Changement climatique biogénique",        unit: "kg CO₂eq",      keys: ["gwp_biogenic", "climate change biogenic", "gwp biogenic"] },
   { label: "Changement climatique fossile",           unit: "kg CO₂eq",      keys: ["gwp_fossil", "climate change fossil", "gwp fossil"] },
@@ -67,6 +68,40 @@ function findImpact(impacts, keys) {
     if (v !== undefined) return v;
   }
   return null;
+}
+
+// Mapping catégorie → label et unité de valeur_r (après refonte conceptuelle)
+function getValeurRLabel(category) {
+  const cat = (category || "").toLowerCase().trim();
+  if (cat === "mur" || cat === "toiture" || cat === "plancher" || cat === "cloison" || cat === "parement") {
+    return {
+      label: "R — Résistance thermique",
+      unit: "m²·K/W",
+      tooltip: "Résistance thermique R (m²·K/W) du matériau, correspondant à la configuration de la fiche FDES de référence"
+    };
+  }
+  if (cat === "vitrage" || cat === "fenetre" || cat === "fenêtre") {
+    return {
+      label: "R — Résistance thermique",
+      unit: "m²·K/W",
+      tooltip: "Résistance thermique globale du vitrage (R = 1/U)"
+    };
+  }
+  if (cat === "cadre") {
+    return {
+      label: "R — Résistance thermique",
+      unit: "m²·K/W",
+      tooltip: "Résistance thermique du cadre (R = 1/U)"
+    };
+  }
+  if (cat === "isolant") {
+    return {
+      label: "Valeur de référence",
+      unit: "sans dimension",
+      tooltip: "Valeur de référence Convention 2 ACV 2.0. Le λ réel est saisi dans le champ λ — Conductivité thermique."
+    };
+  }
+  return { label: "R", unit: "m²·K/W", tooltip: "" };
 }
 
 // ─── Composant principal ─────────────────────────────────────────────────────
@@ -94,6 +129,7 @@ export default function LCALibrary() {
 
   // Fiche matériau (lecture seule, double-clic)
   const [ficheModal,   setFicheModal]   = useState(null); // null ou matériau
+  const [showAcv2Cols, setShowAcv2Cols] = useState(false);
 
   // ── Chargement ─────────────────────────────────────────────────────────────
   async function loadMaterials() {
@@ -111,6 +147,14 @@ export default function LCALibrary() {
   // ── Import ─────────────────────────────────────────────────────────────────
   async function handleImport(e) {
     e.preventDefault();
+    const isIsolant = imp.category === "isolant";
+    if (isIsolant && imp.valeurLambda !== "") {
+      const lv = Number(imp.valeurLambda);
+      if (!isFinite(lv) || lv <= 0) {
+        setImp((s) => ({ ...s, result: { ok: false, message: "λ (conductivité thermique) doit être un nombre > 0." } }));
+        return;
+      }
+    }
     setImp((s) => ({ ...s, importing: true, result: null }));
     try {
       const fd = new FormData();
@@ -121,6 +165,10 @@ export default function LCALibrary() {
       fd.append("unit", imp.unit.trim());
       fd.append("prix", imp.prix);
       fd.append("valeur_r", imp.valeurR);
+      fd.append("version", "v2");
+      if (imp.dvrMateriau !== "") fd.append("dvr_materiau", imp.dvrMateriau);
+      if (imp.fluxReference !== "") fd.append("flux_reference", imp.fluxReference);
+      if (imp.valeurLambda !== "") fd.append("valeur_lambda", imp.valeurLambda);
       const res = await apiFetch("/lca/materials/import", { method: "POST", body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Erreur inconnue" }));
@@ -139,7 +187,15 @@ export default function LCALibrary() {
   }
 
   // ── Édition ────────────────────────────────────────────────────────────────
-  function openEdit(mat) {
+  function openEdit(mat, highlightIncomplete = false) {
+    const imp = mat.impacts || {};
+    const isIsolant = (mat.category || "").toLowerCase() === "isolant";
+    const lambdaSuggestion =
+      imp.valeur_lambda != null
+        ? String(imp.valeur_lambda)
+        : isIsolant && mat.valeur_r > 0 && mat.valeur_r < 0.5
+        ? String(mat.valeur_r)
+        : "";
     setEditModal({
       id: mat.id,
       name: mat.name,
@@ -147,7 +203,10 @@ export default function LCALibrary() {
       prix: mat.prix ?? "",
       valeur_r: mat.valeur_r ?? "",
       flux_reference: mat.flux_reference ?? "",
-      impacts: mat.impacts || {},
+      dvr_materiau: mat.dvr_materiau ?? "",
+      valeur_lambda: lambdaSuggestion,
+      impacts: imp,
+      highlightIncomplete,
     });
     setSaveError("");
   }
@@ -157,14 +216,28 @@ export default function LCALibrary() {
     setSaving(true);
     setSaveError("");
     try {
+      const isIsolant = (editModal.category || "").toLowerCase() === "isolant";
+      if (isIsolant && editModal.valeur_lambda !== "") {
+        const lv = Number(editModal.valeur_lambda);
+        if (!isFinite(lv) || lv <= 0) {
+          setSaveError("λ (conductivité thermique) doit être un nombre > 0.");
+          return;
+        }
+      }
+      const updatedImpacts = { ...editModal.impacts };
+      if (isIsolant && editModal.valeur_lambda !== "") {
+        updatedImpacts.valeur_lambda = Number(editModal.valeur_lambda);
+      }
       const payload = {
         name: editModal.name.trim() || undefined,
         category: editModal.category || undefined,
         prix: editModal.prix !== "" ? Number(editModal.prix) : undefined,
         valeur_r: editModal.valeur_r !== "" ? Number(editModal.valeur_r) : undefined,
         flux_reference: editModal.flux_reference !== "" ? Number(editModal.flux_reference) : undefined,
+        dvr_materiau: editModal.dvr_materiau !== "" ? Number(editModal.dvr_materiau) : undefined,
+        impacts: Object.keys(updatedImpacts).length > 0 ? updatedImpacts : undefined,
       };
-      const res = await apiFetch(`/lca/materials/${editModal.id}`, {
+      const res = await apiFetch(`/lca/materials/${editModal.id}?version=v2`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -217,6 +290,12 @@ export default function LCALibrary() {
     return k ? impacts[k] : null;
   };
 
+  function isIncomplete(mat) {
+    if (mat.dvr_materiau == null) return true;
+    if ((mat.category || "").toLowerCase() === "isolant" && mat.flux_reference == null) return true;
+    return false;
+  }
+
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion & Administration</div>
@@ -228,13 +307,26 @@ export default function LCALibrary() {
       </div>
 
       {/* ── Barre d'actions ─────────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 16 }}>
+      <div style={{ marginBottom: 16, display: "flex", gap: 10, alignItems: "center" }}>
         <button
           type="button"
           onClick={() => { setImp(EMPTY_IMP_FORM); setImpOpen(true); }}
           style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 8 }}
         >
           <Upload size={15} /> Importer un matériau
+        </button>
+        <button
+          type="button"
+          onClick={() => setShowAcv2Cols((v) => !v)}
+          style={{
+            background: showAcv2Cols ? "#faf5ff" : "white",
+            color: showAcv2Cols ? "#6d28d9" : "#6b7280",
+            border: `1.5px solid ${showAcv2Cols ? "#6d28d9" : "#e5e7eb"}`,
+            borderRadius: 10, padding: "8px 14px", fontWeight: 700,
+            cursor: "pointer", fontSize: 13,
+          }}
+        >
+          Vue ACV 2.0
         </button>
       </div>
 
@@ -255,8 +347,9 @@ export default function LCALibrary() {
                   <th style={th}>Catégorie</th>
                   <th style={th}>Unité</th>
                   <th style={{ ...th, textAlign: "right" }}>Prix (€)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Valeur R</th>
-                  <th style={{ ...th, textAlign: "right" }}>Flux ref</th>
+                  <th style={{ ...th, textAlign: "right" }}>R / λ <span title="R pour Cadres/Vitrages/Murs (m²·K/W), λ explicite séparé pour Isolants. Pour les Isolants, la valeur affichée est la référence Convention 2 (=1.0)." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></th>
+                  {showAcv2Cols && <th style={{ ...th, textAlign: "right" }}>DVR (ans)</th>}
+                  {showAcv2Cols && <th style={{ ...th, textAlign: "right" }}>Flux réf.</th>}
                   <th style={{ ...th, textAlign: "right" }}>GWP100</th>
                   <th style={{ ...th, textAlign: "right", width: 110 }}>Actions</th>
                 </tr>
@@ -268,8 +361,22 @@ export default function LCALibrary() {
                     style={{ borderTop: "1px solid #f3f4f6", cursor: "pointer" }}
                     onDoubleClick={() => setFicheModal(mat)}
                   >
-                    <td style={{ ...td, fontWeight: 700, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {mat.name}
+                    <td style={{ ...td, fontWeight: 700, maxWidth: 280 }}>
+                      <span style={{ display: "inline-flex", alignItems: "center", gap: 6, maxWidth: "100%" }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mat.name}</span>
+                        {isIncomplete(mat) && (
+                          <span
+                            title="Ce matériau nécessite la saisie de la DVR (et flux_référence si Isolant) pour être utilisable dans le module ACV 2.0."
+                            style={{
+                              background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa",
+                              borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
+                              whiteSpace: "nowrap", cursor: "help", flexShrink: 0,
+                            }}
+                          >
+                            Incomplet ACV 2.0
+                          </span>
+                        )}
+                      </span>
                     </td>
                     <td style={{ ...td, color: "#6b7280" }}>
                       {CATEGORY_LABELS[mat.category] || mat.category}
@@ -279,11 +386,18 @@ export default function LCALibrary() {
                       {mat.prix != null ? fmtNum(mat.prix) : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                      {mat.valeur_r != null ? fmtNum(mat.valeur_r) : "—"}
+                      {mat.valeur_r != null ? `${fmtNum(mat.valeur_r)} ${getValeurRLabel(mat.category).unit}` : "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
-                      {mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
-                    </td>
+                    {showAcv2Cols && (
+                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
+                      </td>
+                    )}
+                    {showAcv2Cols && (
+                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
+                        {mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
+                      </td>
+                    )}
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
                     </td>
@@ -313,7 +427,7 @@ export default function LCALibrary() {
                         <span style={{ display: "inline-flex", gap: 4 }}>
                           <ActionBtn
                             title="Modifier"
-                            onClick={() => openEdit(mat)}
+                            onClick={() => openEdit(mat, isIncomplete(mat))}
                           >
                             <Pencil size={13} />
                           </ActionBtn>
@@ -397,17 +511,46 @@ export default function LCALibrary() {
                 <FormField label="Prix (€/unité) *">
                   <input type="number" min="0" step="any" value={imp.prix} onChange={(e) => setImp((s) => ({ ...s, prix: e.target.value }))} style={inputStyle} placeholder="85.00" required />
                 </FormField>
-                <FormField label="Valeur R (m²K/W) *">
-                  <input type="number" min="0" step="any" value={imp.valeurR} onChange={(e) => setImp((s) => ({ ...s, valeurR: e.target.value }))} style={inputStyle} placeholder="3.5" required />
+                {(() => {
+                  const lbl = getValeurRLabel(imp.category);
+                  return (
+                    <FormField label={
+                      <span>
+                        {lbl.label} ({lbl.unit}) *
+                        {lbl.tooltip && <span title={lbl.tooltip} style={{ color: "#9ca3af", cursor: "help" }}> (?)</span>}
+                      </span>
+                    }>
+                      <input type="number" min="0" step="any" value={imp.valeurR} onChange={(e) => setImp((s) => ({ ...s, valeurR: e.target.value }))} style={inputStyle} placeholder="3.5" required />
+                    </FormField>
+                  );
+                })()}
+                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV 2.0" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                  <input type="number" min="1" step="1" value={imp.dvrMateriau} onChange={(e) => setImp((s) => ({ ...s, dvrMateriau: e.target.value }))} style={inputStyle} placeholder="50" required />
                 </FormField>
+                {imp.category === "isolant" && (
+                  <>
+                    <FormField label={<span>Flux de référence (kg/m²·K/W) <span>*</span> <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV 2.0 des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                      <input type="number" min="0" step="any" value={imp.fluxReference} onChange={(e) => setImp((s) => ({ ...s, fluxReference: e.target.value }))} style={inputStyle} placeholder="8.5" required />
+                    </FormField>
+                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV 2.0 pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                      <input
+                        type="number" min="0" step="any"
+                        value={imp.valeurLambda}
+                        onChange={(e) => setImp((s) => ({ ...s, valeurLambda: e.target.value }))}
+                        style={inputStyle}
+                        placeholder="ex : 0.038"
+                      />
+                    </FormField>
+                  </>
+                )}
               </div>
 
               <button
                 type="submit"
-                disabled={imp.importing || !imp.file || !imp.name.trim() || !imp.functionalUnit.trim() || !imp.unit.trim() || imp.prix === "" || imp.valeurR === ""}
+                disabled={imp.importing || !imp.file || !imp.name.trim() || !imp.functionalUnit.trim() || !imp.unit.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (imp.category === "isolant" && imp.fluxReference === "")}
                 style={{
                   ...primaryBtn, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  opacity: (imp.importing || !imp.file || !imp.name.trim() || imp.prix === "" || imp.valeurR === "") ? 0.55 : 1,
+                  opacity: (imp.importing || !imp.file || !imp.name.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (imp.category === "isolant" && imp.fluxReference === "")) ? 0.55 : 1,
                 }}
               >
                 <Upload size={14} />
@@ -444,7 +587,21 @@ export default function LCALibrary() {
               <InfoRow label="Catégorie"            value={CATEGORY_LABELS[ficheModal.category] || ficheModal.category} />
               <InfoRow label="Unité fonctionnelle"  value={ficheModal.functional_unit || "—"} />
               <InfoRow label="Prix (€)"             value={ficheModal.prix != null ? `${fmtNum(ficheModal.prix)} €` : "—"} />
-              <InfoRow label="Valeur R (m²K/W)"     value={ficheModal.valeur_r != null ? fmtNum(ficheModal.valeur_r) : "—"} />
+              {(() => {
+                const lbl = getValeurRLabel(ficheModal.category);
+                return (
+                  <InfoRow
+                    label={
+                      <span>
+                        {lbl.label} ({lbl.unit})
+                        {lbl.tooltip && <span title={lbl.tooltip} style={{ color: "#9ca3af", cursor: "help" }}> (?)</span>}
+                      </span>
+                    }
+                    value={ficheModal.valeur_r != null ? fmtNum(ficheModal.valeur_r) : "—"}
+                  />
+                );
+              })()}
+              <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "—"} />
               <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
             </div>
 
@@ -527,7 +684,15 @@ export default function LCALibrary() {
                     placeholder="—"
                   />
                 </FormField>
-                <FormField label="Valeur R (m²K/W)">
+                <FormField label={(() => {
+                  const lbl = getValeurRLabel(editModal.category);
+                  return (
+                    <span>
+                      {lbl.label} ({lbl.unit})
+                      {lbl.tooltip && <span title={lbl.tooltip} style={{ color: "#9ca3af", cursor: "help" }}> (?)</span>}
+                    </span>
+                  );
+                })()}>
                   <input
                     type="number" min="0" step="any"
                     value={editModal.valeur_r}
@@ -536,15 +701,43 @@ export default function LCALibrary() {
                     placeholder="—"
                   />
                 </FormField>
-                <FormField label="Flux référence (kg/(m²·K/W))">
+                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV 2.0" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                   <input
-                    type="number" min="0" step="any"
-                    value={editModal.flux_reference}
-                    onChange={(e) => setEditModal((s) => ({ ...s, flux_reference: e.target.value }))}
-                    style={inputStyle}
-                    placeholder="— (isolants uniquement)"
+                    type="number" min="1" step="1"
+                    value={editModal.dvr_materiau}
+                    onChange={(e) => setEditModal((s) => ({ ...s, dvr_materiau: e.target.value }))}
+                    style={{
+                      ...inputStyle,
+                      ...(editModal.highlightIncomplete && editModal.dvr_materiau === "" ? { border: "2px solid #f97316", background: "#fff7ed" } : {}),
+                    }}
+                    placeholder="—"
                   />
                 </FormField>
+                {editModal.category === "isolant" && (
+                  <>
+                    <FormField label={<span>Flux référence (kg/m²·K/W) <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV 2.0 des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                      <input
+                        type="number" min="0" step="any"
+                        value={editModal.flux_reference}
+                        onChange={(e) => setEditModal((s) => ({ ...s, flux_reference: e.target.value }))}
+                        style={{
+                          ...inputStyle,
+                          ...(editModal.highlightIncomplete && editModal.flux_reference === "" ? { border: "2px solid #f97316", background: "#fff7ed" } : {}),
+                        }}
+                        placeholder="—"
+                      />
+                    </FormField>
+                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV 2.0 pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                      <input
+                        type="number" min="0" step="any"
+                        value={editModal.valeur_lambda ?? ""}
+                        onChange={(e) => setEditModal((s) => ({ ...s, valeur_lambda: e.target.value }))}
+                        style={{ ...inputStyle }}
+                        placeholder="ex : 0.038"
+                      />
+                    </FormField>
+                  </>
+                )}
               </div>
 
               {/* Impacts EF v3.0 — lecture seule */}

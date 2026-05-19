@@ -239,6 +239,7 @@ class LcaMaterial(Base):
     valeur_r = Column(Float, nullable=True)          # résistance thermique m²K/W
     is_fixed = Column(Boolean, nullable=False, default=False)  # non substituable en optimisation
     flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) — pour isolants: quantité = R × flux_ref × surface
+    dvr_materiau = Column(Integer, nullable=True)    # durée de vie de référence, années
 
 
 class LcaProject(Base):
@@ -256,5 +257,7 @@ class LcaProject(Base):
     parois    = Column(JSONB, nullable=False, default=list)  # liste des parois avec leurs couches (legacy)
     batiment  = Column(JSONB, nullable=False, default=dict)  # paramètres bâtiment unique (legacy)
     batiments = Column(JSONB, nullable=False, default=list)  # tableau multi-bâtiments avec parois et composants
+    dvr_batiment = Column(Integer, nullable=True, default=60)  # durée de vie bâtiment, années
+    age_batiment = Column(Integer, nullable=True)              # âge actuel du bâtiment, années
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)

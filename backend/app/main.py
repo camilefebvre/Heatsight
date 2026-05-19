@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Response
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -50,6 +50,8 @@ class _LcaMaterialEditPayload(_PydanticBase):
     prix: Optional[float] = None
     valeur_r: Optional[float] = None
     flux_reference: Optional[float] = None
+    dvr_materiau: Optional[int] = None
+    impacts: Optional[Dict[str, Any]] = None
 
 
 # Patch openpyxl: ignore corrupted pivot caches in AMUREBA template
@@ -4021,12 +4023,15 @@ def update_project_lca(
 
 class _LcaBatimentsPayload(_PydanticBase):
     batiments: List[Dict[str, Any]]
+    dvr_batiment: Optional[int] = None
+    age_batiment: Optional[int] = None
 
 
 @app.patch("/projects/{project_id}/lca/batiments")
 def update_project_lca_batiments(
     project_id: str,
     payload: _LcaBatimentsPayload,
+    version: str = Query(default="v1"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -4038,10 +4043,17 @@ def update_project_lca_batiments(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
+    if version == "v2" and payload.age_batiment is None:
+        raise HTTPException(status_code=422, detail="v2 : age_batiment est requis.")
+    dvr = payload.dvr_batiment if payload.dvr_batiment is not None else 60
+
     now = datetime.now(timezone.utc).isoformat()
     lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
     if lca:
         lca.batiments = payload.batiments
+        if version == "v2":
+            lca.dvr_batiment = dvr
+            lca.age_batiment = payload.age_batiment
         lca.updated_at = now
         flag_modified(lca, "batiments")
     else:
@@ -4052,6 +4064,8 @@ def update_project_lca_batiments(
             parois=[],
             batiment={},
             batiments=payload.batiments,
+            dvr_batiment=dvr if version == "v2" else None,
+            age_batiment=payload.age_batiment if version == "v2" else None,
             created_at=now,
             updated_at=now,
         )
@@ -4224,6 +4238,10 @@ async def import_lca_material(
     unit: str = Form(...),
     prix: float = Form(...),
     valeur_r: float = Form(...),
+    version: str = Form(default="v1"),
+    dvr_materiau: Optional[int] = Form(default=None),
+    flux_reference: Optional[float] = Form(default=None),
+    valeur_lambda: Optional[float] = Form(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -4243,6 +4261,15 @@ async def import_lca_material(
             detail="Aucun indicateur EF v3.0 reconnu dans ce fichier. Vérifiez que les noms de catégories d'impact correspondent au standard EF v3.0.",
         )
 
+    if valeur_lambda is not None:
+        impacts["valeur_lambda"] = valeur_lambda
+
+    if version == "v2":
+        if dvr_materiau is None:
+            raise HTTPException(status_code=422, detail="v2 : dvr_materiau est requis.")
+        if category.lower() == "isolant" and flux_reference is None:
+            raise HTTPException(status_code=422, detail="v2 : flux_reference est requis pour la catégorie Isolant.")
+
     material = models.LcaMaterial(
         id=str(uuid4()),
         name=name,
@@ -4252,6 +4279,8 @@ async def import_lca_material(
         impacts=impacts,
         prix=prix,
         valeur_r=valeur_r,
+        dvr_materiau=dvr_materiau,
+        flux_reference=flux_reference,
     )
     db.add(material)
     db.commit()
@@ -4275,14 +4304,29 @@ def get_lca_material(
 def patch_lca_material(
     material_id: str,
     payload: _LcaMaterialEditPayload,
+    version: str = Query(default="v1"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
     material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Matériau introuvable")
+    if version == "v2":
+        effective_dvr = payload.dvr_materiau if payload.dvr_materiau is not None else material.dvr_materiau
+        if effective_dvr is None:
+            raise HTTPException(status_code=422, detail="v2 : dvr_materiau est requis et ne peut pas être vidé.")
+        effective_cat = payload.category or material.category
+        if effective_cat and effective_cat.lower() == "isolant":
+            effective_flux = payload.flux_reference if payload.flux_reference is not None else material.flux_reference
+            if effective_flux is None:
+                raise HTTPException(status_code=422, detail="v2 : flux_reference est requis pour la catégorie Isolant.")
     for field, value in payload.model_dump(exclude_none=True).items():
+        if field == "impacts":
+            continue
         setattr(material, field, value)
+    if payload.impacts is not None:
+        material.impacts = payload.impacts
+        flag_modified(material, "impacts")
     db.commit()
     db.refresh(material)
     return material

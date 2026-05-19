@@ -166,6 +166,7 @@ class LcaMaterialOut(BaseModel):
     valeur_r: Optional[float] = None
     is_fixed: bool = False
     flux_reference: Optional[float] = None
+    dvr_materiau: Optional[int] = None
 
 
 class LcaMaterialPatch(BaseModel):
@@ -173,6 +174,7 @@ class LcaMaterialPatch(BaseModel):
     valeur_r: Optional[float] = None
     is_fixed: Optional[bool] = None
     flux_reference: Optional[float] = None
+    dvr_materiau: Optional[int] = None
 
 
 class LcaElement(BaseModel):

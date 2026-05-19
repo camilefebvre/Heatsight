@@ -14,6 +14,8 @@ import {
   Files,
   TrendingUp,
   Leaf,
+  Library,
+  Sprout,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -247,6 +249,7 @@ export default function Sidebar() {
         <SidebarLink to="/projects" icon={FolderOpen} label="Projets" />
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" />
         <SidebarLink to="/share-access" icon={Users2} label="Partage & Accès" />
+        <SidebarLink to="/lca/library" icon={Library} label="Bibliothèque ACV" />
       </nav>
 
       {/* Collecte de données — global */}
@@ -287,7 +290,8 @@ export default function Sidebar() {
             <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" />
             <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
             <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
-            <SidebarLink to={`/projects/${selectedProjectId}/lca`}    icon={Leaf}     label="Analyse ACV" />
+            <SidebarLink to={`/projects/${selectedProjectId}/lca`}     icon={Leaf}    label="ACV (legacy)" />
+            <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`}  icon={Sprout}  label="ACV 2.0" />
           </nav>
         </>
       )}

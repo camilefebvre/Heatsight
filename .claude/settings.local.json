@@ -16,7 +16,17 @@
       "Bash(npx react-scripts *)",
       "Bash(node -e ' *)",
       "Bash(node *)",
-      "Bash(git *)"
+      "Bash(git *)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\merli\\\\Desktop\\\\Heatsight\" -Force)",
+      "Bash(Select-Object Name, FullName)",
+      "Bash(xargs grep -l \"lca\" -i)",
+      "Bash(Get-ChildItem -Path \"C:\\\\Users\\\\merli\\\\Desktop\\\\Heatsight\\\\frontend\\\\src\" -Recurse -File)",
+      "Bash(Select-Object FullName, Name)",
+      "Bash(Format-Table -AutoSize)",
+      "Bash(Get-Content \"C:\\\\Users\\\\merli\\\\Desktop\\\\Heatsight\\\\frontend\\\\src\\\\pages\\\\ProjectLCA.jsx\")",
+      "Bash(Measure-Object -Line)",
+      "PowerShell(Get-Content *)",
+      "PowerShell(Copy-Item *)"
     ]
   }
 }
