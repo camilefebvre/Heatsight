@@ -90,6 +90,21 @@ describe("getLambda", () => {
   test("m = null → null sans exception", () => {
     expect(getLambda(null)).toBeNull();
   });
+
+  test("Tâche 9 : colonne valeur_lambda prioritaire sur impacts.valeur_lambda", () => {
+    const m = { category: "Isolant", valeur_lambda: 0.038, impacts: { valeur_lambda: 0.999 } };
+    expect(getLambda(m)).toBe(0.038);
+  });
+
+  test("Tâche 9 : fallback sur impacts.valeur_lambda si colonne absente", () => {
+    const m = { category: "Isolant", impacts: { valeur_lambda: 0.024 } };
+    expect(getLambda(m)).toBe(0.024);
+  });
+
+  test("Tâche 9 : fallback Convention 1 si ni colonne ni impacts", () => {
+    const m = { category: "Isolant", valeur_r: 0.045, impacts: {} };
+    expect(getLambda(m)).toBe(0.045);
+  });
 });
 
 // ─── isParoiExterieure ───────────────────────────────────────────────────────

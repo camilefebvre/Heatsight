@@ -236,9 +236,10 @@ class LcaMaterial(Base):
     unit = Column(String, nullable=False)            # ex: "m²"
     impacts = Column(JSONB, nullable=False)          # 22 valeurs EF v3.0 par unité fonctionnelle
     prix = Column(Float, nullable=True)              # prix moyen €/unité
-    valeur_r = Column(Float, nullable=True)          # résistance thermique m²K/W
+    valeur_r = Column(Float, nullable=True)          # résistance thermique R (m²K/W) pour matériaux composites, valeur de référence 1.0 pour Isolants Convention 2
     is_fixed = Column(Boolean, nullable=False, default=False)  # non substituable en optimisation
     flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) — pour isolants: quantité = R × flux_ref × surface
+    valeur_lambda  = Column(Float, nullable=True, comment="Conductivité thermique λ (W/m·K), pour les Isolants uniquement")
     dvr_materiau = Column(Integer, nullable=True)    # durée de vie de référence, années
 
 

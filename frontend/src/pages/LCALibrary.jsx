@@ -98,7 +98,7 @@ function getValeurRLabel(category) {
     return {
       label: "Valeur de référence",
       unit: "sans dimension",
-      tooltip: "Valeur de référence Convention 2 ACV 2.0. Le λ réel est saisi dans le champ λ — Conductivité thermique."
+      tooltip: "Valeur de référence Convention 2 ACV. Le λ réel est saisi dans le champ λ — Conductivité thermique."
     };
   }
   return { label: "R", unit: "m²·K/W", tooltip: "" };
@@ -129,7 +129,6 @@ export default function LCALibrary() {
 
   // Fiche matériau (lecture seule, double-clic)
   const [ficheModal,   setFicheModal]   = useState(null); // null ou matériau
-  const [showAcv2Cols, setShowAcv2Cols] = useState(false);
 
   // ── Chargement ─────────────────────────────────────────────────────────────
   async function loadMaterials() {
@@ -191,7 +190,9 @@ export default function LCALibrary() {
     const imp = mat.impacts || {};
     const isIsolant = (mat.category || "").toLowerCase() === "isolant";
     const lambdaSuggestion =
-      imp.valeur_lambda != null
+      mat.valeur_lambda != null
+        ? String(mat.valeur_lambda)
+        : imp.valeur_lambda != null
         ? String(imp.valeur_lambda)
         : isIsolant && mat.valeur_r > 0 && mat.valeur_r < 0.5
         ? String(mat.valeur_r)
@@ -225,9 +226,6 @@ export default function LCALibrary() {
         }
       }
       const updatedImpacts = { ...editModal.impacts };
-      if (isIsolant && editModal.valeur_lambda !== "") {
-        updatedImpacts.valeur_lambda = Number(editModal.valeur_lambda);
-      }
       const payload = {
         name: editModal.name.trim() || undefined,
         category: editModal.category || undefined,
@@ -235,6 +233,7 @@ export default function LCALibrary() {
         valeur_r: editModal.valeur_r !== "" ? Number(editModal.valeur_r) : undefined,
         flux_reference: editModal.flux_reference !== "" ? Number(editModal.flux_reference) : undefined,
         dvr_materiau: editModal.dvr_materiau !== "" ? Number(editModal.dvr_materiau) : undefined,
+        valeur_lambda: isIsolant && editModal.valeur_lambda !== "" ? Number(editModal.valeur_lambda) : undefined,
         impacts: Object.keys(updatedImpacts).length > 0 ? updatedImpacts : undefined,
       };
       const res = await apiFetch(`/lca/materials/${editModal.id}?version=v2`, {
@@ -315,19 +314,6 @@ export default function LCALibrary() {
         >
           <Upload size={15} /> Importer un matériau
         </button>
-        <button
-          type="button"
-          onClick={() => setShowAcv2Cols((v) => !v)}
-          style={{
-            background: showAcv2Cols ? "#faf5ff" : "white",
-            color: showAcv2Cols ? "#6d28d9" : "#6b7280",
-            border: `1.5px solid ${showAcv2Cols ? "#6d28d9" : "#e5e7eb"}`,
-            borderRadius: 10, padding: "8px 14px", fontWeight: 700,
-            cursor: "pointer", fontSize: 13,
-          }}
-        >
-          Vue ACV 2.0
-        </button>
       </div>
 
       {/* ── Tableau des matériaux ────────────────────────────────────────────── */}
@@ -348,8 +334,8 @@ export default function LCALibrary() {
                   <th style={th}>Unité</th>
                   <th style={{ ...th, textAlign: "right" }}>Prix (€)</th>
                   <th style={{ ...th, textAlign: "right" }}>R / λ <span title="R pour Cadres/Vitrages/Murs (m²·K/W), λ explicite séparé pour Isolants. Pour les Isolants, la valeur affichée est la référence Convention 2 (=1.0)." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></th>
-                  {showAcv2Cols && <th style={{ ...th, textAlign: "right" }}>DVR (ans)</th>}
-                  {showAcv2Cols && <th style={{ ...th, textAlign: "right" }}>Flux réf.</th>}
+                  <th style={{ ...th, textAlign: "right" }}>DVR (ans)</th>
+                  <th style={{ ...th, textAlign: "right" }}>Flux réf.</th>
                   <th style={{ ...th, textAlign: "right" }}>GWP100</th>
                   <th style={{ ...th, textAlign: "right", width: 110 }}>Actions</th>
                 </tr>
@@ -366,14 +352,14 @@ export default function LCALibrary() {
                         <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{mat.name}</span>
                         {isIncomplete(mat) && (
                           <span
-                            title="Ce matériau nécessite la saisie de la DVR (et flux_référence si Isolant) pour être utilisable dans le module ACV 2.0."
+                            title="Ce matériau nécessite la saisie de la DVR (et flux_référence si Isolant) pour être utilisable dans le module ACV."
                             style={{
                               background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa",
                               borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
                               whiteSpace: "nowrap", cursor: "help", flexShrink: 0,
                             }}
                           >
-                            Incomplet ACV 2.0
+                            Incomplet ACV
                           </span>
                         )}
                       </span>
@@ -388,16 +374,12 @@ export default function LCALibrary() {
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                       {mat.valeur_r != null ? `${fmtNum(mat.valeur_r)} ${getValeurRLabel(mat.category).unit}` : "—"}
                     </td>
-                    {showAcv2Cols && (
-                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                        {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
-                      </td>
-                    )}
-                    {showAcv2Cols && (
-                      <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
-                        {mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
-                      </td>
-                    )}
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                      {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
+                    </td>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
+                      {mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
+                    </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
                     </td>
@@ -524,15 +506,15 @@ export default function LCALibrary() {
                     </FormField>
                   );
                 })()}
-                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV 2.0" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                   <input type="number" min="1" step="1" value={imp.dvrMateriau} onChange={(e) => setImp((s) => ({ ...s, dvrMateriau: e.target.value }))} style={inputStyle} placeholder="50" required />
                 </FormField>
                 {imp.category === "isolant" && (
                   <>
-                    <FormField label={<span>Flux de référence (kg/m²·K/W) <span>*</span> <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV 2.0 des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>Flux de référence (kg/m²·K/W) <span>*</span> <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input type="number" min="0" step="any" value={imp.fluxReference} onChange={(e) => setImp((s) => ({ ...s, fluxReference: e.target.value }))} style={inputStyle} placeholder="8.5" required />
                     </FormField>
-                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV 2.0 pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
                         type="number" min="0" step="any"
                         value={imp.valeurLambda}
@@ -603,6 +585,18 @@ export default function LCALibrary() {
               })()}
               <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "—"} />
               <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
+              {(ficheModal.category || "").toLowerCase() === "isolant" && (
+                <InfoRow
+                  label="λ — Conductivité thermique (W/m·K)"
+                  value={
+                    ficheModal.valeur_lambda != null
+                      ? fmtNum(ficheModal.valeur_lambda, 3)
+                      : ficheModal.impacts?.valeur_lambda != null
+                      ? fmtNum(ficheModal.impacts.valeur_lambda, 3)
+                      : "—"
+                  }
+                />
+              )}
             </div>
 
             {/* Section 2 — Impacts EF v3.0 */}
@@ -701,7 +695,7 @@ export default function LCALibrary() {
                     placeholder="—"
                   />
                 </FormField>
-                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV 2.0" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                   <input
                     type="number" min="1" step="1"
                     value={editModal.dvr_materiau}
@@ -715,7 +709,7 @@ export default function LCALibrary() {
                 </FormField>
                 {editModal.category === "isolant" && (
                   <>
-                    <FormField label={<span>Flux référence (kg/m²·K/W) <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV 2.0 des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>Flux référence (kg/m²·K/W) <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
                         type="number" min="0" step="any"
                         value={editModal.flux_reference}
@@ -727,7 +721,7 @@ export default function LCALibrary() {
                         placeholder="—"
                       />
                     </FormField>
-                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV 2.0 pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
                         type="number" min="0" step="any"
                         value={editModal.valeur_lambda ?? ""}
@@ -741,7 +735,7 @@ export default function LCALibrary() {
               </div>
 
               {/* Impacts EF v3.0 — lecture seule */}
-              {Object.keys(editModal.impacts).length > 0 && (
+              {Object.keys(editModal.impacts).some(k => k !== "valeur_lambda") && (
                 <>
                   <div style={{ marginBottom: 10, fontWeight: 700, fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
                     Impacts EF v3.0 — lecture seule
@@ -749,7 +743,7 @@ export default function LCALibrary() {
                   <div style={{ border: "1px solid #f3f4f6", borderRadius: 10, overflowX: "auto", marginBottom: 18 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>
                       <tbody>
-                        {Object.entries(editModal.impacts).map(([key, val]) => (
+                        {Object.entries(editModal.impacts).filter(([key]) => key !== "valeur_lambda").map(([key, val]) => (
                           <tr key={key} style={{ borderTop: "1px solid #f9fafb" }}>
                             <td style={{ padding: "5px 10px", fontSize: 12, color: "#6b7280", width: "60%" }}>{key}</td>
                             <td style={{ padding: "5px 10px", fontSize: 12, fontWeight: 700, color: "#374151", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>

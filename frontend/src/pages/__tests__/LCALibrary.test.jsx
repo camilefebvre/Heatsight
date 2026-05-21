@@ -58,7 +58,7 @@ describe("LCALibrary", () => {
 
   // ── 1. Affichage initial ──────────────────────────────────────────────────
 
-  it("affiche le titre, le bouton import et le toggle Vue ACV 2.0", async () => {
+  it("affiche le titre et le bouton import", async () => {
     render(<LCALibrary />);
     await waitForLoaded();
 
@@ -66,9 +66,7 @@ describe("LCALibrary", () => {
     expect(
       screen.getByRole("button", { name: /Importer un matériau/ })
     ).toBeInTheDocument();
-    expect(
-      screen.getByRole("button", { name: "Vue ACV 2.0" })
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Vue ACV 2.0" })).not.toBeInTheDocument();
   });
 
   // ── 2. Ouverture de la modale d'import ────────────────────────────────────
@@ -135,14 +133,14 @@ describe("LCALibrary", () => {
     expect(submitBtn).toBeDisabled();
   });
 
-  // ── 7. Pastille "Incomplet ACV 2.0" pour matériau sans DVR ───────────────
+  // ── 7. Pastille "Incomplet ACV" pour matériau sans DVR ──────────────────
 
-  it("affiche la pastille 'Incomplet ACV 2.0' pour un matériau sans dvr_materiau", async () => {
+  it("affiche la pastille 'Incomplet ACV' pour un matériau sans dvr_materiau", async () => {
     mockLoad([MAT_INCOMPLETE]);
     render(<LCALibrary />);
 
     await waitFor(() =>
-      expect(screen.getByText("Incomplet ACV 2.0")).toBeInTheDocument()
+      expect(screen.getByText("Incomplet ACV")).toBeInTheDocument()
     );
   });
 
@@ -155,30 +153,20 @@ describe("LCALibrary", () => {
     await waitFor(() =>
       expect(screen.getByText("Mur béton ACV2")).toBeInTheDocument()
     );
-    expect(screen.queryByText("Incomplet ACV 2.0")).not.toBeInTheDocument();
+    expect(screen.queryByText("Incomplet ACV")).not.toBeInTheDocument();
   });
 
-  // ── 9. Toggle Vue ACV 2.0 — colonnes DVR et Flux réf. ────────────────────
+  // ── 9. Colonnes DVR et Flux réf. toujours visibles ───────────────────────
 
-  it("affiche et masque les colonnes DVR et Flux réf. via le toggle Vue ACV 2.0", async () => {
+  it("affiche les colonnes DVR (ans) et Flux réf. en permanence", async () => {
     mockLoad([MAT_COMPLETE]);
     render(<LCALibrary />);
     await waitFor(() =>
       expect(screen.getByText("Mur béton ACV2")).toBeInTheDocument()
     );
 
-    expect(screen.queryByText("DVR (ans)")).not.toBeInTheDocument();
-    expect(screen.queryByText("Flux réf.")).not.toBeInTheDocument();
-
-    const toggle = screen.getByRole("button", { name: "Vue ACV 2.0" });
-    await userEvent.click(toggle);
-
     expect(screen.getByText("DVR (ans)")).toBeInTheDocument();
     expect(screen.getByText("Flux réf.")).toBeInTheDocument();
-
-    await userEvent.click(toggle);
-
-    expect(screen.queryByText("DVR (ans)")).not.toBeInTheDocument();
   });
 
   // ── 10. version=v2 envoyé dans FormData lors de la soumission ─────────────

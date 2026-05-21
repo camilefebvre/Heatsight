@@ -12,11 +12,11 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CHAUFFAGE_OPTIONS = [
-  { id: "gaz",        label: "Chaudière gaz",    co2: 0.205, rendement: 0.90 },
+  { id: "gaz",        label: "Chaudière gaz",    co2: 0.227, rendement: 0.90 }, // PCI — cohérent avec rendement PCI
   { id: "mazout",     label: "Chaudière mazout",  co2: 0.265, rendement: 0.85 },
   { id: "bois",       label: "Chaudière bois",    co2: 0.030, rendement: 0.75 },
-  { id: "pac",        label: "Pompe à chaleur",   co2: 0.056, rendement: 3.0  },
-  { id: "electrique", label: "Électrique direct", co2: 0.056, rendement: 1.0  },
+  { id: "pac",        label: "Pompe à chaleur",   co2: 0.20,  rendement: 3.0  }, // réseau belge ~0.20 kg CO₂/kWh_élec
+  { id: "electrique", label: "Électrique direct", co2: 0.20,  rendement: 1.0  }, // réseau belge ~0.20 kg CO₂/kWh_élec
 ];
 
 const PRIX_KWH_BY_CHAUFFAGE = {
@@ -139,6 +139,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
   const fixedDueToConstraint = [];
 
   for (const paroi of bat.parois) {
+    const sOpaqueParoi = calcParoiStats(paroi)?.s_opaque ?? parseFloat(paroi.surface_totale) ?? 0;
     for (const co of paroi.composantsOpaques) {
       if (co.is_fixed) continue;
       const curMat = materials.find(m => m.id === co.material_id);
@@ -263,7 +264,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
       }
 
       if (candidates.length > 0) {
-        slots.push({ paroiId: paroi.id, compId: co.id, type: "opaque", candidates, originalId: co.material_id, originalEp });
+        slots.push({ paroiId: paroi.id, compId: co.id, type: "opaque", candidates, originalId: co.material_id, originalEp, sOpaque: sOpaqueParoi });
       }
     }
 
@@ -391,6 +392,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
           originalId: null,
           originalEp: null,
           candidates: addedCandidates,
+          sOpaque:    sOpaqueParoi,
         });
         if (import.meta.env.DEV) {
           console.log(`Paroi éligible ajout isolant : ${paroi.nom || paroi.id} — ${addedCandidates.length - 1} candidats`);
@@ -449,6 +451,8 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
             valeur_r_vitrage:     cand.valeur_r_vitrage,
             impacts:              cand.impacts,
             dvr_materiau_vitrage: cand.dvr_materiau_vitrage,
+            prix_unit_vitrage:    cand.prix_unit,
+            gwp100_unit_vitrage:  extractImpact(cand.impacts, "gwp100", "gwp_100") ?? null,
           })};
         } else { // vitree_cadre
           return { ...p, baiesVitrees: p.baiesVitrees.map(bv => bv.id !== slot.compId ? bv : {
@@ -458,6 +462,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
             valeur_r_cadre:      cand.valeur_r_cadre,
             dvr_materiau_cadre:  cand.dvr_materiau_cadre,
             impacts_cadre:       cand.impacts_cadre,
+            prix_unit_cadre:     cand.prix_unit,
           })};
         }
       }),
@@ -487,7 +492,15 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
     const slot = slots[idx];
     for (const cand of slot.candidates) {
       const qty = slot.type === "opaque"
-        ? (parseFloat(cand.surface_m2) || 0)
+        ? (() => {
+            const s = slot.sOpaque ?? 0;
+            if (isIsolantCategory(cand.category)) {
+              const rc = parseFloat(cand.r_cible);
+              const fr = parseFloat(cand.flux_reference);
+              return (isFinite(rc) && rc > 0 && isFinite(fr) && fr > 0) ? rc * fr * s : 0;
+            }
+            return s;
+          })()
         : (slot.bvQuantite ?? 1);
       const isChanged = cand.material_id !== slot.originalId;
       enumerate(
@@ -545,7 +558,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
   return { combos: finalCombos, fixedDueToConstraint };
 }
 
-function computePhares(combos, bat, materials) {
+function computePhares(combos, bat, materials, prixKwhOverride) {
   const sqSt        = calcBatimentStats(bat);
   const isRenovation = bat.type_batiment === "renovation";
   const sqCost      = isRenovation ? 0 : (sqSt.total_cout    ?? 0);
@@ -562,11 +575,11 @@ function computePhares(combos, bat, materials) {
   };
 
   if (combos.length === 0) {
-    return { statuQuo, economique: null, ecologique: null, roi: null, topsis: null };
+    return { statuQuo, economique: null, ecologique: null, roi: null, topsis2: null };
   }
 
   // Prix €/kWh dynamique selon le moyen de chauffage du bâtiment
-  const PRICE   = PRIX_KWH_BY_CHAUFFAGE[bat.moyen_chauffage] ?? 0.20;
+  const PRICE   = prixKwhOverride ?? PRIX_KWH_BY_CHAUFFAGE[bat.moyen_chauffage] ?? 0.20;
   const HORIZON = 20;
 
   let economique;
@@ -656,36 +669,6 @@ function computePhares(combos, bat, materials) {
     return (dI + dA) > 0 ? dA / (dI + dA) : 0;
   }
 
-  // TOPSIS pur — aucun bonus efficience marginale
-  let topsisPur = null;
-  if (valid.length > 1) {
-    const v = buildTopsisVectors();
-    const scoredP = valid.map((c, i) => ({ c, score: topsisScore(v, i) }));
-    scoredP.sort((a, b) => b.score - a.score);
-    topsisPur = scoredP[0].c;
-  } else if (valid.length === 1) {
-    topsisPur = valid[0];
-  }
-
-  // TOPSIS — bonus efficience marginale ×1.15 si > P75 (sur finies ≥ 0)
-  let topsis = null;
-  if (valid.length > 1) {
-    const v = buildTopsisVectors();
-    const scored = valid.map((c, i) => ({ c, score: topsisScore(v, i) }));
-    const efficiencies = scored.map(({ c }) => {
-      const deltaGwp  = sqGwpAmorti - (c.gwp_amorti ?? 0);
-      const deltaCost = isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost);
-      return deltaCost === 0 ? 0 : deltaGwp / deltaCost;
-    });
-    const sortedEff = [...efficiencies].sort((a, b) => a - b);
-    const p75 = sortedEff[Math.floor((sortedEff.length - 1) * 0.75)];
-    const finalScored = scored.map((item, i) => ({ ...item, score: efficiencies[i] > p75 ? item.score * 1.15 : item.score }));
-    finalScored.sort((a, b) => b.score - a.score);
-    topsis = finalScored[0].c;
-  } else if (valid.length === 1) {
-    topsis = valid[0];
-  }
-
   // TOPSIS 2.0 — bonus raffiné : Δcoût ≤ 0 → Infinity ; ΔGWP ≤ 0 → 0 ; P75 sur finies positives
   let topsis2 = null;
   if (valid.length > 1) {
@@ -707,7 +690,7 @@ function computePhares(combos, bat, materials) {
     topsis2 = valid[0];
   }
 
-  return { statuQuo, economique, ecologique, roi, topsisPur, topsis, topsis2 };
+  return { statuQuo, economique, ecologique, roi, topsis2 };
 }
 
 // R_eff = R_theorique × (eff/100) → U_eff = U_th / (eff/100), dégradation réelle
@@ -720,13 +703,13 @@ function getComposantREffectif(comp) {
 
 // ─── ACV 2.0 helpers ──────────────────────────────────────────────────────────
 
-function calcComposantACV(co, dvr_batiment) {
+function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
   const dvr_bat = parseFloat(dvr_batiment) || 60;
   const dvr_mat = parseFloat(co.dvr_materiau);
   if (!isFinite(dvr_mat) || dvr_mat <= 0)
     return { valid: false, errorMsg: "DVR matériau manquante — calcul ACV impossible" };
   const nb_cycles = dvr_bat / dvr_mat;
-  const surface = parseFloat(co.surface_m2) || 0;
+  const surface = s_opaque;
   let qty;
   if (isIsolantCategory(co.category)) {
     const r_cible = parseFloat(co.r_cible);
@@ -740,7 +723,7 @@ function calcComposantACV(co, dvr_batiment) {
     qty = surface;
   }
   const gwp    = extractImpact(co.impacts, "gwp100", "gwp_100") ?? 0;
-  const energy = extractImpact(co.impacts, "energy_nonrenewable_adp", "energy_nr", "penrt") ?? 0;
+  const energy = extractImpact(co.impacts, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
   const sante  = extractImpact(co.impacts, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
   return {
     valid: true, errorMsg: null, qty, nb_cycles,
@@ -762,7 +745,7 @@ function calcBVImpactACV(bv, dvr_batiment) {
   const nc_v  = (isFinite(dvr_v) && dvr_v > 0) ? dvr_bat / dvr_v : null;
   if (nc_v === null) { res.valid = false; res.errors.push("DVR vitrage manquante"); }
   const gwp_v    = parseFloat(bv.gwp100_unit_vitrage) || extractImpact(bv.impacts, "gwp100", "gwp_100") || 0;
-  const energy_v = extractImpact(bv.impacts, "energy_nonrenewable_adp", "energy_nr", "penrt") ?? 0;
+  const energy_v = extractImpact(bv.impacts, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
   const sante_v  = extractImpact(bv.impacts, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
   res.gwp_brut    += gwp_v    * qty;   res.gwp_amorti    += gwp_v    * qty * (nc_v ?? 1);
   res.energy_brut += energy_v * qty;   res.energy_amorti += energy_v * qty * (nc_v ?? 1);
@@ -774,7 +757,7 @@ function calcBVImpactACV(bv, dvr_batiment) {
     if (nc_c === null) { res.valid = false; res.errors.push("DVR cadre manquante"); }
     const impC = bv.impacts_cadre || {};
     const gwp_c    = extractImpact(impC, "gwp100", "gwp_100") ?? 0;
-    const energy_c = extractImpact(impC, "energy_nonrenewable_adp", "energy_nr", "penrt") ?? 0;
+    const energy_c = extractImpact(impC, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
     const sante_c  = extractImpact(impC, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
     res.gwp_brut    += gwp_c * qty;   res.gwp_amorti    += gwp_c * qty * (nc_c ?? 1);
     res.energy_brut += energy_c * qty; res.energy_amorti += energy_c * qty * (nc_c ?? 1);
@@ -782,6 +765,15 @@ function calcBVImpactACV(bv, dvr_batiment) {
   }
   if (!res.valid) res.errorMsg = res.errors.join(", ") + " — amortissement approx. (nc=1)";
   return res;
+}
+
+function getRSuperficiel(type) {
+  switch ((type || "").toLowerCase()) {
+    case "toiture":  return 0.14; // Rsi=0.10 + Rse=0.04 flux ascendant (EN ISO 6946)
+    case "plancher": return 0.21; // Rsi=0.17 + Rse=0.04 flux descendant
+    case "cloison":  return 0.26; // Rsi=0.13 + Rsi=0.13 paroi intérieure
+    default:         return 0.17; // Rsi=0.13 + Rse=0.04 flux horizontal (mur, fallback)
+  }
 }
 
 function calcParoiStats(paroi, dvr_batiment = 60) {
@@ -818,7 +810,9 @@ function calcParoiStats(paroi, dvr_batiment = 60) {
       s_vitree += sCount;
       if (isFinite(rFen) && rFen > 0) ua_vitree += sCount * (1 / rFen) / bvEff;
     }
-    cout_vitree += (parseFloat(bv.prix_unit_vitrage) || parseFloat(bv.prix_unit) || 0) * qty;
+    const prixVitrage = parseFloat(bv.prix_unit_vitrage) || parseFloat(bv.prix_unit) || 0;
+    const prixCadre   = bv.cadre_id ? (parseFloat(bv.prix_unit_cadre) || 0) : 0;
+    cout_vitree += (prixVitrage + prixCadre) * qty;
 
     const bvAcv = calcBVImpactACV(bv, dvr_batiment);
     gwp_brut    += bvAcv.gwp_brut;    gwp_amorti    += bvAcv.gwp_amorti;
@@ -835,17 +829,26 @@ function calcParoiStats(paroi, dvr_batiment = 60) {
   for (const co of paroi.composantsOpaques) {
     const r = getComposantREffectif(co);
     if (r == null) { hasAllR = false; } else { r_total += r; }
-    const s = parseFloat(co.surface_m2) || s_opaque;
-    cout_opaque += (parseFloat(co.prix_unit) || 0) * s;
+    const s = s_opaque;
+    if (isIsolantCategory(co.category)) {
+      const rc = parseFloat(co.r_cible);
+      const fr = parseFloat(co.flux_reference);
+      if (isFinite(rc) && rc > 0 && isFinite(fr) && fr > 0) {
+        cout_opaque += (parseFloat(co.prix_unit) || 0) * rc * fr * s;
+      }
+    } else {
+      cout_opaque += (parseFloat(co.prix_unit) || 0) * s;
+    }
 
-    const coAcv = calcComposantACV(co, dvr_batiment);
+    const coAcv = calcComposantACV(co, dvr_batiment, s_opaque);
     gwp_brut    += coAcv.gwp_brut;    gwp_amorti    += coAcv.gwp_amorti;
     energy_brut += coAcv.energy_brut; energy_amorti += coAcv.energy_amorti;
     sante_brut  += coAcv.sante_brut;  sante_amorti  += coAcv.sante_amorti;
     if (!coAcv.valid) acv_errors.push({ id: co.id, name: co.material_name, errorMsg: coAcv.errorMsg });
   }
 
-  const u_opaque = (hasAllR && r_total > 0) ? 1 / r_total : null;
+  const rSuperficiel = getRSuperficiel(paroi.type);
+  const u_opaque = hasAllR ? 1 / (r_total + rSuperficiel) : null;
   const ua_opaque = u_opaque != null ? u_opaque * s_opaque : null;
   const ua_total = ua_opaque != null ? ua_opaque + ua_vitree : null;
   const u_moyen = ua_total != null ? ua_total / S_tot : null;
@@ -1294,6 +1297,7 @@ export default function ProjectLCA2() {
                 valeur_r_cadre: parseFloat(newMat.valeur_r) || null,
                 dvr_materiau_cadre: newMat.dvr_materiau ?? null,
                 impacts_cadre: newMat.impacts ?? {},
+                prix_unit_cadre: parseFloat(newMat.prix) || 0,
               }
             ),
           }
@@ -1393,6 +1397,7 @@ export default function ProjectLCA2() {
       dvr_materiau_vitrage: vitMat.dvr_materiau ?? null,
       dvr_materiau_cadre: cadreMat?.dvr_materiau ?? null,
       impacts_cadre: cadreMat?.impacts ?? {},
+      prix_unit_cadre: parseFloat(cadreMat?.prix) || 0,
     };
     setBatiments((prev) => prev.map((b) =>
       b.id !== batId ? b : {
@@ -1477,18 +1482,6 @@ export default function ProjectLCA2() {
 
   return (
     <div style={{ maxWidth: 1400, width: "100%" }}>
-      <div style={{
-        background: "#fefce8", border: "1px solid #fde68a",
-        borderRadius: 10, padding: "10px 16px", marginBottom: 16,
-        display: "flex", alignItems: "center", gap: 10,
-        fontSize: 13, color: "#92400e",
-      }}>
-        <Info size={16} style={{ flexShrink: 0 }} />
-        <span>
-          <strong>Module ACV 2.0 en développement.</strong>{" "}
-          Utilisez le module ACV (legacy) en cas de problème.
-        </span>
-      </div>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
         <div style={{ color: "#6b7280" }}>Projet</div>
         {saveStatus !== "idle" && (
@@ -1732,9 +1725,9 @@ export default function ProjectLCA2() {
         return (
           <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.55)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1100 }}>
             <div style={{ background: "white", borderRadius: 16, padding: "28px 30px", width: 460, maxWidth: "90vw", boxShadow: "0 20px 60px rgba(0,0,0,0.25)" }}>
-              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>Activation des calculs ACV 2.0</div>
+              <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>Activation des calculs ACV</div>
               <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 20 }}>
-                Ce projet a été créé avec ACV 1.0. Pour activer les calculs ACV 2.0, saisissez l'âge et la DVR du bâtiment.
+                Ce projet a été créé avec ACV 1.0. Pour activer les calculs ACV, saisissez l'âge et la DVR du bâtiment.
               </div>
               <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
                 <Field label="Âge du bâtiment (années)">
@@ -1885,7 +1878,7 @@ function BuildingDetail({
 
       {bat.age_batiment == null && (
         <div style={{ background: "#fef3c7", border: "1px solid #fcd34d", borderRadius: 8, padding: "7px 10px", fontSize: 12, color: "#92400e", marginBottom: 10 }}>
-          Données ACV 2.0 manquantes. Saisissez l'âge et la DVR du bâtiment pour activer les calculs avancés.
+          Données ACV manquantes. Saisissez l'âge et la DVR du bâtiment pour activer les calculs avancés.
         </div>
       )}
 
@@ -2125,7 +2118,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                         onClick={() => openReplaceOpaque(co.id)}
                         title="Changer de matériau"
                       >{co.material_name}</div>
-                      {(() => { const r = calcComposantACV(co, dvr_batiment); return !r.valid ? (
+                      {(() => { const r = calcComposantACV(co, dvr_batiment, stats?.s_opaque ?? 0); return !r.valid ? (
                         <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>
                       ) : null; })()}
                     </div>
@@ -2162,8 +2155,8 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                         onChange={(e) => {
                           const ep = parseFloat(e.target.value);
                           updateComposant(co.id, "epaisseur_cm", e.target.value);
-                          if (!lambdaMissing && isFinite(ep) && ep > 0) {
-                            updateComposant(co.id, "r_cible", String(((ep / 100) / lambdaEff).toFixed(3)));
+                          if (trueLambda != null && trueLambda > 0 && isFinite(ep) && ep > 0) {
+                            updateComposant(co.id, "r_cible", String(((ep / 100) / trueLambda).toFixed(3)));
                           }
                         }}
                         style={miniInput} placeholder="ép." />
@@ -2173,14 +2166,10 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                   </td>
                   <td style={td}>
                     {isIsolant ? (
-                      <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-                        <input type="number" min="0" step="any"
-                          title="λ — Conductivité thermique (W/m·K)"
-                          value={co.lambda_local !== "" ? co.lambda_local : (trueLambda != null ? trueLambda : (co.lambda_lib ?? ""))}
-                          onChange={(e) => updateComposant(co.id, "lambda_local", e.target.value)}
-                          style={miniInput} placeholder={trueLambda != null ? String(trueLambda) : (co.lambda_lib ? String(co.lambda_lib) : "—")} />
-                        {lambdaIsCustom && <Pencil size={10} color="#f59e0b" />}
-                      </div>
+                      <span title="λ — Conductivité thermique (W/m·K), propriété du matériau (lecture seule)"
+                            style={{ fontSize: 11, color: "#6b7280" }}>
+                        {trueLambda != null ? `${trueLambda} (λ)` : "—"}
+                      </span>
                     ) : (
                       <span title="R — Résistance thermique (m²·K/W)" style={{ fontSize: 11, color: "#6b7280" }}>
                         {co.lambda_lib != null ? `${fmtDec(co.lambda_lib)} (R)` : "—"}
@@ -2189,23 +2178,9 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                   </td>
                   <td style={td}>
                     {isIsolant ? (
-                      <div>
-                        {lambdaMissing && (
-                          <div style={{ fontSize: 10, color: "#dc2626", fontWeight: 600, marginBottom: 3 }}>
-                            λ manquant — bascule impossible
-                          </div>
-                        )}
-                        <input type="number" min="0" step="any"
-                          value={co.r_cible ?? ""}
-                          onChange={(e) => {
-                            const rc = parseFloat(e.target.value);
-                            updateComposant(co.id, "r_cible", e.target.value);
-                            if (!lambdaMissing && isFinite(rc) && rc > 0) {
-                              updateComposant(co.id, "epaisseur_cm", String((rc * lambdaEff * 100).toFixed(1)));
-                            }
-                          }}
-                          style={miniInput} placeholder="R cible" />
-                      </div>
+                      <span style={{ fontSize: 12, color: "#374151" }}>
+                        {co.r_cible != null && co.r_cible !== "" ? parseFloat(co.r_cible).toFixed(3) : "—"}
+                      </span>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                         <input type="number" min="0" step="any" value={co.r_local}
@@ -2216,9 +2191,9 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                     )}
                   </td>
                   <td style={td}>
-                    <input type="number" min="0" step="any" value={co.surface_m2}
-                      onChange={(e) => updateComposant(co.id, "surface_m2", e.target.value)}
-                      style={miniInput} placeholder={stats ? fmtDec(stats.s_opaque, 1) : "—"} />
+                    <span style={{ fontSize: 12, color: "#374151" }}>
+                      {stats?.s_opaque != null ? fmtDec(stats.s_opaque, 1) : "—"}
+                    </span>
                   </td>
                   <td style={td}>
                     <input type="number" min="0" max="100" step="1"
@@ -2456,9 +2431,9 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
 // ─── ImpactsTab ───────────────────────────────────────────────────────────────
 
 const ACV2_ROWS = [
-  { label: "GWP100",        gwpKey: "gwp_brut",    amKey: "gwp_amorti",    unit: "kg CO₂eq" },
-  { label: "Énergie NR",    gwpKey: "energy_brut",  amKey: "energy_amorti", unit: "MJ"       },
-  { label: "Santé (phot.)", gwpKey: "sante_brut",   amKey: "sante_amorti",  unit: "kg NMVOC eq" },
+  { label: "GWP100",        gwpKey: "gwp_brut",    amKey: "gwp_amorti",    unit: "kg CO₂eq",    fmtFn: fmt },
+  { label: "Énergie NR",    gwpKey: "energy_brut",  amKey: "energy_amorti", unit: "MJ",          fmtFn: fmt },
+  { label: "Santé (phot.)", gwpKey: "sante_brut",   amKey: "sante_amorti",  unit: "kg NMVOC eq", fmtFn: v => fmtDec(v, 2) },
 ];
 
 function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
@@ -2474,7 +2449,7 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
   // Totaux ACV 2.0 via les helpers (brut + amorti)
   let totGwpBrut=0, totGwpAm=0, totEnBrut=0, totEnAm=0, totSaBrut=0, totSaAm=0;
   for (const co of paroi.composantsOpaques) {
-    const r = calcComposantACV(co, dvr_batiment);
+    const r = calcComposantACV(co, dvr_batiment, stats?.s_opaque ?? 0);
     if (r.valid) {
       totGwpBrut += r.gwp_brut;    totGwpAm += r.gwp_amorti;
       totEnBrut  += r.energy_brut; totEnAm  += r.energy_amorti;
@@ -2504,13 +2479,13 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
               <div>
                 <div style={{ fontSize: 10, color: "#9ca3af" }}>Brut</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: totals[i].brut != null && isFinite(totals[i].brut) ? "#374151" : "#d1d5db" }}>
-                  {totals[i].brut != null && isFinite(totals[i].brut) ? fmt(totals[i].brut) : "—"}
+                  {totals[i].brut != null && isFinite(totals[i].brut) ? row.fmtFn(totals[i].brut) : "—"}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: "#9ca3af" }}>Amorti</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: totals[i].amorti != null && isFinite(totals[i].amorti) ? "#d97706" : "#d1d5db" }}>
-                  {totals[i].amorti != null && isFinite(totals[i].amorti) ? fmt(totals[i].amorti) : "—"}
+                  {totals[i].amorti != null && isFinite(totals[i].amorti) ? row.fmtFn(totals[i].amorti) : "—"}
                 </div>
               </div>
             </div>
@@ -2533,7 +2508,7 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
         </thead>
         <tbody>
           {paroi.composantsOpaques.map((co) => {
-            const r = calcComposantACV(co, dvr_batiment);
+            const r = calcComposantACV(co, dvr_batiment, stats?.s_opaque ?? 0);
             return (
               <tr key={co.id} style={{ borderTop: "1px solid #f3f4f6" }}>
                 <td style={td}>
@@ -2674,8 +2649,8 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         </>
       )}
 
-      {/* Section ACV 2.0 — Brut vs Amorti */}
-      <div style={{ ...sectionLabel, marginBottom: 8 }}>Indicateurs ACV 2.0</div>
+      {/* Section ACV — Brut vs Amorti */}
+      <div style={{ ...sectionLabel, marginBottom: 8 }}>Indicateurs ACV</div>
       {stats.acv_errors_count > 0 && (
         <div style={{ background:"#fee2e2", borderRadius:8, padding:"6px 10px", fontSize:11, color:"#dc2626", marginBottom:8 }}>
           ⚠ {stats.acv_errors_count} composant{stats.acv_errors_count > 1 ? "s" : ""} exclu{stats.acv_errors_count > 1 ? "s" : ""} du calcul ACV (données manquantes — DVR ou flux de référence)
@@ -2692,15 +2667,15 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         </thead>
         <tbody>
           {[
-            { label:"GWP100",        brut: stats.gwp_brut,    amorti: stats.gwp_amorti,    unit:"kg CO₂eq" },
-            { label:"Énergie NR",    brut: stats.energy_brut, amorti: stats.energy_amorti, unit:"MJ"       },
-            { label:"Santé (phot.)", brut: stats.sante_brut,  amorti: stats.sante_amorti,  unit:"kg NMVOC eq" },
-          ].map(({ label, brut, amorti, unit }) => (
+            { label:"GWP100",        brut: stats.gwp_brut,    amorti: stats.gwp_amorti,    unit:"kg CO₂eq",    fmtFn: fmt },
+            { label:"Énergie NR",    brut: stats.energy_brut, amorti: stats.energy_amorti, unit:"MJ",          fmtFn: fmt },
+            { label:"Santé (phot.)", brut: stats.sante_brut,  amorti: stats.sante_amorti,  unit:"kg NMVOC eq", fmtFn: v => fmtDec(v, 2) },
+          ].map(({ label, brut, amorti, unit, fmtFn }) => (
             <tr key={label} style={{ borderTop:"1px solid #f3f4f6" }}>
               <td style={{ ...td, fontWeight:600 }}>{label}</td>
-              <td style={{ ...td, textAlign:"right" }}>{brut != null && isFinite(brut) ? fmt(brut) : "—"}</td>
+              <td style={{ ...td, textAlign:"right" }}>{brut != null && isFinite(brut) ? fmtFn(brut) : "—"}</td>
               <td style={{ ...td, textAlign:"right", color: amorti != null && isFinite(amorti) ? "#d97706" : undefined, fontWeight: amorti != null && isFinite(amorti) ? 700 : 400 }}>
-                {amorti != null && isFinite(amorti) ? fmt(amorti) : "—"}
+                {amorti != null && isFinite(amorti) ? fmtFn(amorti) : "—"}
               </td>
               <td style={{ ...td, textAlign:"right", color:"#9ca3af" }}>{unit}</td>
             </tr>
@@ -2815,7 +2790,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
       return Object.entries(counts).reduce((best, [k, v]) => v > best[1] ? [k, v] : best, ["", -1])[0] || null;
     })();
 
-    return { filtered, phares: computePhares(filtered, bat, materials), mostRestrictive };
+    return { filtered, phares: computePhares(filtered, bat, materials, prixKwh), mostRestrictive };
   }, [rawCombos, budgetMax, roiMax, gwpMax, uMoyenMax, epIsolantMax, prixKwh, isRenovation, bat, materials]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -2842,7 +2817,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     setTimeout(() => {
       const { combos, fixedDueToConstraint } = buildCombinations(bat, materials, parseFloat(epIsolantMax) || 20);
       setRawCombos(combos);
-      const result = computePhares(combos, bat, materials);
+      const result = computePhares(combos, bat, materials, prixKwh);
       const now = new Date().toISOString();
       setPhares(result);
       setFixedComponents(fixedDueToConstraint);
@@ -3026,8 +3001,8 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 material_id:          mat.id,
                 material_name:        mat.name,
                 valeur_r_vitrage:     parseFloat(mat.valeur_r) || 0,
-                prix_unit:            parseFloat(mat.prix) || 0,
-                gwp100_unit:          extractImpact(mat.impacts, "gwp100", "gwp_100") || 0,
+                prix_unit_vitrage:    parseFloat(mat.prix) || 0,
+                gwp100_unit_vitrage:  extractImpact(mat.impacts, "gwp100", "gwp_100") || 0,
                 impacts:              mat.impacts || {},
                 dvr_materiau_vitrage: mat.dvr_materiau ?? null,
               };
@@ -3045,6 +3020,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 valeur_r_cadre:      parseFloat(mat.valeur_r) || null,
                 dvr_materiau_cadre:  mat.dvr_materiau ?? null,
                 impacts_cadre:       mat.impacts || {},
+                prix_unit_cadre:     parseFloat(mat.prix) || 0,
               };
             }
           }
@@ -3059,24 +3035,22 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
     { key: "economique", label: "Maximum économique", color: "#059669", icon: "💰" },
     { key: "ecologique", label: "Écologique",   color: "#16a34a", icon: "🌿" },
     { key: "roi",        label: "Meilleur ROI", color: "#2563eb", icon: "↩" },
-    { key: "topsisPur",  label: "TOPSIS pur (sans bonus)",       color: "#6b7280", icon: "⚪" },
-    { key: "topsis",     label: "TOPSIS",                    color: "#6d28d9", icon: "★" },
-    { key: "topsis2",    label: "TOPSIS 2.0 (bonus efficience)", color: "#7c3aed", icon: "✨" },
+    { key: "topsis2",    label: "TOPSIS",                        color: "#7c3aed", icon: "✨" },
   ];
 
-  const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsisPur", "topsis", "topsis2"];
+  const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsis2"];
 
   // Quand des filtres CSP sont actifs et les combos bruts disponibles, on utilise les phares filtrés
   const displayPhares = (filteredPhares != null && filteredPhares.filtered.length > 0)
     ? filteredPhares.phares
     : phares;
 
-  const hasSanteInLibrary = materials.some(m => { const v = parseFloat(m?.impacts?.photochemical_oxidant_hh); return isFinite(v) && v !== 0; });
+  const hasSanteInLibrary = materials.some(m => { const v = extractImpact(m?.impacts, "photochemical_oxidant_hh", "photochemical_oxidant"); return v != null && isFinite(v) && v !== 0; });
   const noSanteData = !hasSanteInLibrary;
   const santeMissingDVR = hasSanteInLibrary && (displayPhares == null || ALL_PHARE_KEYS.every(k => !(displayPhares[k]?.sante_amorti > 0)));
 
   const allDominatedOrEqual = !isRenovation && displayPhares != null && displayPhares.statuQuo != null &&
-    ["economique", "ecologique", "roi", "topsis"].every(k => {
+    ["economique", "ecologique", "roi", "topsis2"].every(k => {
       const s = displayPhares[k];
       if (!s) return true;
       const sq = displayPhares.statuQuo;
@@ -3094,7 +3068,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   };
 
   const ecoFactor = (CHAUFFAGE_OPTIONS.find(o => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0]).co2;
-  const co2Total  = sol => sol?.energy_kwh != null ? (sol.gwp ?? 0) / (bat.dvr_batiment ?? 60) + sol.energy_kwh * ecoFactor : null;
+  const co2Total  = sol => sol?.energy_kwh != null ? (sol.gwp_amorti ?? 0) / (bat.dvr_batiment ?? 60) + sol.energy_kwh * ecoFactor : null;
 
   return (
     <>
@@ -3353,7 +3327,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.sante_amorti, displayPhares.statuQuo?.sante_amorti) }}>
                               {noSanteData
                                 ? <span style={{ color: "#d1d5db", fontSize: 10 }}>n/d</span>
-                                : fmtSmall(sol.sante_amorti ?? null)}
+                                : fmtDec(sol.sante_amorti, 2)}
                             </td>
                             <td style={td}>
                               <button
@@ -3970,26 +3944,15 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
                 })}
                 style={inputStyle} placeholder="ex : 20" autoFocus />
             </Field>
-            <Field label="R cible (m²K/W)">
-              <input type="number" min="0" step="any" value={form.r_cible}
-                onChange={(e) => setForm((f) => {
-                  const rc = parseFloat(e.target.value);
-                  const lam = f.lambda_custom !== "" ? parseFloat(f.lambda_custom) : (getLambda(selectedMat) ?? parseFloat(selectedMat.valeur_r));
-                  const linked = (isFinite(lam) && lam > 0 && isFinite(rc) && rc > 0)
-                    ? String((rc * lam * 100).toFixed(1)) : f.epaisseur_cm;
-                  return { ...f, r_cible: e.target.value, epaisseur_cm: linked };
-                })}
-                style={inputStyle} placeholder="ex : 3.5" />
-            </Field>
-            <Field label={
-              <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-                λ (W/m·K) {lambdaIsCustom && <Pencil size={10} color="#f59e0b" />}
+            <Field label="R cible (m²K/W) — calculé">
+              <span style={{ fontSize: 13, color: "#374151" }}>
+                {rCalc != null ? rCalc.toFixed(3) : "—"}
               </span>
-            }>
-              <input type="number" min="0" step="any"
-                value={form.lambda_custom !== "" ? form.lambda_custom : (getLambda(selectedMat) != null ? String(getLambda(selectedMat)) : "")}
-                onChange={(e) => setForm((f) => ({ ...f, lambda_custom: e.target.value }))}
-                style={inputStyle} placeholder={getLambda(selectedMat) != null ? String(getLambda(selectedMat)) : "—"} />
+            </Field>
+            <Field label="λ (W/m·K)">
+              <span style={{ fontSize: 13, color: "#6b7280" }}>
+                {getLambda(selectedMat) != null ? `${getLambda(selectedMat)} (λ)` : "—"}
+              </span>
             </Field>
             <Field label="Surface (m²) — optionnel">
               <input type="number" min="0" step="any" value={form.surface_m2}

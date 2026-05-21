@@ -74,7 +74,8 @@ HeatSight/
 │   │   │   ├── ProjectEnergy.jsx   # Comptabilité énergétique multi-annuelle + graphes
 │   │   │   ├── ProjectReport.jsx   # Génération rapport Word
 │   │   │   ├── ProjectPlanAmelioration.jsx  # Plan d'amélioration AMUREBA + IA
-│   │   │   ├── ProjectLCA.jsx      # Analyse du cycle de vie (ACV) par projet
+│   │   │   ├── ProjectLCA2.jsx     # Module ACV — bâtiments, parois, composants, optimisation
+│   │   │   ├── ProjectLCA.jsx      # Module ACV legacy (non accessible depuis la navigation)
 │   │   │   ├── LCAAdmin.jsx        # Administration de la bibliothèque ACV
 │   │   │   └── LCALibrary.jsx      # Bibliothèque de matériaux ACV
 │   │   ├── state/
@@ -87,6 +88,8 @@ HeatSight/
 │   │   │   └── RequireAuth.jsx     # Guard de route (redirige si non connecté)
 │   │   ├── App.jsx                 # Routing principal
 │   │   └── main.jsx
+│   │   └── utils/
+│   │       └── lca2-helpers.js     # Helpers purs ACV (normStr, getLambda, isParoiExterieure…) — testés via Vitest
 │   ├── package.json
 │   └── vite.config.js
 └── README.md
@@ -112,8 +115,8 @@ HeatSight/
 | `improvement_actions` | Actions du plan d'amélioration (référence AA1–AA9, investissement, économies, IRR, PBT…) |
 | `plan_amelioration_history` | Historique des pré-remplissages IA et uploads manuels AMUREBA |
 | `amelioration_actions` | Import AMUREBA flexible (JSONB) — une ligne par feuille AAx importée |
-| `lca_materials` | Bibliothèque partagée de matériaux ACV (impacts EF v3.0, prix, valeur R) |
-| `lca_projects` | Données ACV par projet (bâtiments, parois, composants) |
+| `lca_materials` | Bibliothèque partagée de matériaux ACV — impacts EF v3.0 (JSONB 22 indicateurs), prix, `valeur_r`, `dvr_materiau`, `flux_reference`, `valeur_lambda` |
+| `lca_projects` | Données ACV par projet — bâtiments (parois, composants) en JSONB, `dvr_batiment`, `age_batiment`, cache d'optimisation |
 
 ### Migrations
 
@@ -124,8 +127,11 @@ Les tables sont créées/mises à jour au **démarrage du serveur** via des inst
 - `006_add_lca_material_fields` — champs de prix, valeur R et indicateurs EF v3.0
 - `007_add_lca_building_fields` — champs bâtiments, parois et composants
 - `008_add_flux_reference` — champ `flux_reference` sur `lca_materials`
-- `009_add_lca_optimisation_cache` — champ `optimisation_cache` sur `lca_projects`
+- `009_add_lca_batiments` — colonne JSONB `batiments` sur `lca_projects`
+- `010_add_lca_optimisation_cache` — champ `optimisation_cache` sur `lca_projects`
 - `010_add_current_excel_source` — champ `current_excel_source` sur `projects` (`"template"` · `"ai_prefill"` · `"manual_upload"` · `"ai_patched"`)
+- `011_add_lca_v2_fields` — `dvr_materiau` sur `lca_materials` ; `dvr_batiment` et `age_batiment` sur `lca_projects`
+- `012_add_valeur_lambda` — `valeur_lambda` (Float) sur `lca_materials` + migration des valeurs stockées dans le JSONB `impacts`
 
 ---
 
@@ -256,36 +262,65 @@ Workflow en 3 étapes :
 
 **Génération Excel sans corruption** : le template AMUREBA contient des named ranges avec `#REF!` et des liens externes. openpyxl les corrompt à l'écriture. Solution : approche `zipfile` + `ElementTree` — seules les cellules cibles sont patchées, `workbook.xml` est copié byte-pour-byte. La stratégie de sérialisation XML ne ré-écrit que le bloc `<sheetData>` (splice dans les bytes originaux) pour éviter le mangling de préfixes de namespaces (`x14`/`xm` → `ns4`/`ns5`) qui corromprait le fichier. Le `calcChain.xml` est supprimé et `fullCalcOnLoad="1"` est injecté dans `<calcPr>` pour forcer Excel à recalculer les formules à l'ouverture.
 
-### Analyse du cycle de vie — ACV (`/projects/:id/lca`)
-- Saisie des bâtiments, parois et composants
-- Calcul des impacts environnementaux selon la méthode **EF v3.0** (19 indicateurs : GWP100, énergie non renouvelable, particulate matter, land use, écotoxicité…)
-- Bibliothèque de matériaux partagée entre tous les projets
+### Analyse du cycle de vie — ACV (`/projects/:id/lca-v2`)
+
+Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **durée de vie de référence (DVR)**.
+
+**Modélisation bâtiment :**
+- Types de bâtiment : neuf · rénovation — détermine si le coût différentiel est calculé par rapport au statu quo
+- DVR bâtiment (défaut 60 ans) + âge actuel — activent les calculs d'impacts amortis
+- 5 moyens de chauffage avec facteurs CO₂ et prix kWh belges (gaz, mazout, bois, PAC, électrique)
+- Modale de migration : projets créés sans DVR/âge proposent une saisie guidée pour activer le module ACV
+
+**Parois et composants :**
+- Parois typées : `mur` · `toiture` · `plancher` · `cloison` (les cloisons sont exclues des calculs extérieurs)
+- Composants opaques (matériaux de la bibliothèque) : épaisseur (cm), λ (W/m·K), R (m²·K/W), coefficient d'efficacité (%)
+- Baies vitrées : vitrage (valeur R) + cadre (valeur R), DVR par défaut 30 ans
+- `U_effectif = U_théorique / (efficacité / 100)` — modélise la dégradation des matériaux existants
+- Conventions λ/R unifiées post-refonte : colonne `valeur_lambda` prioritaire sur `impacts.valeur_lambda` (JSONB), puis fallback Convention 1 pour les isolants anciens
+
+**Calculs ACV amortis (3 indicateurs) :**
+- GWP100 amorti (kg CO₂eq), Énergie non renouvelable amortie (MJ), Santé humaine amortie (kg NMVOC eq — photochemical_oxidant_hh / EF v3.0)
+- Nb cycles = `dvr_batiment / dvr_materiau` ; impact amorti = impact unitaire × quantité × nb cycles
+- Affichage brut et amorti côte à côte par paroi et en synthèse bâtiment
+- Composants sans DVR ou sans flux de référence (isolants) sont exclus du calcul avec compteur d'erreurs
+
+**Optimisation multi-critères :** → voir section dédiée ci-dessous
 
 ### Bibliothèque ACV (`/lca/library`)
-- Module de gestion des matériaux accessible depuis la sidebar
-- Import de matériaux via fichiers **LCIA-results.xlsx** (Activity Browser, méthode EF v3.0, 19 indicateurs)
-- Consultation des 19 indicateurs par double-clic
-- Modification du prix / valeur R / flux_reference par matériau
+- Module de gestion des matériaux accessible depuis la sidebar (entrée **Bibliothèque ACV**)
+- Import de matériaux via fichiers **LCIA-results.xlsx** (Activity Browser, méthode EF v3.0, 22 indicateurs dont `gwp100`, `energy_nonrenewable`, `photochemical_oxidant`)
+  - Champ **DVR matériau** obligatoire à l'import (années)
+  - Pour les isolants : **Flux de référence** (kg/m²·K/W) obligatoire + **λ** conductivité thermique (W/m·K) optionnel
+- Colonnes **DVR (ans)** et **Flux réf.** toujours visibles dans le tableau
+- Badge **Incomplet ACV** sur les matériaux sans DVR ou sans flux de référence (isolants) — indique qu'ils seront exclus des calculs amortis
+- Consultation des 22 indicateurs EF v3.0 par double-clic (fiche matériau)
+- Modification de toutes les propriétés ACV par double-clic → édition en modale : nom, catégorie, prix, `valeur_r`, `dvr_materiau`, `flux_reference`, `valeur_lambda`
 - Duplication et suppression de matériaux
+- Gestion des alias de clés JSONB : `photochemical_oxidant_hh` (matériaux seedés) et `photochemical_oxidant` (matériaux importés) sont normalisés automatiquement
 
 ### Construction du bâtiment
 - Modélisation par parois avec composants unifiés (opaques et baies vitrées)
-- Champs épaisseur / λ / R liés et recalculés mutuellement
+- Champs épaisseur / λ / R liés et recalculés mutuellement selon la convention unifiée post-refonte
 - Coefficient d'efficacité par composant (0–100 %) pour modéliser la dégradation des matériaux existants — `U_effectif = U_théorique / (efficacité / 100)`
 - Calcul thermique basé sur degrés-jours (défaut 2 500 DJ Belgique)
 - 5 moyens de chauffage avec facteurs CO₂ et rendements belges
-- 2 widgets côte à côte : Construction + Impacts globaux
+- 3 widgets côte à côte : Construction + Impacts globaux + Indicateurs ACV (brut / amorti)
 - Persistance via `PATCH` avec debounce 800 ms et hash de configuration
 
 ### Optimisation multi-critères
-- Moteur 100 % frontend combinant **CSP** (filtres durs : budget, ROI, GWP100 max, U max PEB) et **TOPSIS**
-- 5 profils de solutions : statu quo · économique · écologique · meilleur ROI · TOPSIS
-- Coûts différentiels (statu quo = 0 € de référence)
+- Moteur 100 % frontend combinant **CSP** (filtres durs : budget, ROI max, GWP max, U moyen max, épaisseur isolant max) et **TOPSIS**
+- **5 profils de solutions** : Statu quo · Maximum économique · Écologique · Meilleur ROI · TOPSIS
+- Coûts différentiels (statu quo = 0 € de référence en mode neuf ; coût réel en mode rénovation)
 - ROI calculé avec prix kWh selon moyen de chauffage : gaz = 0,12 · mazout = 0,11 · bois = 0,08 · PAC/électrique = 0,25 €/kWh
 - Matériaux de remplacement toujours à efficacité 100 % (neufs)
-- 3 indicateurs principaux (GWP100, énergie non renouvelable, particulate matter) + 2 complémentaires (land use, écotoxicité)
-- Système de hash pour reproductibilité des résultats entre sessions
+- **Indicateurs affichés par profil :** coût différentiel, GWP100, énergie (kWh/an), CO₂ total (construction + exploitation), économies €/an, économies CO₂/an, ROI, Santé humaine amortie (kg NMVOC eq)
+- **Algorithme TOPSIS** — 5 critères pondérés à égalité (1,0) : Δcoût (min), économies €/an (max), GWP100 amorti (min), énergie NR amortie (min), santé humaine amortie (min) ; normalisation euclidienne ; score `dA/(dI+dA)` ; bonus efficience ×1,15 pour les solutions au-dessus du P75 (calculé sur les efficiences finies strictement positives) ; solutions à Δcoût ≤ 0 → efficience = ∞ (bonus garanti) ; solutions sans gain GWP → exclues du bonus
+- Profil **Écologique** : minimise GWP_amorti + CO₂_exploitation × DVR_bâtiment
+- Profil **Meilleur ROI** : ratio économies/investissement sur 20 ans (exclu si Δcoût ≤ 0)
+- Système de hash pour reproductibilité des résultats entre sessions et persistance du cache en base
 - Création automatique de bâtiments « Optimisation 1/2/3 » depuis les solutions sélectionnées
+- Détection **« Configuration déjà optimale »** : si tous les profils alternatifs sont dominés ou égaux au statu quo
 
 ### Administration ACV (`/lca/admin`)
 - Import de matériaux depuis un fichier **LCIA-results.xlsx** (format EF v3.0)
@@ -387,14 +422,14 @@ Workflow en 3 étapes :
 |---|---|---|
 | GET | `/lca/materials` | Liste tous les matériaux de la bibliothèque |
 | GET | `/lca/materials/{id}` | Détail d'un matériau |
-| POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx |
-| PATCH | `/lca/materials/{id}` | Modifie un matériau |
+| POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx (multipart, `version=v2`) |
+| PATCH | `/lca/materials/{id}` | Modifie un matériau (prix, valeur_r, dvr_materiau, flux_reference, valeur_lambda…) |
 | DELETE | `/lca/materials/{id}` | Supprime un matériau |
 | POST | `/lca/materials/{id}/duplicate` | Duplique un matériau |
-| GET | `/projects/{id}/lca` | Récupère les données ACV du projet |
+| GET | `/projects/{id}/lca` | Récupère les données ACV du projet (bâtiments JSONB + dvr_batiment + age_batiment) |
 | PATCH | `/projects/{id}/lca` | Sauvegarde les éléments ACV (legacy) |
-| PATCH | `/projects/{id}/lca/batiments` | Sauvegarde les bâtiments avec parois et composants |
-| PATCH | `/projects/{id}/lca/optimisation-cache` | Sauvegarde le cache des résultats d'optimisation |
+| PATCH | `/projects/{id}/lca/batiments` | Sauvegarde les bâtiments avec parois, composants, DVR et âge bâtiment |
+| PATCH | `/projects/{id}/lca/optimisation-cache?version=v2` | Sauvegarde le cache des résultats d'optimisation (hash + solutions + fixed_components) |
 | GET | `/projects/{id}/audit/energie-chauffage` | Récupère le moyen de chauffage pour le calcul ROI |
 
 ### Agenda
@@ -526,4 +561,6 @@ Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_source
 - **Année d'audit** : fixée à `2023` dans le template Excel
 - **Analyse IA** : `analyze-all` traite les documents en parallèle (max 3 simultanés) — un grand volume reste limité par le débit de l'API Anthropic
 - **Plan d'amélioration PEB / Autre / Mon template** : onglets prévus, pas encore implémentés
-- **LCA** : calcul des impacts basé sur la bibliothèque de matériaux — nécessite que les matériaux soient importés via l'admin ACV
+- **ACV — calculs amortis** : nécessitent que chaque matériau ait une DVR renseignée (et un flux de référence pour les isolants) — les composants incomplets sont exclus du calcul avec compteur d'avertissement
+- **ACV — indicateur Santé humaine** : disponible uniquement si au moins un matériau de la bibliothèque contient la clé `photochemical_oxidant_hh` ou `photochemical_oxidant` dans ses impacts EF v3.0
+- **ACV — module legacy** (`/projects/:id/lca`) : conservé en base de code mais retiré de la navigation

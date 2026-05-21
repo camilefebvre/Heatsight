@@ -51,6 +51,7 @@ class _LcaMaterialEditPayload(_PydanticBase):
     valeur_r: Optional[float] = None
     flux_reference: Optional[float] = None
     dvr_materiau: Optional[int] = None
+    valeur_lambda: Optional[float] = None
     impacts: Optional[Dict[str, Any]] = None
 
 
@@ -4141,6 +4142,9 @@ def patch_lca_optimisation_cache(
 # On cherche chaque sous-chaîne dans le nom de colonne normalisé (lowercase, espaces normalisés).
 # Les sous-catégories (biogenic, fossil…) doivent précéder leur catégorie parente (climate change).
 _EF_COLUMN_PATTERNS: list = [
+    # GWP total EF v3.0 explicite — avant les sous-catégories pour qu'EN 15804+A2
+    # avec colonnes v3.0 ET v3.1 mappe correctement la bonne valeur vers gwp100.
+    ("climate change: total (ef v3.0",                 "gwp100"),
     # Climate change — sous-catégories d'abord
     ("climate change: biogenic",                        "climate_biogenic"),
     ("climate change: fossil",                          "climate_fossil"),
@@ -4177,8 +4181,14 @@ def _normalize_col(name: str) -> str:
     return _re.sub(r"\s+", " ", name.lower().strip())
 
 
+def _is_impact_col(col_name: str) -> bool:
+    """Vrai si la colonne est une colonne d'impact EF v3.0 ou EN 15804+A2."""
+    col_lower = col_name.lower()
+    return "EF v3.0" in col_name or "en15804+a2" in col_lower or "en 15804" in col_lower
+
+
 def _parse_lcia_xlsx(file_bytes: bytes) -> Dict[str, float]:
-    """Lit un fichier LCIA-results.xlsx (colonnes EF v3.0) et retourne {clé_ef: valeur}."""
+    """Lit un fichier LCIA-results.xlsx (format EF v3.0 ou EN 15804+A2) et retourne {clé_ef: valeur}."""
     import math
     import io
     import pandas as pd
@@ -4187,13 +4197,13 @@ def _parse_lcia_xlsx(file_bytes: bytes) -> Dict[str, float]:
     xl = pd.ExcelFile(io.BytesIO(file_bytes))
 
     for sheet_name in xl.sheet_names:
-        # Essaie de trouver la ligne d'en-tête qui contient "EF v3.0"
+        # Essaie de trouver la ligne d'en-tête contenant des colonnes EF v3.0 ou EN 15804+A2
         df = None
         for header_row in range(6):
             candidate = xl.parse(sheet_name, header=header_row)
             ef_cols = [
                 c for c in candidate.columns
-                if isinstance(c, str) and "EF v3.0" in c
+                if isinstance(c, str) and _is_impact_col(c)
             ]
             if ef_cols:
                 df = candidate
@@ -4202,7 +4212,7 @@ def _parse_lcia_xlsx(file_bytes: bytes) -> Dict[str, float]:
         if df is None or df.empty:
             continue
 
-        ef_cols = [c for c in df.columns if isinstance(c, str) and "EF v3.0" in c]
+        ef_cols = [c for c in df.columns if isinstance(c, str) and _is_impact_col(c)]
 
         for col in ef_cols:
             col_norm = _normalize_col(col)
@@ -4258,7 +4268,7 @@ async def import_lca_material(
     if not impacts:
         raise HTTPException(
             status_code=422,
-            detail="Aucun indicateur EF v3.0 reconnu dans ce fichier. Vérifiez que les noms de catégories d'impact correspondent au standard EF v3.0.",
+            detail="Aucun indicateur reconnu dans ce fichier. Vérifiez que les colonnes correspondent au format EF v3.0 ou EN 15804+A2.",
         )
 
     if valeur_lambda is not None:
@@ -4281,6 +4291,7 @@ async def import_lca_material(
         valeur_r=valeur_r,
         dvr_materiau=dvr_materiau,
         flux_reference=flux_reference,
+        valeur_lambda=valeur_lambda,
     )
     db.add(material)
     db.commit()
@@ -4327,6 +4338,11 @@ def patch_lca_material(
     if payload.impacts is not None:
         material.impacts = payload.impacts
         flag_modified(material, "impacts")
+    if payload.valeur_lambda is not None:
+        current_impacts = dict(material.impacts or {})
+        current_impacts["valeur_lambda"] = payload.valeur_lambda
+        material.impacts = current_impacts
+        flag_modified(material, "impacts")
     db.commit()
     db.refresh(material)
     return material
@@ -4366,6 +4382,7 @@ def duplicate_lca_material(
         valeur_r=original.valeur_r,
         is_fixed=False,
         flux_reference=original.flux_reference,
+        valeur_lambda=original.valeur_lambda,
     )
     db.add(copy)
     db.commit()

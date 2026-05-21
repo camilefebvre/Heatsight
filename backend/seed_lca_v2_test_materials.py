@@ -29,20 +29,16 @@ sys.path.insert(0, str(Path(__file__).parent))
 from app.database import SessionLocal
 from app.models import LcaMaterial
 
-# ── Convention sémantique de la colonne valeur_r (refonte conceptuelle) ───────
-# valeur_r est un R thermique direct (m²·K/W) pour TOUS les non-isolants.
+# ── Convention sémantique (refonte Tâche 9) ────────────────────────────────────
+# Chaque matériau utilise des colonnes dédiées avec sémantique claire :
 #
-#   Catégorie                | valeur_r représente         | Unité
-#   ─────────────────────────┼─────────────────────────────┼─────────────
-#   Mur, Toiture, Plancher,  | R direct (config FDES)      | m²·K/W
-#   Cloison, Parement        | R direct (config FDES)      | m²·K/W
-#   Vitrage (Fenêtre)        | R direct                    | m²·K/W
-#   Cadre                    | R direct                    | m²·K/W
-#   Isolant                  | 1.0 (référence Conv. 2)     | sans dimension
-#
-# Pour les isolants, λ réel est dans impacts["valeur_lambda"].
-# Pour les Mur/Toiture/etc., l'épaisseur de référence FDES est dans
-# impacts["epaisseur_reference_cm"] (informatif, non utilisé dans calculs ACV).
+#   Catégorie                | valeur_r         | valeur_lambda    | flux_reference
+#   ─────────────────────────┼──────────────────┼──────────────────┼──────────────
+#   Mur, Toiture, Plancher,  | R direct (m²K/W) | NULL             | NULL
+#   Cloison, Parement        |                  |                  |
+#   Vitrage (Fenêtre)        | R direct (m²K/W) | NULL             | NULL
+#   Cadre                    | R direct (m²K/W) | NULL             | NULL
+#   Isolant                  | 1.0 (référence)  | λ (W/m·K)        | flux (kg/m²·K/W)
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Données de test ────────────────────────────────────────────────────────────
@@ -108,6 +104,7 @@ MATERIALS = [
         "unit": "kg",
         "prix": 8.0,
         "valeur_r": 1.0,       # R de référence ACV 2.0 (convention : 1 m²·K/W pour flux_reference kg/m²)
+        "valeur_lambda": 0.038,  # NEW : colonne dédiée Phase 9
         "dvr_materiau": 50,
         "flux_reference": 0.47,  # kg / (m²·K/W)
         "is_fixed": False,
@@ -115,7 +112,7 @@ MATERIALS = [
             "gwp100": 1.65,
             "energy_nonrenewable_adp": 42.0,
             "photochemical_oxidant_hh": 0.0058,
-            "valeur_lambda": 0.038,
+            "valeur_lambda": 0.038,  # conservé pour compatibilité durant transition
         },
     },
     {
@@ -126,6 +123,7 @@ MATERIALS = [
         "unit": "kg",
         "prix": 12.0,
         "valeur_r": 1.0,       # R de référence ACV 2.0 (convention : 1 m²·K/W pour flux_reference kg/m²)
+        "valeur_lambda": 0.024,  # NEW : colonne dédiée Phase 9
         "dvr_materiau": 50,
         "flux_reference": 0.72,
         "is_fixed": False,
@@ -133,7 +131,7 @@ MATERIALS = [
             "gwp100": 3.85,
             "energy_nonrenewable_adp": 95.0,
             "photochemical_oxidant_hh": 0.0142,
-            "valeur_lambda": 0.024,
+            "valeur_lambda": 0.024,  # conservé pour compatibilité durant transition
         },
     },
     {
@@ -144,6 +142,7 @@ MATERIALS = [
         "unit": "kg",
         "prix": 15.0,
         "valeur_r": 1.0,       # R de référence ACV 2.0 (convention : 1 m²·K/W pour flux_reference kg/m²)
+        "valeur_lambda": 0.045,  # NEW : colonne dédiée Phase 9
         "dvr_materiau": 60,
         "flux_reference": 2.25,
         "is_fixed": False,
@@ -151,7 +150,7 @@ MATERIALS = [
             "gwp100": -0.5,   # négatif : biosourcé, séquestre du CO₂
             "energy_nonrenewable_adp": 12.0,
             "photochemical_oxidant_hh": 0.0021,
-            "valeur_lambda": 0.045,
+            "valeur_lambda": 0.045,  # conservé pour compatibilité durant transition
         },
     },
     {
@@ -245,6 +244,7 @@ def seed():
                 existing.unit            = data["unit"]
                 existing.prix            = data["prix"]
                 existing.valeur_r        = data["valeur_r"]
+                existing.valeur_lambda   = data.get("valeur_lambda")
                 existing.dvr_materiau    = data["dvr_materiau"]
                 existing.flux_reference  = data["flux_reference"]
                 existing.is_fixed        = data["is_fixed"]
@@ -260,6 +260,7 @@ def seed():
                     unit             = data["unit"],
                     prix             = data["prix"],
                     valeur_r         = data["valeur_r"],
+                    valeur_lambda    = data.get("valeur_lambda"),
                     dvr_materiau     = data["dvr_materiau"],
                     flux_reference   = data["flux_reference"],
                     is_fixed         = data["is_fixed"],

@@ -20,11 +20,19 @@ export function isCadreCategory(cat) {
   return (cat || "").toLowerCase() === "cadre";
 }
 
-// Convention 2 — Lambda explicite : impacts.valeur_lambda (W/m·K).
-// Rétrocompat : si valeur_lambda absent, utilise valeur_r si 0 < valeur_r < 0.5.
+// Convention (refonte Tâche 9) — Lambda de conductivité thermique (W/m·K).
+// Priorité de lecture :
+//   1. m.valeur_lambda          → colonne dédiée (refonte Tâche 9)
+//   2. m.impacts.valeur_lambda  → clé JSONB (Phase 1, rétrocompat transition)
+//   3. m.valeur_r si 0 < x < 0.5 et Isolant → Convention 1 ancienne (rétrocompat)
 export function getLambda(m) {
+  // Priorité 1 : colonne dédiée
+  const fromColumn = parseFloat(m?.valeur_lambda);
+  if (isFinite(fromColumn) && fromColumn > 0) return fromColumn;
+  // Priorité 2 : clé JSONB (transition)
   const fromImpacts = parseFloat(m?.impacts?.valeur_lambda);
   if (isFinite(fromImpacts) && fromImpacts > 0) return fromImpacts;
+  // Priorité 3 : Convention 1 rétrocompat (Isolant uniquement, valeur_r < 0.5)
   const fromR = parseFloat(m?.valeur_r);
   if (isIsolantCategory(m?.category) && isFinite(fromR) && fromR > 0 && fromR < 0.5) return fromR;
   return null;

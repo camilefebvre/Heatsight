@@ -26,7 +26,10 @@
       "Bash(Get-Content \"C:\\\\Users\\\\merli\\\\Desktop\\\\Heatsight\\\\frontend\\\\src\\\\pages\\\\ProjectLCA.jsx\")",
       "Bash(Measure-Object -Line)",
       "PowerShell(Get-Content *)",
-      "PowerShell(Copy-Item *)"
+      "PowerShell(Copy-Item *)",
+      "Bash(npx vitest *)",
+      "PowerShell(psql *)",
+      "PowerShell(Get-Command *)"
     ]
   }
 }

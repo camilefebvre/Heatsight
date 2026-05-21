@@ -13,7 +13,6 @@ import {
   Users2,
   Files,
   TrendingUp,
-  Leaf,
   Library,
   Sprout,
 } from "lucide-react";
@@ -290,8 +289,8 @@ export default function Sidebar() {
             <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" />
             <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
             <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
-            <SidebarLink to={`/projects/${selectedProjectId}/lca`}     icon={Leaf}    label="ACV (legacy)" />
-            <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`}  icon={Sprout}  label="ACV 2.0" />
+            {/* <SidebarLink to={`/projects/${selectedProjectId}/lca`} icon={Leaf} label="ACV (legacy)" /> */}
+            <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`}  icon={Sprout}  label="ACV" />
           </nav>
         </>
       )}
