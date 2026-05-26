@@ -52,6 +52,7 @@ class _LcaMaterialEditPayload(_PydanticBase):
     flux_reference: Optional[float] = None
     dvr_materiau: Optional[int] = None
     valeur_lambda: Optional[float] = None
+    poids_unite: Optional[float] = None
     impacts: Optional[Dict[str, Any]] = None
 
 
@@ -4253,6 +4254,7 @@ async def import_lca_material(
     dvr_materiau: Optional[int] = Form(default=None),
     flux_reference: Optional[float] = Form(default=None),
     valeur_lambda: Optional[float] = Form(default=None),
+    poids_unite: Optional[float] = Form(default=None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -4293,6 +4295,7 @@ async def import_lca_material(
         dvr_materiau=dvr_materiau,
         flux_reference=flux_reference,
         valeur_lambda=valeur_lambda,
+        poids_unite=poids_unite,
     )
     db.add(material)
     db.commit()
@@ -4384,6 +4387,7 @@ def duplicate_lca_material(
         is_fixed=False,
         flux_reference=original.flux_reference,
         valeur_lambda=original.valeur_lambda,
+        poids_unite=original.poids_unite,
     )
     db.add(copy)
     db.commit()

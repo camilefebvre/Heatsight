@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Upload, Pencil, Copy, Trash2 } from "lucide-react";
 import { apiFetch } from "../api";
+import { isIsolantCategory } from "../utils/lca2-helpers.js";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
@@ -30,7 +31,7 @@ function fmtImpact(v) {
 const EMPTY_IMP_FORM = {
   file: null, name: "", category: "mur",
   functionalUnit: "", unit: "", prix: "", valeurR: "",
-  dvrMateriau: "", fluxReference: "", valeurLambda: "",
+  dvrMateriau: "", fluxReference: "", valeurLambda: "", poidsUnite: "",
   importing: false, result: null,
 };
 
@@ -146,7 +147,7 @@ export default function LCALibrary() {
   // ── Import ─────────────────────────────────────────────────────────────────
   async function handleImport(e) {
     e.preventDefault();
-    const isIsolant = imp.category === "isolant";
+    const isIsolant = isIsolantCategory(imp.category);
     if (isIsolant && imp.valeurLambda !== "") {
       const lv = Number(imp.valeurLambda);
       if (!isFinite(lv) || lv <= 0) {
@@ -168,6 +169,7 @@ export default function LCALibrary() {
       if (imp.dvrMateriau !== "") fd.append("dvr_materiau", imp.dvrMateriau);
       if (imp.fluxReference !== "") fd.append("flux_reference", imp.fluxReference);
       if (imp.valeurLambda !== "") fd.append("valeur_lambda", imp.valeurLambda);
+      if (imp.poidsUnite !== "" && !isIsolantCategory(imp.category)) fd.append("poids_unite", imp.poidsUnite);
       const res = await apiFetch("/lca/materials/import", { method: "POST", body: fd });
       if (!res.ok) {
         const err = await res.json().catch(() => ({ detail: "Erreur inconnue" }));
@@ -188,7 +190,7 @@ export default function LCALibrary() {
   // ── Édition ────────────────────────────────────────────────────────────────
   function openEdit(mat, highlightIncomplete = false) {
     const imp = mat.impacts || {};
-    const isIsolant = (mat.category || "").toLowerCase() === "isolant";
+    const isIsolant = isIsolantCategory(mat.category);
     const lambdaSuggestion =
       mat.valeur_lambda != null
         ? String(mat.valeur_lambda)
@@ -206,6 +208,7 @@ export default function LCALibrary() {
       flux_reference: mat.flux_reference ?? "",
       dvr_materiau: mat.dvr_materiau ?? "",
       valeur_lambda: lambdaSuggestion,
+      poids_unite: mat.poids_unite ?? "",
       impacts: imp,
       highlightIncomplete,
     });
@@ -217,7 +220,7 @@ export default function LCALibrary() {
     setSaving(true);
     setSaveError("");
     try {
-      const isIsolant = (editModal.category || "").toLowerCase() === "isolant";
+      const isIsolant = isIsolantCategory(editModal.category);
       if (isIsolant && editModal.valeur_lambda !== "") {
         const lv = Number(editModal.valeur_lambda);
         if (!isFinite(lv) || lv <= 0) {
@@ -234,6 +237,7 @@ export default function LCALibrary() {
         flux_reference: editModal.flux_reference !== "" ? Number(editModal.flux_reference) : undefined,
         dvr_materiau: editModal.dvr_materiau !== "" ? Number(editModal.dvr_materiau) : undefined,
         valeur_lambda: isIsolant && editModal.valeur_lambda !== "" ? Number(editModal.valeur_lambda) : undefined,
+        poids_unite: !isIsolant && editModal.poids_unite !== "" ? Number(editModal.poids_unite) : undefined,
         impacts: Object.keys(updatedImpacts).length > 0 ? updatedImpacts : undefined,
       };
       const res = await apiFetch(`/lca/materials/${editModal.id}?version=v2`, {
@@ -291,7 +295,7 @@ export default function LCALibrary() {
 
   function isIncomplete(mat) {
     if (mat.dvr_materiau == null) return true;
-    if ((mat.category || "").toLowerCase() === "isolant" && mat.flux_reference == null) return true;
+    if (isIsolantCategory(mat.category) && mat.flux_reference == null) return true;
     return false;
   }
 
@@ -438,6 +442,30 @@ export default function LCALibrary() {
         )}
       </div>
 
+      {/* ── Encart Module C — lecture seule ─────────────────────────────────── */}
+      <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "14px 18px" }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", marginBottom: 6 }}>
+          Procédé système — Déconstruction (Module C, EN 15978)
+        </div>
+        <div style={{ fontSize: 12, color: "#78350f", marginBottom: 8 }}>
+          Appliqué à tous les matériaux ayant un poids/unité renseigné. Source : ACV interne, procédé C1.
+        </div>
+        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#6b7280" }}>GWP100</span>
+            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>7,209 kg CO₂eq/t</span>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#6b7280" }}>Énergie NR</span>
+            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>93,856 MJ/t</span>
+          </div>
+          <div style={{ fontSize: 12 }}>
+            <span style={{ color: "#6b7280" }}>Santé (NMVOC)</span>
+            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>0,0982 kg/t</span>
+          </div>
+        </div>
+      </div>
+
       {/* ── Modale : Import XLSX ─────────────────────────────────────────────── */}
       {impOpen && (
         <div
@@ -509,7 +537,7 @@ export default function LCALibrary() {
                 <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                   <input type="number" min="1" step="1" value={imp.dvrMateriau} onChange={(e) => setImp((s) => ({ ...s, dvrMateriau: e.target.value }))} style={inputStyle} placeholder="50" required />
                 </FormField>
-                {imp.category === "isolant" && (
+                {isIsolantCategory(imp.category) && (
                   <>
                     <FormField label={<span>Flux de référence (kg/m²·K/W) <span>*</span> <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input type="number" min="0" step="any" value={imp.fluxReference} onChange={(e) => setImp((s) => ({ ...s, fluxReference: e.target.value }))} style={inputStyle} placeholder="8.5" required />
@@ -525,14 +553,19 @@ export default function LCALibrary() {
                     </FormField>
                   </>
                 )}
+                {!isIsolantCategory(imp.category) && (
+                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle — requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <input type="number" min="0" step="any" value={imp.poidsUnite} onChange={(e) => setImp((s) => ({ ...s, poidsUnite: e.target.value }))} style={inputStyle} placeholder="ex : 350" />
+                  </FormField>
+                )}
               </div>
 
               <button
                 type="submit"
-                disabled={imp.importing || !imp.file || !imp.name.trim() || !imp.functionalUnit.trim() || !imp.unit.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (imp.category === "isolant" && imp.fluxReference === "")}
+                disabled={imp.importing || !imp.file || !imp.name.trim() || !imp.functionalUnit.trim() || !imp.unit.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (isIsolantCategory(imp.category) && imp.fluxReference === "")}
                 style={{
                   ...primaryBtn, width: "100%", display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
-                  opacity: (imp.importing || !imp.file || !imp.name.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (imp.category === "isolant" && imp.fluxReference === "")) ? 0.55 : 1,
+                  opacity: (imp.importing || !imp.file || !imp.name.trim() || imp.prix === "" || imp.valeurR === "" || imp.dvrMateriau === "" || (isIsolantCategory(imp.category) && imp.fluxReference === "")) ? 0.55 : 1,
                 }}
               >
                 <Upload size={14} />
@@ -585,7 +618,7 @@ export default function LCALibrary() {
               })()}
               <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "—"} />
               <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
-              {(ficheModal.category || "").toLowerCase() === "isolant" && (
+              {isIsolantCategory(ficheModal.category) && (
                 <InfoRow
                   label="λ — Conductivité thermique (W/m·K)"
                   value={
@@ -707,7 +740,7 @@ export default function LCALibrary() {
                     placeholder="—"
                   />
                 </FormField>
-                {editModal.category === "isolant" && (
+                {isIsolantCategory(editModal.category) && (
                   <>
                     <FormField label={<span>Flux référence (kg/m²·K/W) <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
@@ -731,6 +764,17 @@ export default function LCALibrary() {
                       />
                     </FormField>
                   </>
+                )}
+                {!isIsolantCategory(editModal.category) && (
+                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle — requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <input
+                      type="number" min="0" step="any"
+                      value={editModal.poids_unite ?? ""}
+                      onChange={(e) => setEditModal((s) => ({ ...s, poids_unite: e.target.value }))}
+                      style={inputStyle}
+                      placeholder="ex : 350"
+                    />
+                  </FormField>
                 )}
               </div>
 

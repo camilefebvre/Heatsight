@@ -168,6 +168,7 @@ class LcaMaterialOut(BaseModel):
     flux_reference: Optional[float] = None
     dvr_materiau: Optional[int] = None
     valeur_lambda: Optional[float] = None
+    poids_unite: Optional[float] = None
 
 
 class LcaMaterialPatch(BaseModel):
@@ -177,6 +178,7 @@ class LcaMaterialPatch(BaseModel):
     flux_reference: Optional[float] = None
     dvr_materiau: Optional[int] = None
     valeur_lambda: Optional[float] = None
+    poids_unite: Optional[float] = None
 
 
 class LcaElement(BaseModel):

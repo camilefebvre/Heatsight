@@ -241,6 +241,7 @@ class LcaMaterial(Base):
     flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) — pour isolants: quantité = R × flux_ref × surface
     valeur_lambda  = Column(Float, nullable=True, comment="Conductivité thermique λ (W/m·K), pour les Isolants uniquement")
     dvr_materiau = Column(Integer, nullable=True)    # durée de vie de référence, années
+    poids_unite  = Column(Float,   nullable=True)    # masse par unité fonctionnelle (kg/unité) — Module C déconstruction
 
 
 class LcaProject(Base):

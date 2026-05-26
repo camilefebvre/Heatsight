@@ -12,19 +12,28 @@ import {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const CHAUFFAGE_OPTIONS = [
-  { id: "gaz",        label: "Chaudière gaz",    co2: 0.227, rendement: 0.90 }, // PCI — cohérent avec rendement PCI
+  { id: "gaz",        label: "Chaudière gaz",    co2: 0.205, rendement: 0.90 }, // IPCC 2006 Vol.2 Annex 1 Table 1.3
   { id: "mazout",     label: "Chaudière mazout",  co2: 0.265, rendement: 0.85 },
   { id: "bois",       label: "Chaudière bois",    co2: 0.030, rendement: 0.75 },
-  { id: "pac",        label: "Pompe à chaleur",   co2: 0.20,  rendement: 3.0  }, // réseau belge ~0.20 kg CO₂/kWh_élec
-  { id: "electrique", label: "Électrique direct", co2: 0.20,  rendement: 1.0  }, // réseau belge ~0.20 kg CO₂/kWh_élec
+  { id: "pac",        label: "Pompe à chaleur",   co2: 0.132, rendement: 3.0  }, // AIB 2024 via VREG
+  { id: "electrique", label: "Électrique direct", co2: 0.132, rendement: 1.0  }, // AIB 2024 via VREG
 ];
 
 const PRIX_KWH_BY_CHAUFFAGE = {
-  gaz:        0.12,
-  mazout:     0.11,
+  gaz:        0.095,
+  mazout:     0.10,
   bois:       0.08,
-  pac:        0.25,
-  electrique: 0.25,
+  pac:        0.345,
+  electrique: 0.345,
+};
+
+// Facteur déconstruction — EN 15978 Module C. Source : ACV interne (procédé C1, par tonne).
+// Valeurs PAR KG (= valeur par tonne / 1000) — masses code en kg, produit direct sans facteur 1000.
+// GWP = climate change total (EF v3.1 / IPCC AR6 2021) ; fiches matériaux en EF v3.0 / IPCC AR5 2013 (Δ < 2 %).
+const DECON_IMPACTS_PER_KG = {
+  gwp100:    0.007209,   // kg CO₂eq/kg  (7,209 kg CO₂eq/tonne)
+  energy_nr: 0.093856,   // MJ/kg        (93,856 MJ/tonne)
+  sante:     9.82e-8,    // kg NMVOC eq/kg (0,0982 kg/tonne)
 };
 
 const PAROI_TYPES = ["mur", "toiture", "plancher", "cloison"];
@@ -117,6 +126,7 @@ function computeConfigHash(bat, materials) {
     en:  extractImpact(m.impacts, "energy_nonrenewable_adp", "energy_nonrenewable") ?? null,
     sa:  extractImpact(m.impacts, "photochemical_oxidant_hh", "photochemical_oxidant") ?? null,
     dvr: m.dvr_materiau ?? null,
+    pw:  m.poids_unite  ?? null,
   }));
   matLib.sort((a, b) => a.i.localeCompare(b.i));
 
@@ -258,6 +268,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
             impacts:        m.impacts || {},
             dvr_materiau:   m.dvr_materiau ?? co.dvr_materiau ?? null,
             flux_reference: m.flux_reference ?? co.flux_reference ?? null,
+            poids_unite:    m.poids_unite ?? co.poids_unite ?? null,
             efficacite:     100,
           };
         });
@@ -304,12 +315,13 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
       }
 
       const vitageCandidates = vitAltMats.map(m => ({
-        material_id:          m.id,
-        material_name:        m.name,
-        valeur_r_vitrage:     parseFloat(m.valeur_r) || 0,
-        impacts:              m.impacts || {},
-        dvr_materiau_vitrage: m.dvr_materiau ?? bv.dvr_materiau_vitrage ?? null,
-        prix_unit:            parseFloat(m.prix) || 0,
+        material_id:           m.id,
+        material_name:         m.name,
+        valeur_r_vitrage:      parseFloat(m.valeur_r) || 0,
+        impacts:               m.impacts || {},
+        dvr_materiau_vitrage:  m.dvr_materiau ?? bv.dvr_materiau_vitrage ?? null,
+        poids_unite_vitrage:   m.poids_unite ?? bv.poids_unite_vitrage ?? null,
+        prix_unit:             parseFloat(m.prix) || 0,
       }));
 
       if (vitageCandidates.length > 0) {
@@ -333,6 +345,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
           material_name:       m.name,
           valeur_r_cadre:      parseFloat(m.valeur_r) || null,
           dvr_materiau_cadre:  m.dvr_materiau ?? bv.dvr_materiau_cadre ?? null,
+          poids_unite_cadre:   m.poids_unite ?? bv.poids_unite_cadre ?? null,
           impacts_cadre:       m.impacts || {},
           prix_unit:           parseFloat(m.prix) || 0,
         }));
@@ -633,9 +646,9 @@ function computePhares(combos, bat, materials, prixKwhOverride) {
   const eucNorm = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
   const normVec = (arr, w) => { const n = eucNorm(arr); return n === 0 ? arr.map(() => 0) : arr.map(v => (v / n) * w); };
 
-  // 5 critères ACV 2.0 (poids égaux 1.0) :
+  // 5 critères TOPSIS (poids : coût=1, savings=1, GWP=1, énergie NR=0,5, santé=0,5) :
   // Coût différentiel — minimiser | Économies €/an — maximiser
-  // GWP amorti — minimiser | Énergie NR amortie — minimiser | Santé humaine amortie — minimiser
+  // GWP amorti — minimiser | Énergie NR amortie — minimiser (0,5) | Santé amortie — minimiser (0,5)
   function buildTopsisVectors() {
     const rawCout  = valid.map(c => isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost));
     const rawSav   = valid.map(c => sqEnergy != null ? (sqEnergy - c.energy_kwh) * PRICE : 0);
@@ -645,8 +658,8 @@ function computePhares(combos, bat, materials, prixKwhOverride) {
     const vCout  = normVec(rawCout,  1.0);
     const vSav   = normVec(rawSav,   1.0);
     const vGwpAm = normVec(rawGwpAm, 1.0);
-    const vEnAm  = normVec(rawEnAm,  1.0);
-    const vSaAm  = normVec(rawSaAm,  1.0);
+    const vEnAm  = normVec(rawEnAm,  0.5);
+    const vSaAm  = normVec(rawSaAm,  0.5);
     // Idéaux : coût diff → min ; économies → max ; GWP/Énergie/Santé amortis → min
     const aP_cout  = Math.min(...vCout);  const aM_cout  = Math.max(...vCout);
     const aP_sav   = Math.max(...vSav);   const aM_sav   = Math.min(...vSav);
@@ -708,9 +721,10 @@ function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
   const dvr_mat = parseFloat(co.dvr_materiau);
   if (!isFinite(dvr_mat) || dvr_mat <= 0)
     return { valid: false, errorMsg: "DVR matériau manquante — calcul ACV impossible" };
-  const nb_cycles = dvr_bat / dvr_mat;
+  const nb_cycles = Math.ceil(dvr_bat / dvr_mat);
   const surface = s_opaque;
   let qty;
+  let masse_kg = null;
   if (isIsolantCategory(co.category)) {
     const r_cible = parseFloat(co.r_cible);
     if (!isFinite(r_cible) || r_cible <= 0)
@@ -718,18 +732,26 @@ function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
     const flux_ref = parseFloat(co.flux_reference);
     if (!isFinite(flux_ref) || flux_ref <= 0)
       return { valid: false, errorMsg: "Flux de référence manquant — calcul ACV impossible" };
-    qty = r_cible * flux_ref * surface;
+    qty = r_cible * flux_ref * surface; // kg (flux_ref en kg/(m²·K/W))
+    masse_kg = qty;
   } else {
     qty = surface;
+    const pu = parseFloat(co.poids_unite);
+    if (isFinite(pu) && pu > 0) masse_kg = pu * surface; // kg/m² × m² = kg
   }
   const gwp    = extractImpact(co.impacts, "gwp100", "gwp_100") ?? 0;
   const energy = extractImpact(co.impacts, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
   const sante  = extractImpact(co.impacts, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
+  const decon_valid = masse_kg !== null;
+  const m = masse_kg ?? 0;
   return {
-    valid: true, errorMsg: null, qty, nb_cycles,
-    gwp_brut:      gwp    * qty,        gwp_amorti:    gwp    * qty * nb_cycles,
-    energy_brut:   energy * qty,        energy_amorti: energy * qty * nb_cycles,
-    sante_brut:    sante  * qty,        sante_amorti:  sante  * qty * nb_cycles,
+    valid: true, errorMsg: null, qty, nb_cycles, decon_valid,
+    gwp_brut:      gwp    * qty,
+    gwp_amorti:    gwp    * qty * nb_cycles + m * DECON_IMPACTS_PER_KG.gwp100    * nb_cycles,
+    energy_brut:   energy * qty,
+    energy_amorti: energy * qty * nb_cycles + m * DECON_IMPACTS_PER_KG.energy_nr * nb_cycles,
+    sante_brut:    sante  * qty,
+    sante_amorti:  sante  * qty * nb_cycles + m * DECON_IMPACTS_PER_KG.sante     * nb_cycles,
   };
 }
 
@@ -737,12 +759,12 @@ function calcBVImpactACV(bv, dvr_batiment) {
   const dvr_bat = parseFloat(dvr_batiment) || 60;
   const qty = parseFloat(bv.quantite) || 1;
   const res = {
-    valid: true, errors: [], errorMsg: null,
+    valid: true, decon_valid: true, errors: [], errorMsg: null,
     gwp_brut: 0, gwp_amorti: 0, energy_brut: 0, energy_amorti: 0, sante_brut: 0, sante_amorti: 0,
   };
 
   const dvr_v = parseFloat(bv.dvr_materiau_vitrage);
-  const nc_v  = (isFinite(dvr_v) && dvr_v > 0) ? dvr_bat / dvr_v : null;
+  const nc_v  = (isFinite(dvr_v) && dvr_v > 0) ? Math.ceil(dvr_bat / dvr_v) : null;
   if (nc_v === null) { res.valid = false; res.errors.push("DVR vitrage manquante"); }
   const gwp_v    = parseFloat(bv.gwp100_unit_vitrage) || extractImpact(bv.impacts, "gwp100", "gwp_100") || 0;
   const energy_v = extractImpact(bv.impacts, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
@@ -751,17 +773,37 @@ function calcBVImpactACV(bv, dvr_batiment) {
   res.energy_brut += energy_v * qty;   res.energy_amorti += energy_v * qty * (nc_v ?? 1);
   res.sante_brut  += sante_v  * qty;   res.sante_amorti  += sante_v  * qty * (nc_v ?? 1);
 
+  const pu_v = parseFloat(bv.poids_unite_vitrage);
+  if (isFinite(pu_v) && pu_v > 0) {
+    const m_v = pu_v * qty; // kg/unité × unités = kg
+    res.gwp_amorti    += m_v * DECON_IMPACTS_PER_KG.gwp100    * (nc_v ?? 1);
+    res.energy_amorti += m_v * DECON_IMPACTS_PER_KG.energy_nr * (nc_v ?? 1);
+    res.sante_amorti  += m_v * DECON_IMPACTS_PER_KG.sante     * (nc_v ?? 1);
+  } else {
+    res.decon_valid = false;
+  }
+
   if (bv.cadre_id) {
     const dvr_c = parseFloat(bv.dvr_materiau_cadre);
-    const nc_c  = (isFinite(dvr_c) && dvr_c > 0) ? dvr_bat / dvr_c : null;
+    const nc_c  = (isFinite(dvr_c) && dvr_c > 0) ? Math.ceil(dvr_bat / dvr_c) : null;
     if (nc_c === null) { res.valid = false; res.errors.push("DVR cadre manquante"); }
     const impC = bv.impacts_cadre || {};
     const gwp_c    = extractImpact(impC, "gwp100", "gwp_100") ?? 0;
     const energy_c = extractImpact(impC, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
     const sante_c  = extractImpact(impC, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
-    res.gwp_brut    += gwp_c * qty;   res.gwp_amorti    += gwp_c * qty * (nc_c ?? 1);
+    res.gwp_brut    += gwp_c * qty;    res.gwp_amorti    += gwp_c    * qty * (nc_c ?? 1);
     res.energy_brut += energy_c * qty; res.energy_amorti += energy_c * qty * (nc_c ?? 1);
-    res.sante_brut  += sante_c * qty;  res.sante_amorti  += sante_c * qty * (nc_c ?? 1);
+    res.sante_brut  += sante_c * qty;  res.sante_amorti  += sante_c  * qty * (nc_c ?? 1);
+
+    const pu_c = parseFloat(bv.poids_unite_cadre);
+    if (isFinite(pu_c) && pu_c > 0) {
+      const m_c = pu_c * qty; // kg/unité × unités = kg
+      res.gwp_amorti    += m_c * DECON_IMPACTS_PER_KG.gwp100    * (nc_c ?? 1);
+      res.energy_amorti += m_c * DECON_IMPACTS_PER_KG.energy_nr * (nc_c ?? 1);
+      res.sante_amorti  += m_c * DECON_IMPACTS_PER_KG.sante     * (nc_c ?? 1);
+    } else {
+      res.decon_valid = false;
+    }
   }
   if (!res.valid) res.errorMsg = res.errors.join(", ") + " — amortissement approx. (nc=1)";
   return res;
@@ -873,7 +915,7 @@ function calcParoiStats(paroi, dvr_batiment = 60) {
 }
 
 function calcBatimentStats(bat) {
-  const dj = parseFloat(bat.degres_jours) || 2500;
+  const dj = parseFloat(bat.degres_jours) || 1950.7;
   const ch = CHAUFFAGE_OPTIONS.find((o) => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
   const dvr_bat = bat.dvr_batiment ?? 60;
 
@@ -1125,7 +1167,7 @@ export default function ProjectLCA2() {
       age_batiment: isFinite(age) && age >= 0 ? age : 0,
       dvr_batiment: 60,
       surface_plancher: "", hauteur: "", temperature_interieure: 20,
-      moyen_chauffage: "gaz", degres_jours: 2500, parois: [],
+      moyen_chauffage: "gaz", degres_jours: 1950.7, parois: [],
     }]);
     setBatModal(false);
   }
@@ -1901,7 +1943,7 @@ function BuildingDetail({
             const stats = calcParoiStats(paroi, bat.dvr_batiment ?? 60);
             const tab = getParoiTab(paroi.id);
             const ch = CHAUFFAGE_OPTIONS.find((o) => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
-            const dj = parseFloat(bat.degres_jours) || 2500;
+            const dj = parseFloat(bat.degres_jours) || 1950.7;
             const dep_contrib = stats?.dep_wk ?? null;
             const energy_contrib = dep_contrib != null ? (dep_contrib * dj * 24) / 1000 / ch.rendement : null;
             const co2_contrib = energy_contrib != null ? energy_contrib * ch.co2 : null;
@@ -2118,9 +2160,15 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                         onClick={() => openReplaceOpaque(co.id)}
                         title="Changer de matériau"
                       >{co.material_name}</div>
-                      {(() => { const r = calcComposantACV(co, dvr_batiment, stats?.s_opaque ?? 0); return !r.valid ? (
-                        <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>
-                      ) : null; })()}
+                      {(() => {
+                        const r = calcComposantACV(co, dvr_batiment, stats?.s_opaque ?? 0);
+                        return (
+                          <>
+                            {!r.valid && <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>}
+                            {r.valid && !r.decon_valid && <span title="Poids/unité manquant — Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
+                          </>
+                        );
+                      })()}
                     </div>
                     <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
                       {isIsolant
@@ -2290,9 +2338,15 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                               onMouseLeave={(e) => { e.currentTarget.style.color = "#374151"; e.currentTarget.style.textDecoration = "none"; }}
                               onClick={() => openReplaceVitrage(bv.id)}
                               title="Changer le vitrage">{bv.vitrage_name || "—"}</span>
-                            {(() => { const r = calcBVImpactACV(bv, dvr_batiment); return !r.valid ? (
-                              <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>
-                            ) : null; })()}
+                            {(() => {
+                              const r = calcBVImpactACV(bv, dvr_batiment);
+                              return (
+                                <>
+                                  {!r.valid && <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>}
+                                  {r.valid && !r.decon_valid && <span title="Poids/unité manquant sur vitrage ou cadre — Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
+                                </>
+                              );
+                            })()}
                           </span>
                           {qty > 1 && (
                             <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>×{qty} unités</div>
@@ -2543,7 +2597,7 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
       </div>
 
       <div style={{ fontSize: 11, color: "#9ca3af", fontStyle: "italic", marginTop: 10 }}>
-        L'impact amorti intègre les remplacements futurs des matériaux selon leur DVR respective.
+        L'impact amorti intègre les remplacements futurs (Module A, DVR) et la déconstruction (Module C, EN 15978) si le poids/unité est renseigné.
       </div>
     </div>
   );
@@ -2554,7 +2608,7 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
 function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
   const paroisStats = bat.parois.map((p) => ({ paroi: p, s: calcParoiStats(p, bat.dvr_batiment ?? 60) }));
   const ch = CHAUFFAGE_OPTIONS.find((o) => o.id === bat.moyen_chauffage) || CHAUFFAGE_OPTIONS[0];
-  const dj = parseFloat(bat.degres_jours) || 2500;
+  const dj = parseFloat(bat.degres_jours) || 1950.7;
 
   function paroiConso(s) {
     if (s?.dep_wk == null) return null;
@@ -2683,7 +2737,7 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         </tbody>
       </table>
       <div style={{ fontSize:11, color:"#9ca3af", fontStyle:"italic", marginBottom:16 }}>
-        L'impact amorti intègre les remplacements futurs des matériaux selon leur DVR respective.
+        L'impact amorti intègre les remplacements futurs (Module A, DVR) et la déconstruction (Module C, EN 15978) si le poids/unité est renseigné.
       </div>
 
       {/* Section 3 — 3 cartes consommation globale avec tooltip */}
