@@ -5,10 +5,10 @@ import { isIsolantCategory } from "../utils/lca2-helpers.js";
 
 // ─── Constantes ──────────────────────────────────────────────────────────────
 
-const CATEGORIES = ["mur", "toiture", "plancher", "fenetre", "fondation", "isolant", "autre"];
+const CATEGORIES = ["mur", "toiture", "plancher", "fenetre", "cadre", "fondation", "isolant", "autre"];
 const CATEGORY_LABELS = {
   mur: "Mur", toiture: "Toiture", plancher: "Plancher",
-  fenetre: "Fenêtre", fondation: "Fondation", isolant: "Isolant", autre: "Autre",
+  fenetre: "Fenêtre", cadre: "Cadre", fondation: "Fondation", isolant: "Isolant", autre: "Autre",
 };
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -167,7 +167,7 @@ export default function LCALibrary() {
       fd.append("valeur_r", imp.valeurR);
       fd.append("version", "v2");
       if (imp.dvrMateriau !== "") fd.append("dvr_materiau", imp.dvrMateriau);
-      if (imp.fluxReference !== "") fd.append("flux_reference", imp.fluxReference);
+      if (isIsolantCategory(imp.category) && imp.fluxReference !== "") fd.append("flux_reference", imp.fluxReference);
       if (imp.valeurLambda !== "") fd.append("valeur_lambda", imp.valeurLambda);
       if (imp.poidsUnite !== "" && !isIsolantCategory(imp.category)) fd.append("poids_unite", imp.poidsUnite);
       const res = await apiFetch("/lca/materials/import", { method: "POST", body: fd });
@@ -234,7 +234,7 @@ export default function LCALibrary() {
         category: editModal.category || undefined,
         prix: editModal.prix !== "" ? Number(editModal.prix) : undefined,
         valeur_r: editModal.valeur_r !== "" ? Number(editModal.valeur_r) : undefined,
-        flux_reference: editModal.flux_reference !== "" ? Number(editModal.flux_reference) : undefined,
+        flux_reference: isIsolant && editModal.flux_reference !== "" ? Number(editModal.flux_reference) : undefined,
         dvr_materiau: editModal.dvr_materiau !== "" ? Number(editModal.dvr_materiau) : undefined,
         valeur_lambda: isIsolant && editModal.valeur_lambda !== "" ? Number(editModal.valeur_lambda) : undefined,
         poids_unite: !isIsolant && editModal.poids_unite !== "" ? Number(editModal.poids_unite) : undefined,
@@ -382,7 +382,7 @@ export default function LCALibrary() {
                       {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
-                      {mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
+                      {isIsolantCategory(mat.category) && mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
@@ -617,7 +617,9 @@ export default function LCALibrary() {
                 );
               })()}
               <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "—"} />
-              <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
+              {isIsolantCategory(ficheModal.category) && (
+                <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
+              )}
               {isIsolantCategory(ficheModal.category) && (
                 <InfoRow
                   label="λ — Conductivité thermique (W/m·K)"
@@ -696,7 +698,15 @@ export default function LCALibrary() {
                 <FormField label="Catégorie">
                   <select
                     value={editModal.category}
-                    onChange={(e) => setEditModal((s) => ({ ...s, category: e.target.value }))}
+                    onChange={(e) => {
+                    const newCat = e.target.value;
+                    setEditModal((s) => ({
+                      ...s,
+                      category:       newCat,
+                      flux_reference: isIsolantCategory(newCat) ? s.flux_reference : "",
+                      poids_unite:    isIsolantCategory(newCat) ? "" : s.poids_unite,
+                    }));
+                  }}
                     style={inputStyle}
                   >
                     {CATEGORIES.map((c) => <option key={c} value={c}>{CATEGORY_LABELS[c]}</option>)}

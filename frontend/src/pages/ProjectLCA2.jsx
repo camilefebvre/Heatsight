@@ -1063,6 +1063,8 @@ export default function ProjectLCA2() {
               patch.dvr_materiau = mat.dvr_materiau;
             if (co.flux_reference == null && mat.flux_reference != null)
               patch.flux_reference = mat.flux_reference;
+            if (co.poids_unite == null && mat.poids_unite != null)
+              patch.poids_unite = mat.poids_unite;
             const imp = co.impacts;
             if ((!imp || !Object.keys(imp).length || extractImpact(imp, "gwp100", "gwp_100") == null) && mat.impacts)
               patch.impacts = mat.impacts;
@@ -1077,6 +1079,8 @@ export default function ProjectLCA2() {
             if (vitMat) {
               if (bv.dvr_materiau_vitrage == null && vitMat.dvr_materiau != null)
                 patch.dvr_materiau_vitrage = vitMat.dvr_materiau;
+              if (bv.poids_unite_vitrage == null && vitMat.poids_unite != null)
+                patch.poids_unite_vitrage = vitMat.poids_unite;
               const imp = bv.impacts;
               if ((!imp || !Object.keys(imp).length) && vitMat.impacts)
                 patch.impacts = vitMat.impacts;
@@ -1085,6 +1089,8 @@ export default function ProjectLCA2() {
             if (cadMat) {
               if (bv.dvr_materiau_cadre == null && cadMat.dvr_materiau != null)
                 patch.dvr_materiau_cadre = cadMat.dvr_materiau;
+              if (bv.poids_unite_cadre == null && cadMat.poids_unite != null)
+                patch.poids_unite_cadre = cadMat.poids_unite;
               const impC = bv.impacts_cadre;
               if ((!impC || !Object.keys(impC).length) && cadMat.impacts)
                 patch.impacts_cadre = cadMat.impacts;
@@ -1276,8 +1282,9 @@ export default function ProjectLCA2() {
                 prix_unit: parseFloat(newMat.prix) || 0,
                 gwp100_unit: extractImpact(newMat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
                 impacts: newMat.impacts || {},
-                dvr_materiau: newMat.dvr_materiau ?? null,
+                dvr_materiau:   newMat.dvr_materiau ?? null,
                 flux_reference: newMat.flux_reference ?? null,
+                poids_unite:    newMat.poids_unite ?? null,
                 lambda_local: sameCat ? c.lambda_local : "",
                 r_local:      sameCat ? c.r_local      : "",
                 r_cible:      sameCat ? c.r_cible      : "",
@@ -1312,6 +1319,7 @@ export default function ProjectLCA2() {
                 gwp100_unit_vitrage: extractImpact(newMat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
                 impacts: newMat.impacts || {},
                 dvr_materiau_vitrage: newMat.dvr_materiau ?? null,
+                poids_unite_vitrage:  newMat.poids_unite ?? null,
               }
             ),
           }
@@ -1338,6 +1346,7 @@ export default function ProjectLCA2() {
                 cadre_id: newMat.id, cadre_name: newMat.name,
                 valeur_r_cadre: parseFloat(newMat.valeur_r) || null,
                 dvr_materiau_cadre: newMat.dvr_materiau ?? null,
+                poids_unite_cadre:  newMat.poids_unite ?? null,
                 impacts_cadre: newMat.impacts ?? {},
                 prix_unit_cadre: parseFloat(newMat.prix) || 0,
               }
@@ -1372,6 +1381,7 @@ export default function ProjectLCA2() {
         gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
         impacts: mat.impacts || {},
         dvr_materiau_vitrage: mat.dvr_materiau ?? null,
+        poids_unite_vitrage:  mat.poids_unite ?? null,
         impacts_cadre: {},
       };
       setBatiments((prev) => prev.map((b) =>
@@ -1400,8 +1410,9 @@ export default function ProjectLCA2() {
         prix_unit: parseFloat(mat.prix) || 0,
         gwp100_unit: extractImpact(mat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
         impacts: mat.impacts || {},
-        dvr_materiau: mat.dvr_materiau ?? null,
+        dvr_materiau:   mat.dvr_materiau ?? null,
         flux_reference: mat.flux_reference ?? null,
+        poids_unite:    mat.poids_unite ?? null,
       };
       setBatiments((prev) => prev.map((b) =>
         b.id !== batId ? b : {
@@ -1437,7 +1448,9 @@ export default function ProjectLCA2() {
       gwp100_unit_vitrage: extractImpact(vitMat.impacts, "gwp100", "gwp_100", "GWP100") || 0,
       impacts: vitMat.impacts || {},
       dvr_materiau_vitrage: vitMat.dvr_materiau ?? null,
-      dvr_materiau_cadre: cadreMat?.dvr_materiau ?? null,
+      dvr_materiau_cadre:  cadreMat?.dvr_materiau ?? null,
+      poids_unite_vitrage: vitMat.poids_unite ?? null,
+      poids_unite_cadre:   cadreMat?.poids_unite ?? null,
       impacts_cadre: cadreMat?.impacts ?? {},
       prix_unit_cadre: parseFloat(cadreMat?.prix) || 0,
     };
@@ -3041,6 +3054,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 impacts:        mat.impacts || {},
                 dvr_materiau:   mat.dvr_materiau ?? null,
                 flux_reference: mat.flux_reference ?? null,
+                poids_unite:    mat.poids_unite ?? null,
               };
             }
           }
@@ -3059,6 +3073,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 gwp100_unit_vitrage:  extractImpact(mat.impacts, "gwp100", "gwp_100") || 0,
                 impacts:              mat.impacts || {},
                 dvr_materiau_vitrage: mat.dvr_materiau ?? null,
+                poids_unite_vitrage:  mat.poids_unite ?? null,
               };
             }
           }
@@ -3073,6 +3088,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 cadre_name:          mat.name,
                 valeur_r_cadre:      parseFloat(mat.valeur_r) || null,
                 dvr_materiau_cadre:  mat.dvr_materiau ?? null,
+                poids_unite_cadre:   mat.poids_unite ?? null,
                 impacts_cadre:       mat.impacts || {},
                 prix_unit_cadre:     parseFloat(mat.prix) || 0,
               };
