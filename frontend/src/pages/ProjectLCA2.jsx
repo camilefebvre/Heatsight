@@ -293,8 +293,10 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
       const hadVitAlternatives = allFenMats.some(m => m.id !== bvVitId);
 
       // Filtre de non-dégradation thermique vitrage
-      const bvRLocal = parseFloat(bv.r_local);
-      const bvR = (isFinite(bvRLocal) && bvRLocal > 0) ? bvRLocal : parseFloat(bv.valeur_r);
+      const bvRLocal = parseFloat(bv.r_vitrage_local) > 0 ? parseFloat(bv.r_vitrage_local)
+        : parseFloat(bv.r_local);
+      const bvR = (isFinite(bvRLocal) && bvRLocal > 0) ? bvRLocal
+        : (parseFloat(bv.valeur_r_vitrage) || parseFloat(bv.valeur_r) || 0);
       const bvEff = (parseFloat(bv.efficacite) || 100) / 100;
       const bvREff = (isFinite(bvR) && bvR > 0) ? bvR * bvEff : null;
       if (bvREff != null && bvREff > 0) {
@@ -325,7 +327,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
       }));
 
       if (vitageCandidates.length > 0) {
-        slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree_vitrage", candidates: vitageCandidates, originalId: bv.material_id, bvQuantite });
+        slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree_vitrage", candidates: vitageCandidates, originalId: bv.material_id, bvQuantite, sVitrageUnit: parseFloat(bv.s_vitrage_unit) || 0 });
       }
 
       // ── Slot cadre (seulement si le BV a déjà un cadre) ───────────────────────
@@ -333,6 +335,18 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
         let cadreMats = materials
           .filter(m => (m.category || "").toLowerCase() === "cadre")
           .sort((a, b) => (parseFloat(a.prix) || 0) - (parseFloat(b.prix) || 0));
+
+        // Filtre de non-dégradation thermique cadre
+        const bvRCadre = parseFloat(bv.r_cadre_local) > 0
+          ? parseFloat(bv.r_cadre_local)
+          : parseFloat(bv.valeur_r_cadre);
+        if (isFinite(bvRCadre) && bvRCadre > 0) {
+          cadreMats = cadreMats.filter(m => {
+            if (m.id === bv.cadre_id) return true;
+            const r = parseFloat(m.valeur_r);
+            return isFinite(r) && r > 0 && r >= bvRCadre;
+          });
+        }
 
         let cadreAltMats = cadreMats.slice(0, PER_SLOT);
         if (!cadreAltMats.find(m => m.id === bv.cadre_id)) {
@@ -351,7 +365,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
         }));
 
         if (cadreCandidates.length > 0) {
-          slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree_cadre", candidates: cadreCandidates, originalId: bv.cadre_id, bvQuantite });
+          slots.push({ paroiId: paroi.id, compId: bv.id, type: "vitree_cadre", candidates: cadreCandidates, originalId: bv.cadre_id, bvQuantite, sCadreUnit: parseFloat(bv.s_cadre_unit) || 0 });
         }
       }
     }
@@ -515,6 +529,9 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
             return s;
           })()
         : (slot.bvQuantite ?? 1);
+      const renovQty = slot.type === "vitree_vitrage" ? (slot.sVitrageUnit ?? 0) * (slot.bvQuantite ?? 1)
+        : slot.type === "vitree_cadre"                ? (slot.sCadreUnit   ?? 0) * (slot.bvQuantite ?? 1)
+        : qty;
       const isChanged = cand.material_id !== slot.originalId;
       enumerate(
         idx + 1,
@@ -528,7 +545,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
           isAdded:      !!(slot.isAdded),
           is_noop:      !!(cand.is_noop),
         }],
-        accRenovCost + (isChanged ? (cand.prix_unit || 0) * qty : 0),
+        accRenovCost + (isChanged ? (cand.prix_unit || 0) * renovQty : 0),
       );
     }
   }
@@ -758,6 +775,7 @@ function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
 function calcBVImpactACV(bv, dvr_batiment) {
   const dvr_bat = parseFloat(dvr_batiment) || 60;
   const qty = parseFloat(bv.quantite) || 1;
+  const sv = (parseFloat(bv.s_vitrage_unit) || 0) * qty;  // m² total vitrage
   const res = {
     valid: true, decon_valid: true, errors: [], errorMsg: null,
     gwp_brut: 0, gwp_amorti: 0, energy_brut: 0, energy_amorti: 0, sante_brut: 0, sante_amorti: 0,
@@ -769,13 +787,13 @@ function calcBVImpactACV(bv, dvr_batiment) {
   const gwp_v    = parseFloat(bv.gwp100_unit_vitrage) || extractImpact(bv.impacts, "gwp100", "gwp_100") || 0;
   const energy_v = extractImpact(bv.impacts, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
   const sante_v  = extractImpact(bv.impacts, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
-  res.gwp_brut    += gwp_v    * qty;   res.gwp_amorti    += gwp_v    * qty * (nc_v ?? 1);
-  res.energy_brut += energy_v * qty;   res.energy_amorti += energy_v * qty * (nc_v ?? 1);
-  res.sante_brut  += sante_v  * qty;   res.sante_amorti  += sante_v  * qty * (nc_v ?? 1);
+  res.gwp_brut    += gwp_v    * sv;    res.gwp_amorti    += gwp_v    * sv * (nc_v ?? 1);
+  res.energy_brut += energy_v * sv;    res.energy_amorti += energy_v * sv * (nc_v ?? 1);
+  res.sante_brut  += sante_v  * sv;    res.sante_amorti  += sante_v  * sv * (nc_v ?? 1);
 
   const pu_v = parseFloat(bv.poids_unite_vitrage);
   if (isFinite(pu_v) && pu_v > 0) {
-    const m_v = pu_v * qty; // kg/unité × unités = kg
+    const m_v = pu_v * sv;  // kg/m² × m² = kg
     res.gwp_amorti    += m_v * DECON_IMPACTS_PER_KG.gwp100    * (nc_v ?? 1);
     res.energy_amorti += m_v * DECON_IMPACTS_PER_KG.energy_nr * (nc_v ?? 1);
     res.sante_amorti  += m_v * DECON_IMPACTS_PER_KG.sante     * (nc_v ?? 1);
@@ -784,6 +802,7 @@ function calcBVImpactACV(bv, dvr_batiment) {
   }
 
   if (bv.cadre_id) {
+    const sc = (parseFloat(bv.s_cadre_unit) || 0) * qty;  // m² total cadre
     const dvr_c = parseFloat(bv.dvr_materiau_cadre);
     const nc_c  = (isFinite(dvr_c) && dvr_c > 0) ? Math.ceil(dvr_bat / dvr_c) : null;
     if (nc_c === null) { res.valid = false; res.errors.push("DVR cadre manquante"); }
@@ -791,13 +810,13 @@ function calcBVImpactACV(bv, dvr_batiment) {
     const gwp_c    = extractImpact(impC, "gwp100", "gwp_100") ?? 0;
     const energy_c = extractImpact(impC, "energy_nonrenewable_adp", "energy_nonrenewable", "energy_nr", "penrt") ?? 0;
     const sante_c  = extractImpact(impC, "photochemical_oxidant_hh", "photochemical_oxidant") ?? 0;
-    res.gwp_brut    += gwp_c * qty;    res.gwp_amorti    += gwp_c    * qty * (nc_c ?? 1);
-    res.energy_brut += energy_c * qty; res.energy_amorti += energy_c * qty * (nc_c ?? 1);
-    res.sante_brut  += sante_c * qty;  res.sante_amorti  += sante_c  * qty * (nc_c ?? 1);
+    res.gwp_brut    += gwp_c * sc;     res.gwp_amorti    += gwp_c    * sc * (nc_c ?? 1);
+    res.energy_brut += energy_c * sc;  res.energy_amorti += energy_c * sc * (nc_c ?? 1);
+    res.sante_brut  += sante_c * sc;   res.sante_amorti  += sante_c  * sc * (nc_c ?? 1);
 
     const pu_c = parseFloat(bv.poids_unite_cadre);
     if (isFinite(pu_c) && pu_c > 0) {
-      const m_c = pu_c * qty; // kg/unité × unités = kg
+      const m_c = pu_c * sc;  // kg/m² × m² = kg
       res.gwp_amorti    += m_c * DECON_IMPACTS_PER_KG.gwp100    * (nc_c ?? 1);
       res.energy_amorti += m_c * DECON_IMPACTS_PER_KG.energy_nr * (nc_c ?? 1);
       res.sante_amorti  += m_c * DECON_IMPACTS_PER_KG.sante     * (nc_c ?? 1);
@@ -854,7 +873,7 @@ function calcParoiStats(paroi, dvr_batiment = 60) {
     }
     const prixVitrage = parseFloat(bv.prix_unit_vitrage) || parseFloat(bv.prix_unit) || 0;
     const prixCadre   = bv.cadre_id ? (parseFloat(bv.prix_unit_cadre) || 0) : 0;
-    cout_vitree += (prixVitrage + prixCadre) * qty;
+    cout_vitree += prixVitrage * sv + prixCadre * sc;
 
     const bvAcv = calcBVImpactACV(bv, dvr_batiment);
     gwp_brut    += bvAcv.gwp_brut;    gwp_amorti    += bvAcv.gwp_amorti;
