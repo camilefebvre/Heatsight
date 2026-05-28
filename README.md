@@ -115,14 +115,14 @@ HeatSight/
 | `improvement_actions` | Actions du plan d'amélioration (référence AA1–AA9, investissement, économies, IRR, PBT…) |
 | `plan_amelioration_history` | Historique des pré-remplissages IA et uploads manuels AMUREBA |
 | `amelioration_actions` | Import AMUREBA flexible (JSONB) — une ligne par feuille AAx importée |
-| `lca_materials` | Bibliothèque partagée de matériaux ACV — impacts EF v3.0 (JSONB 22 indicateurs), prix, `valeur_r`, `dvr_materiau`, `flux_reference`, `valeur_lambda` |
+| `lca_materials` | Bibliothèque partagée de matériaux ACV — impacts EF v3.0 (JSONB 22 indicateurs), prix, `valeur_r`, `dvr_materiau`, `flux_reference` (isolants), `valeur_lambda` (isolants), `poids_unite` (non-isolants, kg/unité fonctionnelle — Module C déconstruction) |
 | `lca_projects` | Données ACV par projet — bâtiments (parois, composants) en JSONB, `dvr_batiment`, `age_batiment`, cache d'optimisation |
 
 ### Migrations
 
-Les tables sont créées/mises à jour au **démarrage du serveur** via des instructions `CREATE TABLE IF NOT EXISTS` et `ALTER TABLE ... ADD COLUMN IF NOT EXISTS` dans `main.py`. Aucun outil de migration externe (pas d'Alembic en production).
+Les tables sont gérées via **Alembic** (migrations versionnées). En local : `python -m alembic upgrade head` depuis `backend/`. En production (Render), les migrations doivent être appliquées manuellement depuis le Shell Render.
 
-**Migrations appliquées :**
+**Migrations appliquées (head : `161728cb1feb`) :**
 - `005_add_lca_tables` — tables `lca_materials` et `lca_projects`
 - `006_add_lca_material_fields` — champs de prix, valeur R et indicateurs EF v3.0
 - `007_add_lca_building_fields` — champs bâtiments, parois et composants
@@ -132,6 +132,7 @@ Les tables sont créées/mises à jour au **démarrage du serveur** via des inst
 - `010_add_current_excel_source` — champ `current_excel_source` sur `projects` (`"template"` · `"ai_prefill"` · `"manual_upload"` · `"ai_patched"`)
 - `011_add_lca_v2_fields` — `dvr_materiau` sur `lca_materials` ; `dvr_batiment` et `age_batiment` sur `lca_projects`
 - `012_add_valeur_lambda` — `valeur_lambda` (Float) sur `lca_materials` + migration des valeurs stockées dans le JSONB `impacts`
+- `013_add_poids_unite` — `poids_unite` (Float, nullable) sur `lca_materials` — masse par unité fonctionnelle (kg/unité) pour le calcul du Module C déconstruction (EN 15978) des matériaux non-isolants
 
 ---
 
@@ -285,6 +286,12 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 - Affichage brut et amorti côte à côte par paroi et en synthèse bâtiment
 - Composants sans DVR ou sans flux de référence (isolants) sont exclus du calcul avec compteur d'erreurs
 
+**Module C — Déconstruction (EN 15978) :**
+- Calcul de l'impact de fin de vie pour tous les composants ayant un `poids_unite` renseigné (non-isolants) ou un `flux_reference` (isolants)
+- Masse calculée : `flux_reference × R_cible × surface` (isolants) ou `poids_unite × surface` (non-isolants)
+- Facteurs système partagés : GWP100 = 7,209 kg CO₂eq/t · Énergie NR = 93,856 MJ/t · Santé = 0,0982 kg NMVOC/t
+- Badge **⚠ DÉCON** affiché sur un composant si `poids_unite` manquant (non-isolant) ou `flux_reference` manquant (isolant)
+
 **Optimisation multi-critères :** → voir section dédiée ci-dessous
 
 ### Bibliothèque ACV (`/lca/library`)
@@ -292,10 +299,12 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 - Import de matériaux via fichiers **LCIA-results.xlsx** (Activity Browser, méthode EF v3.0, 22 indicateurs dont `gwp100`, `energy_nonrenewable`, `photochemical_oxidant`)
   - Champ **DVR matériau** obligatoire à l'import (années)
   - Pour les isolants : **Flux de référence** (kg/m²·K/W) obligatoire + **λ** conductivité thermique (W/m·K) optionnel
-- Colonnes **DVR (ans)** et **Flux réf.** toujours visibles dans le tableau
-- Badge **Incomplet ACV** sur les matériaux sans DVR ou sans flux de référence (isolants) — indique qu'ils seront exclus des calculs amortis
+- Colonnes **DVR (ans)** et **Flux réf.** visibles dans le tableau (Flux réf. affiché uniquement pour les isolants)
+- Champ **Poids/unité** (kg/unité fonctionnelle) pour les matériaux non-isolants — requis pour le Module C déconstruction
+- Badge **Incomplet ACV** sur les matériaux sans DVR, ou sans `flux_reference` (isolants) — indique qu'ils seront exclus des calculs amortis
+- Badge **⚠ DÉCON** sur les composants d'un bâtiment sans `poids_unite` (non-isolants) ou sans `flux_reference` (isolants) — Module C non calculé
 - Consultation des 22 indicateurs EF v3.0 par double-clic (fiche matériau)
-- Modification de toutes les propriétés ACV par double-clic → édition en modale : nom, catégorie, prix, `valeur_r`, `dvr_materiau`, `flux_reference`, `valeur_lambda`
+- Modification de toutes les propriétés ACV par double-clic → édition en modale : nom, catégorie, prix, `valeur_r`, `dvr_materiau`, `flux_reference`, `valeur_lambda`, `poids_unite`
 - Duplication et suppression de matériaux
 - Gestion des alias de clés JSONB : `photochemical_oxidant_hh` (matériaux seedés) et `photochemical_oxidant` (matériaux importés) sont normalisés automatiquement
 
@@ -423,7 +432,7 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 | GET | `/lca/materials` | Liste tous les matériaux de la bibliothèque |
 | GET | `/lca/materials/{id}` | Détail d'un matériau |
 | POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx (multipart, `version=v2`) |
-| PATCH | `/lca/materials/{id}` | Modifie un matériau (prix, valeur_r, dvr_materiau, flux_reference, valeur_lambda…) |
+| PATCH | `/lca/materials/{id}` | Modifie un matériau (prix, valeur_r, dvr_materiau, flux_reference, valeur_lambda, poids_unite…) |
 | DELETE | `/lca/materials/{id}` | Supprime un matériau |
 | POST | `/lca/materials/{id}/duplicate` | Duplique un matériau |
 | GET | `/projects/{id}/lca` | Récupère les données ACV du projet (bâtiments JSONB + dvr_batiment + age_batiment) |
@@ -561,6 +570,6 @@ Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_source
 - **Année d'audit** : fixée à `2023` dans le template Excel
 - **Analyse IA** : `analyze-all` traite les documents en parallèle (max 3 simultanés) — un grand volume reste limité par le débit de l'API Anthropic
 - **Plan d'amélioration PEB / Autre / Mon template** : onglets prévus, pas encore implémentés
-- **ACV — calculs amortis** : nécessitent que chaque matériau ait une DVR renseignée (et un flux de référence pour les isolants) — les composants incomplets sont exclus du calcul avec compteur d'avertissement
+- **ACV — calculs amortis** : nécessitent que chaque matériau ait une DVR renseignée, un `flux_reference` (isolants) ou un `poids_unite` (non-isolants) — les composants incomplets sont exclus du calcul avec badge ⚠ DÉCON
 - **ACV — indicateur Santé humaine** : disponible uniquement si au moins un matériau de la bibliothèque contient la clé `photochemical_oxidant_hh` ou `photochemical_oxidant` dans ses impacts EF v3.0
 - **ACV — module legacy** (`/projects/:id/lca`) : conservé en base de code mais retiré de la navigation
