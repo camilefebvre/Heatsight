@@ -286,7 +286,7 @@ export default function Sidebar() {
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
             <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" />
             <SidebarLink to={`/projects/${selectedProjectId}/documents`} icon={Files} label="Documents" />
-            <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" />
+            {/* <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" /> */}
             <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" />
             <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" />
             {/* <SidebarLink to={`/projects/${selectedProjectId}/lca`} icon={Leaf} label="ACV (legacy)" /> */}

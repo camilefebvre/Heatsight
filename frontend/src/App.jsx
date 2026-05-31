@@ -6,7 +6,7 @@ import Register from "./pages/Register";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
 import Agenda from "./pages/Agenda";
-import ProjectAudit from "./pages/ProjectAudit";
+// import ProjectAudit from "./pages/ProjectAudit"; // conservé en brouillon, non affiché
 import ProjectDocuments from "./pages/ProjectDocuments";
 import ProjectEnergy from "./pages/ProjectEnergy";
 import ProjectReport from "./pages/ProjectReport";
@@ -36,11 +36,11 @@ export default function App() {
           <Route path="/client-requests" element={<ClientRequests />} />
           <Route path="/share-access" element={<ShareAccess />} />
           {/* routes "dans un projet" */}
-          <Route path="/projects/:projectId/audit" element={<ProjectAudit />} />
+          <Route path="/projects/:projectId/audit" element={<ProjectPlanAmelioration />} />
           <Route path="/projects/:projectId/documents" element={<ProjectDocuments />} />
           <Route path="/projects/:projectId/energy" element={<ProjectEnergy />} />
           <Route path="/projects/:projectId/report" element={<ProjectReport />} />
-          <Route path="/projects/:projectId/plan-amelioration" element={<ProjectPlanAmelioration />} />
+          {/* <Route path="/projects/:projectId/plan-amelioration" element={<ProjectPlanAmelioration />} /> */}
 
 
           <Route path="/projects/:projectId/lca" element={<ProjectLCA />} />
