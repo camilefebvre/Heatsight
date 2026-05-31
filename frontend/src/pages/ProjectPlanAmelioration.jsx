@@ -363,7 +363,7 @@ export default function ProjectPlanAmelioration() {
         <div>
           <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
           <h1 style={{ fontSize: 32, margin: "4px 0 2px", color: "#111827" }}>
-            Plan d'amélioration — {project.project_name}
+            Audit — {project.project_name}
           </h1>
           <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 20 }}>
             Gérez vos actions d'amélioration énergétique.
