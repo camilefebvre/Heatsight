@@ -277,6 +277,7 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 - Parois typées : `mur` · `toiture` · `plancher` · `cloison` (les cloisons sont exclues des calculs extérieurs)
 - Composants opaques (matériaux de la bibliothèque) : épaisseur (cm), λ (W/m·K), R (m²·K/W), coefficient d'efficacité (%)
 - Baies vitrées : vitrage (valeur R) + cadre (valeur R), DVR par défaut 30 ans
+- **Exclusion de paroi de l'optimisation** : bouton cadenas par carte de paroi — `paroi.is_fixed = true` exclut la paroi entière du moteur combinatoire, du hash de configuration et du détail des résultats ; badge **Exclue optim.** affiché sur la carte
 - `U_effectif = U_théorique / (efficacité / 100)` — modélise la dégradation des matériaux existants
 - Conventions λ/R unifiées post-refonte : colonne `valeur_lambda` prioritaire sur `impacts.valeur_lambda` (JSONB), puis fallback Convention 1 pour les isolants anciens
 
@@ -324,7 +325,8 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 - ROI calculé avec prix kWh selon moyen de chauffage : gaz = 0,12 · mazout = 0,11 · bois = 0,08 · PAC/électrique = 0,25 €/kWh
 - Matériaux de remplacement toujours à efficacité 100 % (neufs)
 - **Indicateurs affichés par profil :** coût différentiel, GWP100, énergie (kWh/an), CO₂ total (construction + exploitation), économies €/an, économies CO₂/an, ROI, Santé humaine amortie (kg NMVOC eq)
-- **Algorithme TOPSIS** — 5 critères pondérés à égalité (1,0) : Δcoût (min), économies €/an (max), GWP100 amorti (min), énergie NR amortie (min), santé humaine amortie (min) ; normalisation euclidienne ; score `dA/(dI+dA)` ; bonus efficience ×1,15 pour les solutions au-dessus du P75 (calculé sur les efficiences finies strictement positives) ; solutions à Δcoût ≤ 0 → efficience = ∞ (bonus garanti) ; solutions sans gain GWP → exclues du bonus
+- **Algorithme TOPSIS** — 5 critères pondérés à égalité (1,0) : Δcoût (min), économies €/an (max), GWP100 amorti (min), énergie NR amortie (min), santé humaine amortie (min) ; normalisation euclidienne ; score `dA/(dI+dA)` ; bonus efficience ×1,15 pour les solutions au-dessus du P75 (calculé sur les efficiences finies strictement positives) ; solutions à Δcoût ≤ 0 → efficience = ∞ (bonus garanti) ; solutions sans gain GWP → exclues du bonus — sensibilité calculée sans bonus
+- Les parois marquées `is_fixed` (cadenas activé) sont entièrement exclues du moteur combinatoire et du hash de configuration
 - Profil **Écologique** : minimise GWP_amorti + CO₂_exploitation × DVR_bâtiment
 - Profil **Meilleur ROI** : ratio économies/investissement sur 20 ans (exclu si Δcoût ≤ 0)
 - Système de hash pour reproductibilité des résultats entre sessions et persistance du cache en base
