@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
-import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X, Info } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X, Info, Lock, LockOpen } from "lucide-react";
 import { apiFetch } from "../api";
 import {
   normStr, isFenetreCategory, isIsolantCategory, isCadreCategory,
@@ -105,6 +105,7 @@ function djb2Hash(str) {
 function computeConfigHash(bat, materials) {
   const changeables = [];
   for (const paroi of bat.parois) {
+    if (paroi.is_fixed) continue;
     for (const co of paroi.composantsOpaques) {
       if (!co.is_fixed) changeables.push({ id: co.material_id, q: String(co.surface_m2 ?? ""), e: String(co.efficacite ?? 100) });
     }
@@ -149,6 +150,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
   const fixedDueToConstraint = [];
 
   for (const paroi of bat.parois) {
+    if (paroi.is_fixed) continue;
     const sOpaqueParoi = calcParoiStats(paroi)?.s_opaque ?? parseFloat(paroi.surface_totale) ?? 0;
     for (const co of paroi.composantsOpaques) {
       if (co.is_fixed) continue;
@@ -663,7 +665,7 @@ function computePhares(combos, bat, materials, prixKwhOverride) {
   const eucNorm = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
   const normVec = (arr, w) => { const n = eucNorm(arr); return n === 0 ? arr.map(() => 0) : arr.map(v => (v / n) * w); };
 
-  // 5 critères TOPSIS (poids : coût=1, savings=1, GWP=1, énergie NR=0,5, santé=0,5) :
+  // 5 critères TOPSIS (poids : coût=1, savings=1, GWP=1, énergie NR=0,5, santé=0,5) — sensibilité sans bonus :
   // Coût différentiel — minimiser | Économies €/an — maximiser
   // GWP amorti — minimiser | Énergie NR amortie — minimiser (0,5) | Santé amortie — minimiser (0,5)
   function buildTopsisVectors() {
@@ -2053,6 +2055,11 @@ function ParoiCard({
             <span style={{ fontSize: 11, background: "#ede9fe", color: "#6d28d9", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>
               {PAROI_TYPE_LABELS[paroi.type] || paroi.type}
             </span>
+            {paroi.is_fixed && (
+              <span style={{ fontSize: 10, background: "#fef3c7", color: "#92400e", padding: "2px 6px", borderRadius: 5, fontWeight: 700 }}>
+                Exclue optim.
+              </span>
+            )}
             <span style={{ fontSize: 12, color: "#9ca3af" }}>
               {paroi.surface_totale ? `${paroi.surface_totale} m²` : "— m²"}
             </span>
@@ -2064,6 +2071,14 @@ function ParoiCard({
             <MiniStat label="GWP100" value={stats?.gwp != null ? `${fmt(stats.gwp)} kg CO₂eq` : "—"} />
           </div>
         </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); updateParoi("is_fixed", !paroi.is_fixed); }}
+          style={{ ...iconBtn, color: paroi.is_fixed ? "#7c3aed" : "#9ca3af", background: paroi.is_fixed ? "#ede9fe" : "white" }}
+          title={paroi.is_fixed ? "Réintégrer dans l'optimisation" : "Exclure de l'optimisation"}
+        >
+          {paroi.is_fixed ? <Lock size={13} /> : <LockOpen size={13} />}
+        </button>
         <button type="button" onClick={(e) => { e.stopPropagation(); removeParoi(); }}
           style={iconBtn} title="Supprimer la paroi">
           <Trash2 size={13} />
@@ -2968,6 +2983,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   function buildDetailGroups(sol) {
     const groups = [];
     for (const paroi of bat.parois) {
+      if (paroi.is_fixed) continue;
       const rows = [];
       for (const co of paroi.composantsOpaques) {
         if (co.is_fixed) continue;
