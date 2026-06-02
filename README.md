@@ -26,11 +26,11 @@ Ce dépôt correspond à un **MVP technique** servant de base de développement 
 |---|---|
 | Backend | Python 3.11+, FastAPI, Pydantic v2, openpyxl, docxtpl |
 | Auth | JWT (`python-jose`), hachage mot de passe (`bcrypt`) |
-| IA | Claude API (Anthropic SDK `anthropic>=0.40.0`) — modèle `claude-sonnet-4-20250514` |
+| IA | Claude API (Anthropic SDK `anthropic>=0.40.0`) — modèle `claude-sonnet-4-6` |
 | Frontend | React 18, React Router v7, Vite |
 | Calcul Excel | LibreOffice headless (recalcul des formules, détecté via `shutil.which`) |
 | Génération xlsx | `zipfile` + `xml.etree.ElementTree` (patch chirurgical des cellules — évite la corruption openpyxl) |
-| Persistance | PostgreSQL + SQLAlchemy 2 (ORM) — migrations via `ALTER TABLE IF NOT EXISTS` au démarrage |
+| Persistance | PostgreSQL + SQLAlchemy 2 (ORM) — schéma de base via **Alembic** (migrations versionnées) + colonnes additionnelles via `ALTER TABLE IF NOT EXISTS` au démarrage |
 | Fichiers | Stockés en `BYTEA` dans PostgreSQL (pas de filesystem — compatible Render) |
 | Styling | Inline styles (pas de framework CSS) |
 | Déploiement | Docker (`backend/Dockerfile`) — compatible Render |
@@ -54,7 +54,7 @@ HeatSight/
 │   │       └── report_template.docx# Template Word (variables docxtpl)
 │   ├── requirements.txt
 │   ├── Dockerfile                  # Image Docker (python:3.11-slim + LibreOffice)
-│   ├── start.sh                    # Démarrage uvicorn (tables créées au startup via ALTER TABLE)
+│   ├── start.sh                    # Démarrage : exécute alembic upgrade head puis lance uvicorn ; colonnes additionnelles via ALTER TABLE IF NOT EXISTS
 │   ├── .env                        # Non versionné — à créer (voir ci-dessous)
 │   └── .env.example
 ├── frontend/
@@ -69,11 +69,11 @@ HeatSight/
 │   │   │   ├── Agenda.jsx          # Gestion d'événements (persisté en base)
 │   │   │   ├── ClientRequests.jsx  # Requêtes client (persisté en base)
 │   │   │   ├── ShareAccess.jsx     # Partage & Accès
-│   │   │   ├── ProjectAudit.jsx    # Saisie audit (4 onglets, mapping Excel)
+│   │   │   ├── ProjectAudit.jsx    # Ancien module audit (conservé en code, non affiché dans la navigation)
 │   │   │   ├── ProjectDocuments.jsx# Gestion documentaire + analyse IA par projet
 │   │   │   ├── ProjectEnergy.jsx   # Comptabilité énergétique multi-annuelle + graphes
 │   │   │   ├── ProjectReport.jsx   # Génération rapport Word
-│   │   │   ├── ProjectPlanAmelioration.jsx  # Plan d'amélioration AMUREBA + IA
+│   │   │   ├── ProjectPlanAmelioration.jsx  # Module Audit affiché sur /audit — Plan d'amélioration AMUREBA + IA
 │   │   │   ├── ProjectLCA2.jsx     # Module ACV — bâtiments, parois, composants, optimisation
 │   │   │   ├── ProjectLCA.jsx      # Module ACV legacy (non accessible depuis la navigation)
 │   │   │   ├── LCAAdmin.jsx        # Administration de la bibliothèque ACV
@@ -152,15 +152,10 @@ Les tables sont gérées via **Alembic** (migrations versionnées). En local : `
 - Double-clic sur un projet → ouvre le module projet dans la sidebar
 
 ### Module Audit (`/projects/:id/audit`)
-- Saisie des consommations énergétiques par section (Activité op., Bâtiments, Transport, Utilité)
-- Colonnes : Électricité, Gaz, Fuel, Biogaz, Utilité 1, Utilité 2, Process
-- Noms et unités des utilités personnalisables
-- Facteurs d'influence (colonnes L/M/N du template Excel)
-- Ligne Factures / Compteur
-- Écriture automatique dans l'Excel du projet à la sauvegarde
-- Recalcul via LibreOffice headless → lecture des indices calculés (IEE, IC, iSER, AEE, iCO₂, ACO₂)
-- **Bandeau** : si des documents analysés existent, lien direct vers le module Documents
-- **Highlighting** : champs remplis depuis un document → bordure gauche violette + tooltip
+
+> Ce module affiche désormais le **Plan d'amélioration AMUREBA** (voir section dédiée ci-dessous). L'ancien module de saisie audit (consommations, indices Excel, LibreOffice) est conservé dans `ProjectAudit.jsx` mais n'est plus accessible depuis la navigation.
+
+La sidebar affiche les modules projet dans cet ordre : **Documents → Audit → Comptabilité énergie → Rapport → ACV**.
 
 ### Module Documents (`/projects/:id/documents`)
 - Upload de fichiers PDF, JPEG ou PNG associés à un projet
@@ -222,7 +217,7 @@ Workflow de pré-remplissage IA du rapport Word, symétrique au module AMUREBA :
 - Bouton "Télécharger la version courante" → `GET report/docx`
 - **Historique** (drawer latéral) : liste chronologique des pré-remplissages IA et uploads manuels avec détail par section et téléchargement des fichiers
 
-### Plan d'amélioration AMUREBA (`/projects/:id/plan-amelioration`)
+### Audit — Plan d'amélioration AMUREBA (`/projects/:id/audit`)
 
 Workflow en 3 étapes :
 
@@ -537,7 +532,7 @@ Sur Render, configurer le service Web avec :
 - **Root Directory** : `backend`
 - **Variables d'environnement** : `DATABASE_URL`, `SECRET_KEY`, `ANTHROPIC_API_KEY`
 
-`start.sh` démarre uvicorn directement — les tables sont créées/mises à jour au démarrage via `ALTER TABLE IF NOT EXISTS` (pas d'Alembic).
+`start.sh` exécute d'abord `alembic upgrade head` (migrations versionnées pour le schéma de base), puis lance uvicorn. Les colonnes ajoutées après coup sont créées via `ALTER TABLE IF NOT EXISTS` au démarrage de l'application.
 
 > Le filesystem Render est éphémère — les fichiers Excel sont régénérés depuis le template. Les documents uploadés et les xlsx pré-remplis sont stockés en **bytea PostgreSQL**.
 
