@@ -1333,7 +1333,7 @@ async def extract_document(
     try:
         client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             messages=messages,
         )
@@ -1779,7 +1779,7 @@ async def _get_report_prefill_proposals(
 
         claude_client = anthropic.Anthropic(api_key=api_key)
         msg = claude_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
             system=_REPORT_PREFILL_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
@@ -2544,7 +2544,7 @@ def _analyze_one(doc: models.ProjectDocument, db_session=None) -> None:
 
     def _call_claude(msgs):
         msg = client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=1024,
             messages=msgs,
         )
@@ -3153,7 +3153,7 @@ async def _get_prefill_actions(
     try:
         claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
         msg = claude_client.messages.create(
-            model="claude-sonnet-4-20250514",
+            model="claude-sonnet-4-6",
             max_tokens=4096,
             system=_PREFILL_SYSTEM,
             messages=[{"role": "user", "content": user_msg}],
