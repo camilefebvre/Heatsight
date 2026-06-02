@@ -26,6 +26,7 @@ import re
 import sys
 import traceback
 import hashlib
+import time
 import threading
 import concurrent.futures
 import asyncio
@@ -3150,23 +3151,34 @@ async def _get_prefill_actions(
 
     print(f"[prefill] appel Claude — {len(extracted_parts)} sources, max {max_actions} actions", flush=True)
 
-    try:
-        claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
-        msg = claude_client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=4096,
-            system=_PREFILL_SYSTEM,
-            messages=[{"role": "user", "content": user_msg}],
-        )
-        print(f"[tokens] prefill in={msg.usage.input_tokens} out={msg.usage.output_tokens}", flush=True)
-        raw_text    = msg.content[0].text.strip()
-        json_match  = re.search(r"\[.*\]", raw_text, re.DOTALL)
-        if not json_match:
-            raise ValueError("Aucun tableau JSON trouvé dans la réponse Claude")
-        actions: List[Dict[str, Any]] = json.loads(json_match.group(0))
-        print(f"[prefill] Claude a proposé {len(actions)} action(s)", flush=True)
-    except Exception as e:
-        raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
+    claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
+    for attempt in range(3):
+        try:
+            msg = claude_client.messages.create(
+                model="claude-sonnet-4-6",
+                max_tokens=8192,
+                system=_PREFILL_SYSTEM,
+                messages=[{"role": "user", "content": user_msg}],
+            )
+            print(f"[tokens] prefill in={msg.usage.input_tokens} out={msg.usage.output_tokens}", flush=True)
+            raw_text = msg.content[0].text.strip()
+            print(f"[prefill] raw_text={repr(raw_text[:600])}", flush=True)
+            raw_text = re.sub(r'^```(?:json)?\s*', '', raw_text)
+            raw_text = re.sub(r'\s*```$', '', raw_text).strip()
+            json_match = re.search(r"\[.*\]", raw_text, re.DOTALL)
+            if not json_match:
+                raise ValueError("Aucun tableau JSON trouvé dans la réponse Claude")
+            actions: List[Dict[str, Any]] = json.loads(json_match.group(0))
+            print(f"[prefill] Claude a proposé {len(actions)} action(s)", flush=True)
+            break
+        except anthropic.APIStatusError as e:
+            if e.status_code == 529 and attempt < 2:
+                print(f"[prefill] Claude surchargé (529), retry {attempt + 1}/3...", flush=True)
+                time.sleep(3)
+            else:
+                raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
+        except Exception as e:
+            raise HTTPException(status_code=502, detail=f"Erreur lors de l'appel à Claude : {e}")
 
     return project, entity_name, actions, energy_record, audit
 
