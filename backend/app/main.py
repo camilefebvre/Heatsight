@@ -4338,6 +4338,8 @@ def patch_lca_material(
     material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Matériau introuvable")
+    if material.is_reference:
+        raise HTTPException(status_code=403, detail="Fiche de référence non modifiable. Dupliquez-la pour créer une copie éditable.")
     if version == "v2":
         effective_dvr = payload.dvr_materiau if payload.dvr_materiau is not None else material.dvr_materiau
         if effective_dvr is None:
@@ -4373,6 +4375,8 @@ def delete_lca_material(
     material = db.query(models.LcaMaterial).filter(models.LcaMaterial.id == material_id).first()
     if not material:
         raise HTTPException(status_code=404, detail="Matériau introuvable")
+    if material.is_reference:
+        raise HTTPException(status_code=403, detail="Fiche de référence non supprimable. Dupliquez-la pour créer une copie éditable.")
     db.delete(material)
     db.commit()
     return {"status": "deleted", "id": material_id}
@@ -4397,8 +4401,10 @@ def duplicate_lca_material(
         prix=original.prix,
         valeur_r=original.valeur_r,
         is_fixed=False,
+        is_reference=False,
         flux_reference=original.flux_reference,
         valeur_lambda=original.valeur_lambda,
+        dvr_materiau=original.dvr_materiau,
         poids_unite=original.poids_unite,
     )
     db.add(copy)

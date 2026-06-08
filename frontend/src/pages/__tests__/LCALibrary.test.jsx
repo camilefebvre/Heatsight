@@ -166,7 +166,7 @@ describe("LCALibrary", () => {
     );
 
     expect(screen.getByText("DVR (ans)")).toBeInTheDocument();
-    expect(screen.getByText("Flux réf.")).toBeInTheDocument();
+    expect(screen.getByText(/Flux réf\./)).toBeInTheDocument();
   });
 
   // ── 10. version=v2 envoyé dans FormData lors de la soumission ─────────────

@@ -339,7 +339,10 @@ export default function LCALibrary() {
                   <th style={{ ...th, textAlign: "right" }}>Prix (€)</th>
                   <th style={{ ...th, textAlign: "right" }}>R / λ <span title="R pour Cadres/Vitrages/Murs (m²·K/W), λ explicite séparé pour Isolants. Pour les Isolants, la valeur affichée est la référence Convention 2 (=1.0)." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></th>
                   <th style={{ ...th, textAlign: "right" }}>DVR (ans)</th>
-                  <th style={{ ...th, textAlign: "right" }}>Flux réf.</th>
+                  <th style={{ ...th, textAlign: "right" }}>
+                    Flux réf. ou Poids
+                    <span title="Isolants : flux de référence en kg/(m²·K/W). Autres : poids en kg/m²." style={{ color: "#9ca3af", cursor: "help", marginLeft: 4 }}>(?)</span>
+                  </th>
                   <th style={{ ...th, textAlign: "right" }}>GWP100</th>
                   <th style={{ ...th, textAlign: "right", width: 110 }}>Actions</th>
                 </tr>
@@ -366,6 +369,18 @@ export default function LCALibrary() {
                             Incomplet ACV
                           </span>
                         )}
+                        {mat.is_reference && (
+                          <span
+                            title="Fiche de référence — non modifiable. Utilisez Dupliquer pour en faire une copie éditable."
+                            style={{
+                              background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe",
+                              borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
+                              whiteSpace: "nowrap", cursor: "help", flexShrink: 0,
+                            }}
+                          >
+                            Référence
+                          </span>
+                        )}
                       </span>
                     </td>
                     <td style={{ ...td, color: "#6b7280" }}>
@@ -382,7 +397,9 @@ export default function LCALibrary() {
                       {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
-                      {isIsolantCategory(mat.category) && mat.flux_reference != null ? fmtNum(mat.flux_reference, 4) : "—"}
+                      {isIsolantCategory(mat.category)
+                        ? mat.flux_reference != null ? fmtNum(mat.flux_reference, 2) : "—"
+                        : mat.poids_unite != null ? fmtNum(mat.poids_unite, 1) : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
@@ -411,12 +428,14 @@ export default function LCALibrary() {
                         </span>
                       ) : (
                         <span style={{ display: "inline-flex", gap: 4 }}>
-                          <ActionBtn
-                            title="Modifier"
-                            onClick={() => openEdit(mat, isIncomplete(mat))}
-                          >
-                            <Pencil size={13} />
-                          </ActionBtn>
+                          {!mat.is_reference && (
+                            <ActionBtn
+                              title="Modifier"
+                              onClick={() => openEdit(mat, isIncomplete(mat))}
+                            >
+                              <Pencil size={13} />
+                            </ActionBtn>
+                          )}
                           <ActionBtn
                             title="Dupliquer"
                             onClick={() => handleDuplicate(mat.id)}
@@ -424,13 +443,15 @@ export default function LCALibrary() {
                           >
                             <Copy size={13} />
                           </ActionBtn>
-                          <ActionBtn
-                            title="Supprimer"
-                            onClick={() => setConfirmDel(mat.id)}
-                            danger
-                          >
-                            <Trash2 size={13} />
-                          </ActionBtn>
+                          {!mat.is_reference && (
+                            <ActionBtn
+                              title="Supprimer"
+                              onClick={() => setConfirmDel(mat.id)}
+                              danger
+                            >
+                              <Trash2 size={13} />
+                            </ActionBtn>
+                          )}
                         </span>
                       )}
                     </td>

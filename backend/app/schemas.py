@@ -165,6 +165,7 @@ class LcaMaterialOut(BaseModel):
     prix: Optional[float] = None
     valeur_r: Optional[float] = None
     is_fixed: bool = False
+    is_reference: bool = False
     flux_reference: Optional[float] = None
     dvr_materiau: Optional[int] = None
     valeur_lambda: Optional[float] = None

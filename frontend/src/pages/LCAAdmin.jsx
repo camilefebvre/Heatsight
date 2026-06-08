@@ -306,7 +306,18 @@ export default function LCAAdmin() {
                       </span>
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      {confirmDelete === mat.id ? (
+                      {mat.is_reference ? (
+                        <span
+                          title="Fiche de référence — non supprimable."
+                          style={{
+                            fontSize: 11, fontWeight: 700, color: "#6d28d9",
+                            background: "#f5f3ff", border: "1px solid #ddd6fe",
+                            borderRadius: 6, padding: "2px 8px", cursor: "help",
+                          }}
+                        >
+                          Référence
+                        </span>
+                      ) : confirmDelete === mat.id ? (
                         <span style={{ display: "inline-flex", gap: 6, alignItems: "center" }}>
                           <button
                             type="button"
