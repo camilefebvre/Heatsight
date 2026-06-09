@@ -13,9 +13,6 @@ bcrypt
 anthropic>=0.40.0
 python-multipart
 pandas
-<<<<<<< HEAD
 pytest
 httpx
-=======
 pdfplumber
->>>>>>> 9872823b64ea6ddb8862a72096e1aa437f25716f
