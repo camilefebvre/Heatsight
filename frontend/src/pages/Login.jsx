@@ -120,10 +120,11 @@ export default function Login() {
             <input
               type="email"
               value={email}
-              onChange={(e) => { setEmail(e.target.value); setError(""); }}
+              onChange={(e) => { e.target.setCustomValidity(""); setEmail(e.target.value); setError(""); }}
               placeholder="admin@heatsight.be"
               required
               autoComplete="email"
+              onInvalid={(e) => e.target.setCustomValidity("Veuillez ajouter une adresse email valide.")}
               style={inputStyle}
             />
           </div>
@@ -163,7 +164,7 @@ export default function Login() {
             disabled={loading}
             style={{
               marginTop: 4,
-              background: loading ? "#4c1d95" : "#6d28d9",
+              background: loading ? "#4c1d95" : "#59169c",
               color: "white",
               border: "none",
               padding: "13px",

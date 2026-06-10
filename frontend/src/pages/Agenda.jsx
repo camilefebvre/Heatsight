@@ -138,7 +138,7 @@ export default function Agenda() {
 
   function focusStyle(name) {
     return focused === name
-      ? { ...inputStyle, borderColor: "#6d28d9", boxShadow: "0 0 0 3px rgba(109,40,217,0.12)" }
+      ? { ...inputStyle, borderColor: "#59169c", boxShadow: "0 0 0 3px rgba(89,22,156,0.12)" }
       : inputStyle;
   }
 
@@ -235,7 +235,7 @@ export default function Agenda() {
             Nouvel événement
           </div>
           <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            Remplis les champs et ajoute.
+            Remplissez les champs et ajoutez.
           </div>
 
           <form onSubmit={addEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
@@ -290,7 +290,7 @@ export default function Agenda() {
                 placeholder="Check-list, documents à apporter…" />
             </Field>
 
-            <button type="submit" style={{ background: "#6d28d9", color: "white",
+            <button type="submit" style={{ background: "#59169c", color: "white",
               border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700,
               fontSize: 14, cursor: "pointer", marginTop: 4 }}>
               + Ajouter l'événement

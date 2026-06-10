@@ -351,6 +351,7 @@ export default function LCALibrary() {
                 {materials.map((mat) => (
                   <tr
                     key={mat.id}
+                    className="hs-clickable"
                     style={{ borderTop: "1px solid #f3f4f6", cursor: "pointer" }}
                     onDoubleClick={() => setFicheModal(mat)}
                   >
@@ -361,7 +362,7 @@ export default function LCALibrary() {
                           <span
                             title="Ce matériau nécessite la saisie de la DVR (et flux_référence si Isolant) pour être utilisable dans le module ACV."
                             style={{
-                              background: "#fff7ed", color: "#c2410c", border: "1px solid #fed7aa",
+                              background: "#fff7ed", color: "#8c5100", border: "1px solid #fed7aa",
                               borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
                               whiteSpace: "nowrap", cursor: "help", flexShrink: 0,
                             }}
@@ -373,7 +374,7 @@ export default function LCALibrary() {
                           <span
                             title="Fiche de référence — non modifiable. Utilisez Dupliquer pour en faire une copie éditable."
                             style={{
-                              background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ddd6fe",
+                              background: "#f5f3ff", color: "#59169c", border: "1px solid #ddd6fe",
                               borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
                               whiteSpace: "nowrap", cursor: "help", flexShrink: 0,
                             }}
@@ -401,7 +402,7 @@ export default function LCALibrary() {
                         ? mat.flux_reference != null ? fmtNum(mat.flux_reference, 2) : "—"
                         : mat.poids_unite != null ? fmtNum(mat.poids_unite, 1) : "—"}
                     </td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#59169c", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
                     </td>
                     <td
@@ -465,7 +466,7 @@ export default function LCALibrary() {
 
       {/* ── Encart Module C — lecture seule ─────────────────────────────────── */}
       <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "14px 18px" }}>
-        <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", marginBottom: 6 }}>
+        <div style={{ fontWeight: 700, fontSize: 13, color: "#8c5100", marginBottom: 6 }}>
           Procédé système — Déconstruction (Module C, EN 15978)
         </div>
         <div style={{ fontSize: 12, color: "#78350f", marginBottom: 8 }}>
@@ -501,15 +502,15 @@ export default function LCALibrary() {
               <div
                 onClick={() => fileInputRef.current?.click()}
                 style={{
-                  border: `2px dashed ${imp.file ? "#6d28d9" : "#d1d5db"}`,
+                  border: `2px dashed ${imp.file ? "#59169c" : "#d1d5db"}`,
                   borderRadius: 12, padding: "18px 16px", textAlign: "center",
                   cursor: "pointer", background: imp.file ? "#faf5ff" : "#fafafa", marginBottom: 14,
                 }}
               >
-                <Upload size={20} color={imp.file ? "#6d28d9" : "#9ca3af"} style={{ margin: "0 auto 6px" }} />
+                <Upload size={20} color={imp.file ? "#59169c" : "#9ca3af"} style={{ margin: "0 auto 6px" }} />
                 {imp.file ? (
                   <div>
-                    <div style={{ fontWeight: 700, color: "#6d28d9", fontSize: 14 }}>{imp.file.name}</div>
+                    <div style={{ fontWeight: 700, color: "#59169c", fontSize: 14 }}>{imp.file.name}</div>
                     <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{(imp.file.size / 1024).toFixed(1)} Ko — cliquez pour changer</div>
                   </div>
                 ) : (
@@ -597,8 +598,8 @@ export default function LCALibrary() {
             {imp.result && (
               <div style={{
                 marginTop: 12, padding: "10px 14px", borderRadius: 10,
-                background: imp.result.ok ? "#dcfce7" : "#fee2e2",
-                color: imp.result.ok ? "#166534" : "#991b1b",
+                background: imp.result.ok ? "#f3f4f6" : "#fee2e2",
+                color: imp.result.ok ? "#374151" : "#8f1d2f",
                 fontWeight: 600, fontSize: 13,
               }}>
                 {imp.result.message}
@@ -679,7 +680,7 @@ export default function LCALibrary() {
                     return (
                       <tr key={i} style={{ borderTop: "1px solid #f9fafb" }}>
                         <td style={{ padding: "6px 12px", fontSize: 13, color: "#374151" }}>{ind.label}</td>
-                        <td style={{ padding: "6px 12px", fontSize: 13, fontWeight: isEmpty ? 400 : 700, color: isEmpty ? "#d1d5db" : "#6d28d9", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
+                        <td style={{ padding: "6px 12px", fontSize: 13, fontWeight: isEmpty ? 400 : 700, color: isEmpty ? "#d1d5db" : "#59169c", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
                           {isEmpty ? "—" : fmtImpact(raw)}
                         </td>
                         <td style={{ padding: "6px 12px", fontSize: 12, color: "#9ca3af" }}>{ind.unit}</td>
@@ -833,7 +834,7 @@ export default function LCALibrary() {
               )}
 
               {saveError && (
-                <div style={{ marginBottom: 12, color: "#991b1b", fontSize: 13, fontWeight: 600 }}>{saveError}</div>
+                <div style={{ marginBottom: 12, color: "#8f1d2f", fontSize: 13, fontWeight: 600 }}>{saveError}</div>
               )}
 
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
@@ -902,7 +903,7 @@ function ActionBtn({ children, title, onClick, disabled, danger }) {
         cursor: disabled ? "not-allowed" : "pointer",
         display: "inline-flex",
         alignItems: "center",
-        color: danger ? "#ef4444" : "#6b7280",
+        color: danger ? "#ca2946" : "#6b7280",
         opacity: disabled ? 0.5 : 1,
       }}
     >
@@ -928,13 +929,13 @@ const inputStyle = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9", color: "white", border: "none",
+  background: "#59169c", color: "white", border: "none",
   padding: "10px 14px", borderRadius: 12, fontWeight: 900,
   cursor: "pointer", fontSize: 14,
 };
 
 const dangerBtn = {
-  background: "#ef4444", color: "white", border: "none",
+  background: "#ca2946", color: "white", border: "none",
   borderRadius: 7, fontWeight: 700, cursor: "pointer",
   fontSize: 12, padding: "4px 10px",
 };

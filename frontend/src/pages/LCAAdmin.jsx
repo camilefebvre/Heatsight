@@ -141,7 +141,7 @@ export default function LCAAdmin() {
           <div
             onClick={() => fileInputRef.current?.click()}
             style={{
-              border: `2px dashed ${file ? "#6d28d9" : "#d1d5db"}`,
+              border: `2px dashed ${file ? "#59169c" : "#d1d5db"}`,
               borderRadius: 12,
               padding: "24px 16px",
               textAlign: "center",
@@ -151,10 +151,10 @@ export default function LCAAdmin() {
               transition: "border-color 0.2s, background 0.2s",
             }}
           >
-            <Upload size={22} color={file ? "#6d28d9" : "#9ca3af"} style={{ margin: "0 auto 8px" }} />
+            <Upload size={22} color={file ? "#59169c" : "#9ca3af"} style={{ margin: "0 auto 8px" }} />
             {file ? (
               <div>
-                <div style={{ fontWeight: 700, color: "#6d28d9", fontSize: 14 }}>{file.name}</div>
+                <div style={{ fontWeight: 700, color: "#59169c", fontSize: 14 }}>{file.name}</div>
                 <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
                   {(file.size / 1024).toFixed(1)} Ko — cliquez pour changer
                 </div>
@@ -245,8 +245,8 @@ export default function LCAAdmin() {
             marginTop: 16,
             padding: "12px 14px",
             borderRadius: 12,
-            background: importResult.ok ? "#dcfce7" : "#fee2e2",
-            color: importResult.ok ? "#166534" : "#991b1b",
+            background: importResult.ok ? "#f3f4f6" : "#fee2e2",
+            color: importResult.ok ? "#374151" : "#8f1d2f",
             fontWeight: 600,
             fontSize: 14,
           }}>
@@ -297,7 +297,7 @@ export default function LCAAdmin() {
                     <td style={{ ...td, fontWeight: 700 }}>{mat.name}</td>
                     <td style={td}>{CATEGORY_LABELS[mat.category] || mat.category}</td>
                     <td style={{ ...td, color: "#6b7280", fontSize: 13 }}>{mat.functional_unit}</td>
-                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#6d28d9", fontWeight: 700 }}>
+                    <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#59169c", fontWeight: 700 }}>
                       {mat.impacts?.GWP100 != null ? `${mat.impacts.GWP100} kg CO₂ eq` : "—"}
                     </td>
                     <td style={{ ...td, textAlign: "center" }}>
@@ -310,7 +310,7 @@ export default function LCAAdmin() {
                         <span
                           title="Fiche de référence — non supprimable."
                           style={{
-                            fontSize: 11, fontWeight: 700, color: "#6d28d9",
+                            fontSize: 11, fontWeight: 700, color: "#59169c",
                             background: "#f5f3ff", border: "1px solid #ddd6fe",
                             borderRadius: 6, padding: "2px 8px", cursor: "help",
                           }}
@@ -400,7 +400,7 @@ const inputStyle = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9",
+  background: "#59169c",
   color: "white",
   border: "none",
   padding: "10px 16px",
@@ -418,11 +418,11 @@ const iconBtn = {
   cursor: "pointer",
   display: "inline-flex",
   alignItems: "center",
-  color: "#ef4444",
+  color: "#ca2946",
 };
 
 const dangerBtn = {
-  background: "#ef4444",
+  background: "#ca2946",
   color: "white",
   border: "none",
   borderRadius: 8,

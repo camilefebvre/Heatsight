@@ -4,6 +4,16 @@ import { FolderOpen, Play, Clock, CheckCircle } from "lucide-react";
 import StatusPill from "../ui/StatusPill";
 import { apiFetch } from "../api";
 
+const BUILDING_TYPE_LABELS = {
+  residential: "Résidentiel",
+  tertiary: "Tertiaire",
+  industrial: "Industriel",
+  other: "Autre",
+};
+function buildingTypeLabel(value) {
+  return BUILDING_TYPE_LABELS[value] || value || "";
+}
+
 function StatCard({ title, value, subtitle, Icon, accentColor }) {
   return (
     <div
@@ -113,28 +123,28 @@ export default function Dashboard() {
           value={loading ? "—" : stats.total}
           subtitle={`${loading ? "—" : stats.newThisMonth} ce mois-ci`}
           Icon={FolderOpen}
-          accentColor="#6d28d9"
+          accentColor="#6b7280"
         />
         <StatCard
           title="Audits en cours"
           value={loading ? "—" : stats.active}
           subtitle="En progression"
           Icon={Play}
-          accentColor="#2563eb"
+          accentColor="#59169c"
         />
         <StatCard
           title="En attente"
           value={loading ? "—" : stats.onHold}
           subtitle="Mis en pause"
           Icon={Clock}
-          accentColor="#ea580c"
+          accentColor="#fe9300"
         />
         <StatCard
           title="Audits terminés"
           value={loading ? "—" : stats.completed}
           subtitle="Finalisés"
           Icon={CheckCircle}
-          accentColor="#16a34a"
+          accentColor="#82137e"
         />
       </div>
 
@@ -191,7 +201,7 @@ export default function Dashboard() {
                       {p.project_name}
                     </span>
                     <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
-                      {p.building_type || "—"}
+                      {buildingTypeLabel(p.building_type) || "—"}
                     </div>
                   </td>
                   <td style={td}>

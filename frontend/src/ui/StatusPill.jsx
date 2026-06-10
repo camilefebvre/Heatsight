@@ -1,9 +1,9 @@
 export default function StatusPill({ status = "draft" }) {
   const map = {
     draft:       { label: "Brouillon",   bg: "#64748b" },
-    in_progress: { label: "En cours",    bg: "#6d28d9" },
-    on_hold:     { label: "En attente",  bg: "#ea580c" },
-    completed:   { label: "Terminé",     bg: "#16a34a" },
+    in_progress: { label: "En cours",    bg: "#59169c" },
+    on_hold:     { label: "En attente",  bg: "#fe9300", fg: "#5c3600" },
+    completed:   { label: "Terminé",     bg: "#82137e" },
   };
 
   const s = map[status] || map.draft;
@@ -18,7 +18,7 @@ export default function StatusPill({ status = "draft" }) {
         fontWeight: 700,
         fontSize: 12,
         background: s.bg,
-        color: "white",
+        color: s.fg || "white",
         letterSpacing: "0.02em",
         userSelect: "none",
       }}

@@ -53,7 +53,7 @@ function Tab({ label, active, onClick }) {
         padding: "10px 12px",
         borderRadius: 12,
         border: "1px solid #e5e7eb",
-        background: active ? "#6d28d9" : "white",
+        background: active ? "#59169c" : "white",
         color: active ? "white" : "#111827",
         fontWeight: 700,
         cursor: "pointer",
@@ -74,7 +74,7 @@ function YearButton({ active, label, onClick }) {
         padding: "10px 12px",
         borderRadius: 12,
         border: "1px solid #e5e7eb",
-        background: active ? "#6d28d9" : "white",
+        background: active ? "#59169c" : "white",
         color: active ? "white" : "#111827",
         fontWeight: 700,
         cursor: "pointer",
@@ -397,7 +397,7 @@ export default function ProjectEnergy() {
         Comptabilité énergétique &mdash; {project.project_name}
       </h1>
       <div style={{ color: "#6b7280", fontSize: 14 }}>
-        Ajoute des années, saisis les totaux et visualise les graphes globaux.
+        Ajoutez des années, saisissez les totaux et visualisez les graphes globaux.
       </div>
 
       {analyzedDocsCount > 0 && (
@@ -406,7 +406,7 @@ export default function ProjectEnergy() {
           <button
             type="button"
             onClick={() => navigate(`/projects/${projectId}/documents`)}
-            style={{ background: "none", border: "none", color: "#7c3aed", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
+            style={{ background: "none", border: "none", color: "#59169c", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
           >
             → Voir les documents
           </button>
@@ -467,7 +467,7 @@ export default function ProjectEnergy() {
             {importDocsMsg && (
               <div style={{
                 marginTop: 8, fontSize: 13, fontWeight: 700,
-                color: importDocsMsg.startsWith("✅") ? "#166534" : importDocsMsg.startsWith("ℹ") ? "#1e40af" : "#991b1b",
+                color: importDocsMsg.startsWith("✅") ? "#374151" : importDocsMsg.startsWith("ℹ") ? "#374151" : "#8f1d2f",
               }}>
                 {importDocsMsg}
               </div>
@@ -677,7 +677,7 @@ export default function ProjectEnergy() {
 
 function SourcedInput({ value, onChange, style, placeholder, fieldSource }) {
   const [showTip, setShowTip] = useState(false);
-  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #7c3aed" } : style;
+  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #59169c" } : style;
   return (
     <div style={{ position: "relative" }}>
       <input
@@ -760,7 +760,7 @@ const tabsRow = {
 const errorBox = {
   marginTop: 14,
   background: "#fee2e2",
-  color: "#991b1b",
+  color: "#8f1d2f",
   padding: 12,
   borderRadius: 12,
   fontWeight: 700,
@@ -779,7 +779,7 @@ const inputStyle = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9",
+  background: "#59169c",
   color: "white",
   border: "none",
   padding: "10px 14px",
@@ -799,9 +799,9 @@ const secondaryBtn = {
 };
 
 const importBtn = {
-  border: "1.5px solid #6d28d9",
+  border: "1.5px solid #59169c",
   background: "white",
-  color: "#6d28d9",
+  color: "#59169c",
   padding: "10px 14px",
   borderRadius: 12,
   fontWeight: 700,

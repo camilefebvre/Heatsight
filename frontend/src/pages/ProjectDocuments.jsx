@@ -439,7 +439,7 @@ export default function ProjectDocuments() {
         </div>
 
         {uploadMsg && (
-          <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: uploadMsg.startsWith("✅") ? "#166534" : "#991b1b" }}>
+          <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: uploadMsg.startsWith("✅") ? "#374151" : "#8f1d2f" }}>
             {uploadMsg}
           </div>
         )}
@@ -447,13 +447,13 @@ export default function ProjectDocuments() {
 
       {/* ── Extracted summary panel ── */}
       {summary && (
-        <div style={{ ...card, background: "#f0fdf4", border: "1px solid #bbf7d0" }}>
-          <div style={{ fontWeight: 800, fontSize: 15, color: "#14532d", marginBottom: 10 }}>
+        <div style={{ ...card, background: "#f3f4f6", border: "1px solid #e5e7eb" }}>
+          <div style={{ fontWeight: 800, fontSize: 15, color: "#374151", marginBottom: 10 }}>
             Données extraites depuis {summary.count} document{summary.count > 1 ? "s" : ""}
           </div>
 
           {/* Preview extracted values */}
-          <div style={{ fontSize: 13, color: "#166534", marginBottom: 14 }}>
+          <div style={{ fontSize: 13, color: "#374151", marginBottom: 14 }}>
             {Object.keys(summary.invoicePatch).length > 0 && (
               <div>• Factures/Compteur : {Object.entries(summary.invoicePatch).map(([k, v]) => `${k}=${v}`).join(", ")}</div>
             )}
@@ -496,7 +496,7 @@ export default function ProjectDocuments() {
           </div>
 
           {applyMsg && (
-            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: applyMsg.startsWith("✅") ? "#166534" : applyMsg.startsWith("ℹ") ? "#1e40af" : "#991b1b" }}>
+            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: applyMsg.startsWith("✅") ? "#374151" : applyMsg.startsWith("ℹ") ? "#374151" : "#8f1d2f" }}>
               {applyMsg}
             </div>
           )}
@@ -530,7 +530,7 @@ export default function ProjectDocuments() {
             {filterType && (
               <button
                 type="button"
-                style={{ fontSize: 12, color: "#7c3aed", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
+                style={{ fontSize: 12, color: "#59169c", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
                 onClick={() => setFilterType(null)}
               >
                 Effacer ×
@@ -598,7 +598,7 @@ export default function ProjectDocuments() {
                   </div>
                 </div>
               </div>
-              <span style={{ ...statusPill, background: "#e0f2fe", color: "#0369a1" }}>Fichier externe</span>
+              <span style={{ ...statusPill, background: "#f3f4f6", color: "#374151" }}>Fichier externe</span>
             </div>
           ))}
         </div>
@@ -657,8 +657,8 @@ const CHECKLIST_DETAIL = {
 };
 
 const CL_STATUS = {
-  complete: { dot: "#059669", bg: "#f0fdf4", border: "#d1fae5", badge: "#065f46", badgeBg: "#d1fae5", label: "Complet" },
-  partial:  { dot: "#d97706", bg: "#fffbeb", border: "#fde68a", badge: "#92400e", badgeBg: "#fef3c7", label: "Partiel" },
+  complete: { dot: "#82137e", bg: "#f3f4f6", border: "#e5e7eb", badge: "#374151", badgeBg: "#f3f4f6", label: "Complet" },
+  partial:  { dot: "#fe9300", bg: "#fffbeb", border: "#fde68a", badge: "#8c5100", badgeBg: "#fef3c7", label: "Partiel" },
   missing:  { dot: "#cbd5e1", bg: "#f8fafc", border: "#e2e8f0", badge: "#94a3b8", badgeBg: "#f1f5f9", label: "Manquant" },
 };
 
@@ -704,7 +704,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
           <div style={{
             width: 34, height: 34, borderRadius: 10, background: "#ede9fe",
             display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 16, flexShrink: 0, color: "#6d28d9",
+            fontSize: 16, flexShrink: 0, color: "#59169c",
           }}>
             {open ? "−" : "≡"}
           </div>
@@ -726,7 +726,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
             style={{
               border: "1px solid #c4b5fd",
               background: "white",
-              color: "#6d28d9",
+              color: "#59169c",
               padding: "5px 12px",
               borderRadius: 8,
               fontSize: 12,
@@ -750,7 +750,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
           </button>
 
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20, fontWeight: 900, color: allDone ? "#059669" : "#6d28d9", lineHeight: 1 }}>
+            <div style={{ fontSize: 20, fontWeight: 900, color: allDone ? "#82137e" : "#59169c", lineHeight: 1 }}>
               {completedCount}
               <span style={{ fontSize: 13, fontWeight: 500, color: "#d1d5db" }}> / {total}</span>
             </div>
@@ -763,8 +763,8 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
               <div style={{
                 width: `${progressPct}%`, height: "100%", borderRadius: 99,
                 background: allDone
-                  ? "#059669"
-                  : "linear-gradient(90deg, #7c3aed, #6d28d9)",
+                  ? "#82137e"
+                  : "linear-gradient(90deg, #82137e, #59169c)",
                 transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)",
               }} />
             </div>
@@ -842,7 +842,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
                       style={{
                         border: "1px solid #c4b5fd",
                         background: "white",
-                        color: "#6d28d9",
+                        color: "#59169c",
                         padding: "3px 9px",
                         borderRadius: 6,
                         fontSize: 11,
@@ -1015,12 +1015,12 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
         {/* All-complete case */}
         {allComplete ? (
           <div style={{
-            background: "#f0fdf4", border: "1px solid #d1fae5", borderRadius: 12,
+            background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 12,
             padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
           }}>
             <div style={{ fontSize: 22 }}>✅</div>
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#065f46" }}>
+              <div style={{ fontWeight: 700, fontSize: 14, color: "#374151" }}>
                 Tous les documents principaux sont fournis
               </div>
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>
@@ -1088,7 +1088,7 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
                 style={{ ...secondaryBtn, fontSize: 13, opacity: saving ? 0.7 : 1 }}
                 disabled={saving}
                 onClick={handleSaveRequest}
-                title="Enregistre l'email comme requête client dans le projet"
+                title="Enregistrer l'email comme requête client dans le projet"
               >
                 {saving ? "Sauvegarde…" : "Sauvegarder en requête client"}
               </button>
@@ -1097,7 +1097,7 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
             {saveMsg && (
               <div style={{
                 fontSize: 13, fontWeight: 700,
-                color: saveMsg.startsWith("✅") ? "#065f46" : "#991b1b",
+                color: saveMsg.startsWith("✅") ? "#374151" : "#8f1d2f",
               }}>
                 {saveMsg}
               </div>
@@ -1122,8 +1122,8 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
 
   const statusColor = {
     pending: { bg: "#fef9c3", color: "#854d0e" },
-    analyzed: { bg: "#dcfce7", color: "#166534" },
-    error: { bg: "#fee2e2", color: "#991b1b" },
+    analyzed: { bg: "#f3f4f6", color: "#374151" },
+    error: { bg: "#fee2e2", color: "#8f1d2f" },
   }[doc.status] || { bg: "#f3f4f6", color: "#6b7280" };
 
   const statusLabel = { pending: "En attente", analyzed: "Analysé", error: "Erreur" }[doc.status] || doc.status;
@@ -1362,7 +1362,7 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
               <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
                 <button
                   type="button"
-                  style={{ ...applyBtn, background: "#6d28d9", color: "white", opacity: applying ? 0.7 : 1 }}
+                  style={{ ...applyBtn, background: "#59169c", color: "white", opacity: applying ? 0.7 : 1 }}
                   disabled={!!applying}
                   onClick={applyAll}
                 >
@@ -1397,7 +1397,7 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
               {applyMsg && (
                 <div style={{
                   marginTop: 8, fontSize: 12, fontWeight: 700,
-                  color: applyMsg.startsWith("✅") ? "#166534" : applyMsg.startsWith("ℹ") ? "#1e40af" : "#991b1b",
+                  color: applyMsg.startsWith("✅") ? "#374151" : applyMsg.startsWith("ℹ") ? "#374151" : "#8f1d2f",
                 }}>
                   {applyMsg}
                 </div>
@@ -1424,7 +1424,7 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
           </button>
         )}
 
-        <button type="button" style={{ ...iconBtn, color: "#ef4444" }} onClick={onDelete} title="Supprimer">
+        <button type="button" style={{ ...iconBtn, color: "#ca2946" }} onClick={onDelete} title="Supprimer">
           ✕
         </button>
       </div>
@@ -1495,7 +1495,7 @@ function FileModal({ doc, projectId, onClose }) {
             <div style={{ color: "#6b7280", padding: 24, textAlign: "center" }}>Chargement…</div>
           )}
           {fileError && (
-            <div style={{ color: "#991b1b", padding: 24, fontWeight: 700 }}>{fileError}</div>
+            <div style={{ color: "#8f1d2f", padding: 24, fontWeight: 700 }}>{fileError}</div>
           )}
           {blobUrl && isImage && (
             <img
@@ -1541,7 +1541,7 @@ const rowBox = {
 const errorBox = {
   marginTop: 14,
   background: "#fee2e2",
-  color: "#991b1b",
+  color: "#8f1d2f",
   padding: 12,
   borderRadius: 12,
   fontWeight: 700,
@@ -1569,7 +1569,7 @@ const inputStyle = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9",
+  background: "#59169c",
   color: "white",
   border: "none",
   padding: "10px 14px",
@@ -1590,9 +1590,9 @@ const secondaryBtn = {
 };
 
 const importBtn = {
-  border: "1.5px solid #6d28d9",
+  border: "1.5px solid #59169c",
   background: "white",
-  color: "#6d28d9",
+  color: "#59169c",
   padding: "10px 14px",
   borderRadius: 12,
   fontWeight: 700,
@@ -1610,9 +1610,9 @@ const iconBtn = {
 };
 
 const applyBtn = {
-  border: "1.5px solid #6d28d9",
+  border: "1.5px solid #59169c",
   background: "white",
-  color: "#6d28d9",
+  color: "#59169c",
   padding: "5px 10px",
   borderRadius: 8,
   fontWeight: 700,

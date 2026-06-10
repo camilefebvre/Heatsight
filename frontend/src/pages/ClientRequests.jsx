@@ -19,10 +19,10 @@ const DOC_TYPE_OPTIONS = [
 // ─── Config statuts ───────────────────────────────────────────────────────────
 const STATUS_CONFIG = {
   draft:   { label: "Brouillon",  bg: "#64748b" },
-  sent:    { label: "Envoyé",     bg: "#2563eb" },
-  opened:  { label: "Ouvert",     bg: "#ea580c" },
-  replied: { label: "Répondu",    bg: "#16a34a" },
-  late:    { label: "En retard",  bg: "#dc2626" },
+  sent:    { label: "Envoyé",     bg: "#6b7280" },
+  opened:  { label: "Ouvert",     bg: "#59169c" },
+  replied: { label: "Répondu",    bg: "#82137e" },
+  late:    { label: "En retard",  bg: "#ca2946" },
 };
 
 // ─── Composants utilitaires ───────────────────────────────────────────────────
@@ -261,7 +261,7 @@ export default function ClientRequests() {
   };
 
   const btnPrimary = {
-    background: "#6d28d9", color: "white", border: "none",
+    background: "#59169c", color: "white", border: "none",
     padding: "11px 18px", borderRadius: 12, fontWeight: 700, cursor: "pointer", fontSize: 14,
   };
 
@@ -345,7 +345,7 @@ export default function ClientRequests() {
                       <button onClick={() => handleDelete(req.id)} title="Supprimer"
                         style={{ display: "flex", alignItems: "center", padding: "7px 10px",
                           borderRadius: 10, border: "1px solid #fecaca",
-                          background: "#fff1f1", cursor: "pointer", color: "#dc2626" }}>
+                          background: "#fff1f1", cursor: "pointer", color: "#ca2946" }}>
                         <Trash2 size={14} />
                       </button>
                     </div>
@@ -484,12 +484,12 @@ export default function ClientRequests() {
                   <div key={doc.id} style={{ display: "flex", alignItems: "center",
                     justifyContent: "space-between", gap: 12, padding: "10px 14px",
                     border: "1px solid #e5e7eb", borderRadius: 10,
-                    background: doc.received ? "#f0fdf4" : "white" }}>
+                    background: doc.received ? "#f3f4f6" : "white" }}>
                     <span style={{ fontSize: 14, color: "#374151" }}>{doc.label}</span>
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
                       <span style={{ fontSize: 12, fontWeight: 700,
-                        color: doc.received ? "#16a34a" : "#ea580c",
-                        background: doc.received ? "#dcfce7" : "#fff7ed",
+                        color: doc.received ? "#6b7280" : "#fe9300",
+                        background: doc.received ? "#f3f4f6" : "#fff7ed",
                         padding: "3px 10px", borderRadius: 999 }}>
                         {doc.received ? "Reçu" : "En attente"}
                       </span>
@@ -519,15 +519,15 @@ export default function ClientRequests() {
                     <div key={i} style={{
                       display: "flex", alignItems: "center", gap: 10,
                       padding: "9px 14px", borderRadius: 10,
-                      border: f.project_doc_id ? "1px solid #d1fae5" : "1px solid #e5e7eb",
-                      background: f.project_doc_id ? "#f0fdf4" : "#f9fafb",
+                      border: f.project_doc_id ? "1px solid #e5e7eb" : "1px solid #e5e7eb",
+                      background: f.project_doc_id ? "#f3f4f6" : "#f9fafb",
                     }}>
                       <Paperclip size={14} style={{ color: "#6b7280", flexShrink: 0 }} />
                       <span style={{ fontSize: 14, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                         {f.name}
                       </span>
                       {f.project_doc_id ? (
-                        <span style={{ fontSize: 11, fontWeight: 700, color: "#065f46", background: "#dcfce7", padding: "2px 8px", borderRadius: 99, flexShrink: 0 }}>
+                        <span style={{ fontSize: 11, fontWeight: 700, color: "#374151", background: "#f3f4f6", padding: "2px 8px", borderRadius: 99, flexShrink: 0 }}>
                           ✓ Dans Documents
                         </span>
                       ) : (
@@ -594,7 +594,7 @@ export default function ClientRequests() {
                   {importMsg && (
                     <div style={{
                       marginTop: 10, fontSize: 13, fontWeight: 700,
-                      color: importMsg.startsWith("✅") ? "#065f46" : "#991b1b",
+                      color: importMsg.startsWith("✅") ? "#374151" : "#8f1d2f",
                     }}>
                       {importMsg}
                     </div>

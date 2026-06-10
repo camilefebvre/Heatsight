@@ -1584,7 +1584,7 @@ export default function ProjectLCA2() {
       <div style={{ color: "#6b7280" }}>Créez des configurations de bâtiment et comparez leurs résultats.</div>
 
       {error && (
-        <div style={{ marginTop: 12, background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12, fontWeight: 700 }}>
+        <div style={{ marginTop: 12, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>
           {error}
         </div>
       )}
@@ -1613,6 +1613,7 @@ export default function ProjectLCA2() {
                 <div key={bat.id}>
                   {/* Compact row */}
                   <div
+                    className="hs-clickable"
                     onClick={() => selectBatiment(bat.id)}
                     style={{
                       ...batRow,
@@ -1622,7 +1623,7 @@ export default function ProjectLCA2() {
                     }}
                   >
                     <div style={{ display: "flex", alignItems: "center", gap: 10, flex: 1 }}>
-                      <div style={{ color: "#6d28d9" }}>
+                      <div style={{ color: "#59169c" }}>
                         {isSelected ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
                       </div>
                       {editingBatId === bat.id ? (
@@ -2024,7 +2025,7 @@ function ParoiCard({
     <div style={paroiCardStyle}>
       {/* Header */}
       <div onClick={toggleParoi} style={{ display: "flex", alignItems: "flex-start", gap: 8, cursor: "pointer" }}>
-        <div style={{ color: "#6d28d9", marginTop: 2, flexShrink: 0 }}>
+        <div style={{ color: "#59169c", marginTop: 2, flexShrink: 0 }}>
           {isExpanded ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </div>
         <div style={{ flex: 1 }}>
@@ -2052,7 +2053,7 @@ function ParoiCard({
                   {paroi.nom}
                 </span>
               )}
-            <span style={{ fontSize: 11, background: "#ede9fe", color: "#6d28d9", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>
+            <span style={{ fontSize: 11, background: "#ede9fe", color: "#59169c", padding: "2px 7px", borderRadius: 6, fontWeight: 600 }}>
               {PAROI_TYPE_LABELS[paroi.type] || paroi.type}
             </span>
             {paroi.is_fixed && (
@@ -2074,7 +2075,7 @@ function ParoiCard({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); updateParoi("is_fixed", !paroi.is_fixed); }}
-          style={{ ...iconBtn, color: paroi.is_fixed ? "#7c3aed" : "#9ca3af", background: paroi.is_fixed ? "#ede9fe" : "white" }}
+          style={{ ...iconBtn, color: paroi.is_fixed ? "#59169c" : "#9ca3af", background: paroi.is_fixed ? "#ede9fe" : "white" }}
           title={paroi.is_fixed ? "Réintégrer dans l'optimisation" : "Exclure de l'optimisation"}
         >
           {paroi.is_fixed ? <Lock size={13} /> : <LockOpen size={13} />}
@@ -2117,10 +2118,10 @@ function ParoiCard({
                 onClick={(e) => { e.stopPropagation(); setTab(t); }}
                 style={{
                   padding: "7px 16px", border: "none",
-                  borderBottom: tab === t ? "2px solid #6d28d9" : "2px solid transparent",
+                  borderBottom: tab === t ? "2px solid #59169c" : "2px solid transparent",
                   background: "transparent",
                   fontWeight: tab === t ? 700 : 500, fontSize: 13,
-                  color: tab === t ? "#6d28d9" : "#6b7280",
+                  color: tab === t ? "#59169c" : "#6b7280",
                   cursor: "pointer", marginBottom: -1.5,
                 }}>
                 {t === "consommation" ? "Consommation" : "Impacts"}
@@ -2202,7 +2203,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                     <div style={{ display: "flex", alignItems: "center", gap: 4, flexWrap: "wrap" }}>
                       <div
                         style={{ fontWeight: 600, fontSize: 12, cursor: "pointer", color: "#374151" }}
-                        onMouseEnter={(e) => { e.currentTarget.style.color = "#6d28d9"; e.currentTarget.style.textDecoration = "underline"; }}
+                        onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; e.currentTarget.style.textDecoration = "underline"; }}
                         onMouseLeave={(e) => { e.currentTarget.style.color = "#374151"; e.currentTarget.style.textDecoration = "none"; }}
                         onClick={() => openReplaceOpaque(co.id)}
                         title="Changer de matériau"
@@ -2381,7 +2382,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                       : <div>
                           <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
                             <span style={{ cursor: "pointer", color: "#374151" }}
-                              onMouseEnter={(e) => { e.currentTarget.style.color = "#6d28d9"; e.currentTarget.style.textDecoration = "underline"; }}
+                              onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; e.currentTarget.style.textDecoration = "underline"; }}
                               onMouseLeave={(e) => { e.currentTarget.style.color = "#374151"; e.currentTarget.style.textDecoration = "none"; }}
                               onClick={() => openReplaceVitrage(bv.id)}
                               title="Changer le vitrage">{bv.vitrage_name || "—"}</span>
@@ -2405,12 +2406,12 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                       ? <span style={{ color: "#9ca3af" }}>—</span>
                       : bv.cadre_name
                         ? <span style={{ cursor: "pointer", color: "#374151" }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = "#6d28d9"; e.currentTarget.style.textDecoration = "underline"; }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; e.currentTarget.style.textDecoration = "underline"; }}
                             onMouseLeave={(e) => { e.currentTarget.style.color = "#374151"; e.currentTarget.style.textDecoration = "none"; }}
                             onClick={() => openReplaceCadre(bv.id)}
                             title="Changer le cadre">{bv.cadre_name}</span>
                         : <span style={{ cursor: "pointer", color: "#9ca3af", fontSize: 11 }}
-                            onMouseEnter={(e) => { e.currentTarget.style.color = "#6d28d9"; }}
+                            onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; }}
                             onMouseLeave={(e) => { e.currentTarget.style.color = "#9ca3af"; }}
                             onClick={() => openReplaceCadre(bv.id)}
                             title="Ajouter un cadre">+ cadre</span>}
@@ -2703,7 +2704,7 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         <MetricCard
           label="CO₂ exploitation"
           value={stats.co2_exploitation != null ? `${fmt(stats.co2_exploitation)} kg/an` : "—"}
-          color="#6d28d9"
+          color="#59169c"
         />
       </div>
 
@@ -3305,7 +3306,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
 
               {filteredPhares != null && filteredPhares.filtered.length === 0 && (
                 <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 700, color: "#991b1b", marginBottom: filteredPhares.mostRestrictive ? 4 : 0 }}>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: "#8f1d2f", marginBottom: filteredPhares.mostRestrictive ? 4 : 0 }}>
                     Aucune solution ne satisfait ces contraintes — essayez d'assouplir vos critères
                   </div>
                   {filteredPhares.mostRestrictive && (
@@ -3671,7 +3672,7 @@ function TooltipCard({ label, value, unit, tooltip }) {
         </div>
       )}
       <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 600, marginBottom: 6, lineHeight: 1.4 }}>{label}</div>
-      <div style={{ fontSize: 15, fontWeight: 900, color: missing ? "#d1d5db" : "#6d28d9" }}>{value}</div>
+      <div style={{ fontSize: 15, fontWeight: 900, color: missing ? "#d1d5db" : "#59169c" }}>{value}</div>
       {!missing && unit && <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 2 }}>{unit}</div>}
     </div>
   );
@@ -3787,7 +3788,7 @@ function BaieVitreeModal({ materials, form, setForm, onConfirm, onClose }) {
             Annuler
           </button>
           <button type="button" disabled={!canSubmit} onClick={onConfirm}
-            style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: canSubmit ? "#6d28d9" : "#e5e7eb", color: canSubmit ? "white" : "#9ca3af", fontWeight: 600, fontSize: 13, cursor: canSubmit ? "pointer" : "not-allowed" }}>
+            style={{ padding: "8px 16px", borderRadius: 8, border: "none", background: canSubmit ? "#59169c" : "#e5e7eb", color: canSubmit ? "white" : "#9ca3af", fontWeight: 600, fontSize: 13, cursor: canSubmit ? "pointer" : "not-allowed" }}>
             Ajouter
           </button>
         </div>
@@ -3930,13 +3931,13 @@ function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose
                     background: isOpen ? "#f5f3ff" : "#f9fafb",
                     cursor: "pointer",
                     fontSize: 12, fontWeight: 700,
-                    color: isOpen ? "#6d28d9" : "#374151",
+                    color: isOpen ? "#59169c" : "#374151",
                     textTransform: "uppercase", letterSpacing: "0.05em",
                     marginBottom: isOpen ? 4 : 0,
                   }}
                 >
                   <span>{cat}</span>
-                  <span style={{ fontSize: 11, color: isOpen ? "#6d28d9" : "#9ca3af" }}>
+                  <span style={{ fontSize: 11, color: isOpen ? "#59169c" : "#9ca3af" }}>
                     {isOpen ? "▼" : "▶"}
                   </span>
                 </button>
@@ -4022,7 +4023,7 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
       flexShrink: 0, borderTop: "1.5px solid #eef2f7",
       background: "#fafafa", padding: "16px 20px",
     }}>
-      <div style={{ fontWeight: 700, fontSize: 13, color: "#6d28d9", marginBottom: 12 }}>
+      <div style={{ fontWeight: 700, fontSize: 13, color: "#59169c", marginBottom: 12 }}>
         {selectedMat.name}
       </div>
 
@@ -4158,7 +4159,7 @@ function MiniStat({ label, value, highlight }) {
   return (
     <div>
       <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 500 }}>{label}</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: missing ? "#d1d5db" : (highlight ? "#6d28d9" : "#374151") }}>{value}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: missing ? "#d1d5db" : (highlight ? "#59169c" : "#374151") }}>{value}</div>
     </div>
   );
 }
@@ -4201,13 +4202,13 @@ const miniInput = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9", color: "white", border: "none",
+  background: "#59169c", color: "white", border: "none",
   padding: "10px 14px", borderRadius: 12, fontWeight: 900,
   cursor: "pointer", fontSize: 14,
 };
 
 const smallBtn = {
-  background: "#f5f3ff", color: "#6d28d9", border: "1px solid #ede9fe",
+  background: "#f5f3ff", color: "#59169c", border: "1px solid #ede9fe",
   padding: "5px 10px", borderRadius: 8, fontWeight: 700,
   cursor: "pointer", fontSize: 12,
   display: "inline-flex", alignItems: "center", gap: 5,
@@ -4222,13 +4223,13 @@ const cancelBtn = {
 const iconBtn = {
   border: "1px solid #e5e7eb", background: "white", borderRadius: 8,
   padding: "5px 7px", cursor: "pointer", display: "flex",
-  alignItems: "center", color: "#ef4444", flexShrink: 0,
+  alignItems: "center", color: "#ca2946", flexShrink: 0,
 };
 
 const tinyIconBtn = {
   border: "none", background: "transparent", borderRadius: 6,
   padding: "3px 5px", cursor: "pointer", display: "flex",
-  alignItems: "center", color: "#ef4444",
+  alignItems: "center", color: "#ca2946",
 };
 
 const emptyMsg = {

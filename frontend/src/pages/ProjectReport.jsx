@@ -303,7 +303,7 @@ export default function ProjectReport() {
             Rapport — {project.project_name}
           </h1>
           <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 20 }}>
-            Pré-remplis toutes les sections du rapport Word avec l'IA, puis télécharge le fichier.
+            Pré-remplissez toutes les sections du rapport Word avec l'IA, puis téléchargez le fichier.
           </div>
         </div>
         <button
@@ -318,10 +318,10 @@ export default function ProjectReport() {
       {/* ── Docx status banner ─────────────────────────────────── */}
       <div style={{
         marginBottom: 12, padding: "12px 16px",
-        background: hasDocx ? "#f0fdf4" : "#f9fafb",
-        border: `1px solid ${hasDocx ? "#bbf7d0" : "#e5e7eb"}`,
+        background: hasDocx ? "#f3f4f6" : "#f9fafb",
+        border: `1px solid ${hasDocx ? "#e5e7eb" : "#e5e7eb"}`,
         borderRadius: 10, fontSize: 13,
-        color: hasDocx ? "#166534" : "#6b7280",
+        color: hasDocx ? "#374151" : "#6b7280",
         display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
       }}>
         {hasDocx ? (
@@ -340,7 +340,7 @@ export default function ProjectReport() {
               style={{
                 marginLeft: "auto", display: "flex", alignItems: "center", gap: 6,
                 padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
-                border: "1px solid #166534", background: "#dcfce7", color: "#166534",
+                border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#374151",
                 cursor: downloadingCurrent ? "default" : "pointer",
               }}
             >
@@ -415,7 +415,7 @@ export default function ProjectReport() {
             onClick={handleUpload}
             disabled={!uploadFile || uploading}
             style={{
-              background: uploadFile ? "#6d28d9" : "#e5e7eb",
+              background: uploadFile ? "#59169c" : "#e5e7eb",
               color: uploadFile ? "white" : "#9ca3af",
               border: "none", padding: "8px 14px", borderRadius: 10,
               fontWeight: 700, cursor: uploadFile ? "pointer" : "default",
@@ -426,7 +426,7 @@ export default function ProjectReport() {
               ? <><RefreshCw size={14} style={spin} /> Import…</>
               : <><Upload size={14} /> Importer</>}
           </button>
-          {uploadMsg && <span style={{ fontSize: 12, color: "#166534", fontWeight: 600 }}>{uploadMsg}</span>}
+          {uploadMsg && <span style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{uploadMsg}</span>}
         </div>
       </div>
 
@@ -472,7 +472,7 @@ function ChecklistPanel({ items, proposalData, applying, selectedCount, onToggle
       }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>✨ Propositions IA</div>
-          <div style={{ fontSize: 12, color: "#6d28d9", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: "#59169c", marginTop: 2 }}>
             {selectedCount} champ{selectedCount !== 1 ? "s" : ""} sélectionné{selectedCount !== 1 ? "s" : ""}
             {totalReplaces > 0 && (
               <span style={{ marginLeft: 8, color: CONFLICT_META.replace.color, fontWeight: 700 }}>
@@ -507,7 +507,7 @@ function ChecklistPanel({ items, proposalData, applying, selectedCount, onToggle
             <button key={opt.id} onClick={() => setActiveFilter(opt.id)} style={{
               fontSize: 11, fontWeight: isActive ? 700 : 500, borderRadius: 999,
               padding: "3px 10px", cursor: "pointer",
-              background: isActive ? "#6d28d9" : "#f3f4f6",
+              background: isActive ? "#59169c" : "#f3f4f6",
               color: isActive ? "white" : "#374151",
               border: isActive ? "none" : "1px solid #e5e7eb",
             }}>
@@ -604,14 +604,14 @@ function TruncatableValue({ value }) {
   const [expanded, setExpanded] = useState(false);
   const isLong = value && value.length > 120;
   if (!value) return <span style={{ opacity: 0.4, fontStyle: "italic" }}>vide</span>;
-  if (!isLong) return <span style={{ color: "#6d28d9", fontWeight: 600 }}>{value}</span>;
+  if (!isLong) return <span style={{ color: "#59169c", fontWeight: 600 }}>{value}</span>;
   return (
-    <span style={{ color: "#6d28d9" }}>
+    <span style={{ color: "#59169c" }}>
       {expanded ? value : value.slice(0, 120) + "…"}
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded((v) => !v); }}
         style={{
-          marginLeft: 6, fontSize: 10, color: "#7c3aed", background: "none",
+          marginLeft: 6, fontSize: 10, color: "#59169c", background: "none",
           border: "none", cursor: "pointer", padding: 0,
         }}
       >
@@ -638,7 +638,7 @@ function ChecklistRow({ item, onToggle }) {
         opacity: isApplied ? 0.65 : 1,
       }}
     >
-      <span style={{ flexShrink: 0, color: isApplied ? "#d1d5db" : (item.selected ? "#6d28d9" : "#d1d5db"), display: "flex", marginTop: 2 }}>
+      <span style={{ flexShrink: 0, color: isApplied ? "#d1d5db" : (item.selected ? "#59169c" : "#d1d5db"), display: "flex", marginTop: 2 }}>
         {isApplied ? <Square size={15} /> : item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
       </span>
 
@@ -796,7 +796,7 @@ function HistoryEntry({ entry, projectId }) {
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
           </div>
           {isAI && sectionsApplied.length > 0 && (
-            <div style={{ fontSize: 11, color: "#6d28d9", marginTop: 1 }}>
+            <div style={{ fontSize: 11, color: "#59169c", marginTop: 1 }}>
               {sectionsApplied.map((s) => SECTION_META[s]?.label || s).join(", ")}
             </div>
           )}
@@ -815,7 +815,7 @@ function HistoryEntry({ entry, projectId }) {
             style={{
               padding: "4px 10px", fontSize: 11, borderRadius: 6,
               border: "1px solid #d8b4fe", background: "#faf5ff",
-              color: "#6d28d9", cursor: downloading ? "default" : "pointer",
+              color: "#59169c", cursor: downloading ? "default" : "pointer",
               whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
@@ -832,7 +832,7 @@ function HistoryEntry({ entry, projectId }) {
             const secItems = items.filter((i) => i.section === secId);
             return (
               <div key={secId} style={{ marginBottom: 10 }}>
-                <div style={{ fontWeight: 700, fontSize: 11, color: "#6d28d9", marginBottom: 4 }}>
+                <div style={{ fontWeight: 700, fontSize: 11, color: "#59169c", marginBottom: 4 }}>
                   {secMeta.icon} {secMeta.label}
                 </div>
                 {secItems.map((item, idx) => {
@@ -841,12 +841,12 @@ function HistoryEntry({ entry, projectId }) {
                     <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12, marginBottom: 4 }}>
                       <span style={{ flexShrink: 0, marginTop: 1 }}>
                         {item.selected
-                          ? <span style={{ color: "#059669" }}>✅</span>
+                          ? <span style={{ color: "#82137e" }}>✅</span>
                           : <span style={{ color: "#9ca3af" }}>⬜</span>}
                       </span>
                       <span style={{ color: "#374151", flex: 1, minWidth: 0 }}>{item.field}</span>
                       <span style={{
-                        color: "#6d28d9", fontWeight: 700, maxWidth: 140,
+                        color: "#59169c", fontWeight: 700, maxWidth: 140,
                         overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
                       }}>
                         {item.value}
@@ -893,7 +893,7 @@ const s = {
     border: "1px solid #e5e7eb",
   },
   primaryBtn: {
-    background: "#6d28d9", color: "white", border: "none",
+    background: "#59169c", color: "white", border: "none",
     padding: "10px 16px", borderRadius: 12, fontWeight: 700,
     cursor: "pointer", display: "inline-flex", alignItems: "center",
     gap: 7, fontSize: 13,
@@ -905,7 +905,7 @@ const s = {
     gap: 7, fontSize: 13,
   },
   errorBox: {
-    background: "#fee2e2", color: "#991b1b",
+    background: "#fee2e2", color: "#8f1d2f",
     padding: "10px 14px", borderRadius: 10,
     fontWeight: 600, fontSize: 13,
   },

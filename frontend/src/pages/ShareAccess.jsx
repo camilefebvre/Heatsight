@@ -61,15 +61,15 @@ const MOCK_CLIENT_ACCESS = [
 const ROLES = ["Auditeur principal", "Collaborateur", "Lecture seule"];
 
 const ROLE_STYLE = {
-  "Auditeur principal": { bg: "#ede9fe", color: "#6d28d9" },
-  "Collaborateur":      { bg: "#dbeafe", color: "#1d4ed8" },
+  "Auditeur principal": { bg: "#ede9fe", color: "#59169c" },
+  "Collaborateur":      { bg: "#f3f4f6", color: "#374151" },
   "Lecture seule":      { bg: "#f3f4f6", color: "#374151" },
 };
 
 const STATUS_CONFIG = {
-  actif:   { label: "Actif",       bg: "#16a34a" },
-  expire:  { label: "Expiré",      bg: "#dc2626" },
-  attente: { label: "En attente",  bg: "#d97706" },
+  actif:   { label: "Actif",       bg: "#59169c" },
+  expire:  { label: "Expiré",      bg: "#ca2946" },
+  attente: { label: "En attente",  bg: "#fe9300" },
 };
 
 let nextCollabId = 5;
@@ -130,7 +130,7 @@ function AccessCheckbox({ label, checked, onChange }) {
         alignItems: "center",
         gap: 5,
         fontSize: 12,
-        color: checked ? "#6d28d9" : "#6b7280",
+        color: checked ? "#59169c" : "#6b7280",
         fontWeight: checked ? 600 : 400,
         cursor: "pointer",
         userSelect: "none",
@@ -141,7 +141,7 @@ function AccessCheckbox({ label, checked, onChange }) {
         type="checkbox"
         checked={checked}
         onChange={onChange}
-        style={{ cursor: "pointer", accentColor: "#6d28d9" }}
+        style={{ cursor: "pointer", accentColor: "#59169c" }}
       />
       {label}
     </label>
@@ -301,7 +301,7 @@ export default function ShareAccess() {
   };
 
   const btnPrimary = {
-    background: "#6d28d9",
+    background: "#59169c",
     color: "white",
     border: "none",
     padding: "11px 18px",
@@ -386,7 +386,7 @@ export default function ShareAccess() {
                 cursor: "pointer",
                 fontWeight: activeTab === key ? 700 : 500,
                 fontSize: 14,
-                background: activeTab === key ? "#6d28d9" : "transparent",
+                background: activeTab === key ? "#59169c" : "transparent",
                 color: activeTab === key ? "white" : "#6b7280",
                 transition: "background 0.15s, color 0.15s",
               }}
@@ -464,7 +464,7 @@ export default function ShareAccess() {
                           cursor: "pointer",
                           fontWeight: 600,
                           fontSize: 13,
-                          color: "#dc2626",
+                          color: "#ca2946",
                         }}
                       >
                         <Trash2 size={13} />
@@ -539,7 +539,7 @@ export default function ShareAccess() {
                           cursor: "pointer",
                           fontWeight: 600,
                           fontSize: 13,
-                          color: "#dc2626",
+                          color: "#ca2946",
                         }}
                       >
                         <Trash2 size={13} />
@@ -711,7 +711,7 @@ export default function ShareAccess() {
                         access: { ...p.access, [key]: !p.access[key] },
                       }))
                     }
-                    style={{ accentColor: "#6d28d9", cursor: "pointer" }}
+                    style={{ accentColor: "#59169c", cursor: "pointer" }}
                   />
                   <span style={{ fontSize: 14, fontWeight: 600, color: "#374151" }}>{label}</span>
                 </label>

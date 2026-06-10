@@ -5,6 +5,16 @@ import { Pencil, Trash2 } from "lucide-react";
 import { apiFetch } from "../api";
 import StatusPill from "../ui/StatusPill";
 
+const BUILDING_TYPE_LABELS = {
+  residential: "Résidentiel",
+  tertiary: "Tertiaire",
+  industrial: "Industriel",
+  other: "Autre",
+};
+function buildingTypeLabel(value) {
+  return BUILDING_TYPE_LABELS[value] || value || "";
+}
+
 function nextStatus(current) {
   if (current === "draft") return "in_progress";
   if (current === "in_progress") return "completed";
@@ -285,7 +295,7 @@ export default function Projects() {
             setCreateOpen(true);
           }}
           style={{
-            background: "#6d28d9",
+            background: "#59169c",
             color: "white",
             border: "none",
             padding: "12px 18px",
@@ -304,7 +314,7 @@ export default function Projects() {
           style={{
             marginTop: 14,
             background: "#fee2e2",
-            color: "#991b1b",
+            color: "#8f1d2f",
             padding: 12,
             borderRadius: 12,
             fontWeight: 700,
@@ -345,6 +355,7 @@ export default function Projects() {
               {recent.map((p) => (
                 <tr
                   key={p.id}
+                  className="hs-clickable"
                   onDoubleClick={() => {
                     setSelectedProjectId(p.id);
                     navigate(`/projects/${p.id}/audit`);
@@ -366,7 +377,7 @@ export default function Projects() {
                   </td>
                   <td style={{ padding: "12px 8px" }}>
                     <div style={{ textTransform: "capitalize" }}>
-                      {p.building_type}
+                      {buildingTypeLabel(p.building_type)}
                     </div>
                     <div style={{ color: "#6b7280", fontSize: 12 }}>
                       {p.building_address}
@@ -483,7 +494,7 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
       <label style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 13, color: "#6b7280" }}>Type de batiment</span>
         <select value={form.building_type} onChange={(e) => updateField("building_type", e.target.value)}>
-          <option value="residential">Residentiel</option>
+          <option value="residential">Résidentiel</option>
           <option value="tertiary">Tertiaire</option>
           <option value="industrial">Industriel</option>
           <option value="other">Autre</option>
@@ -552,7 +563,7 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
             padding: "10px 14px",
             borderRadius: 10,
             border: "none",
-            background: "#6d28d9",
+            background: "#59169c",
             color: "white",
             fontWeight: 700,
             cursor: "pointer",
@@ -572,8 +583,8 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
           font-size: 14px;
         }
         input:focus, select:focus {
-          border-color: #6d28d9;
-          box-shadow: 0 0 0 3px rgba(109,40,217,0.15);
+          border-color: #59169c;
+          box-shadow: 0 0 0 3px rgba(89,22,156,0.15);
         }
       `}</style>
     </form>

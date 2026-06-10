@@ -23,6 +23,7 @@ function SidebarLink({ to, icon: Icon, label }) {
   return (
     <NavLink
       to={to}
+      className="hs-clickable"
       style={({ isActive }) => ({
         display: "flex",
         alignItems: "center",
@@ -31,7 +32,7 @@ function SidebarLink({ to, icon: Icon, label }) {
         borderRadius: 10,
         textDecoration: "none",
         color: isActive ? "white" : "#9ca3b8",
-        background: isActive ? "#6d28d9" : "transparent",
+        background: isActive ? "#59169c" : "transparent",
         fontWeight: isActive ? 700 : 500,
         fontSize: 14,
         transition: "background 0.15s, color 0.15s",
@@ -119,15 +120,13 @@ function UserSection() {
                 borderRadius: 8,
                 border: "none",
                 background: "transparent",
-                color: "#f87171",
+                color: "#e16b80",
                 fontWeight: 600,
                 fontSize: 13,
                 cursor: "pointer",
                 textAlign: "left",
                 transition: "background 0.12s",
               }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "#2a1a1a")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
             >
               Se déconnecter
             </button>
@@ -150,15 +149,13 @@ function UserSection() {
           cursor: "pointer",
           transition: "background 0.15s",
         }}
-        onMouseEnter={(e) => { if (!open) e.currentTarget.style.background = "#1a1d2e"; }}
-        onMouseLeave={(e) => { if (!open) e.currentTarget.style.background = "transparent"; }}
       >
         <div
           style={{
             width: 32,
             height: 32,
             borderRadius: "50%",
-            background: "#6d28d9",
+            background: "#59169c",
             color: "white",
             fontWeight: 700,
             fontSize: 13,

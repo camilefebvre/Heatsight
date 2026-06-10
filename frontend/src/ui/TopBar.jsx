@@ -57,7 +57,7 @@ export default function TopBar() {
             width: 38,
             height: 38,
             borderRadius: "50%",
-            background: "#6d28d9",
+            background: "#59169c",
             color: "white",
             fontWeight: 700,
             fontSize: 14,
@@ -111,7 +111,7 @@ export default function TopBar() {
                     height: 40,
                     borderRadius: "50%",
                     background: "#ede9fe",
-                    color: "#6d28d9",
+                    color: "#59169c",
                     fontWeight: 700,
                     fontSize: 15,
                     display: "flex",
@@ -143,15 +143,13 @@ export default function TopBar() {
                   borderRadius: 10,
                   border: "none",
                   background: "transparent",
-                  color: "#dc2626",
+                  color: "#ca2946",
                   fontWeight: 600,
                   fontSize: 14,
                   cursor: "pointer",
                   textAlign: "left",
                   transition: "background 0.12s",
                 }}
-                onMouseEnter={(e) => (e.currentTarget.style.background = "#fff1f1")}
-                onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
               >
                 Se déconnecter
               </button>

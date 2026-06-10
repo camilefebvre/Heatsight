@@ -38,7 +38,7 @@ const FIELD_META = {
 /* ── Version source metadata ─────────────────────────────────── */
 const SOURCE_META = {
   template:       { label: "Template vierge",    color: "#6b7280", bg: "#f3f4f6", icon: "📄" },
-  ai_prefill:     { label: "Pré-rempli par IA",  color: "#6d28d9", bg: "#f5f3ff", icon: "🤖" },
+  ai_prefill:     { label: "Pré-rempli par IA",  color: "#59169c", bg: "#f5f3ff", icon: "🤖" },
   manual_upload:  { label: "Upload manuel",       color: "#0369a1", bg: "#e0f2fe", icon: "📤" },
   ai_patched:     { label: "IA + upload manuel", color: "#0f766e", bg: "#f0fdfa", icon: "🤖📤" },
 };
@@ -430,7 +430,7 @@ export default function ProjectPlanAmelioration() {
             Données importées
             {actions.length > 0 && (
               <span style={{
-                marginLeft: 8, background: "#ede9fe", color: "#6d28d9",
+                marginLeft: 8, background: "#ede9fe", color: "#59169c",
                 fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
               }}>
                 {actions.length}
@@ -442,7 +442,7 @@ export default function ProjectPlanAmelioration() {
       >
         {actions.length === 0 ? (
               <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>
-                Aucune action importée. Uploadez un Excel AMUREBA complété pour en importer.
+                Aucune action n'a été importée. Veuillez importer un fichier Excel AMUREBA complété.
               </div>
             ) : (
               <>
@@ -567,7 +567,7 @@ function CurrentVersionBanner({ prefillStatus, downloading, onDownload }) {
           style={{
             display: "flex", alignItems: "center", gap: 6,
             padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
-            border: "1px solid #166534", background: "#dcfce7", color: "#166534",
+            border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#374151",
             cursor: downloading ? "default" : "pointer",
             opacity: downloading ? 0.7 : 1,
           }}
@@ -599,7 +599,7 @@ function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyz
       )}
       {isReanalyze && currentSource === "manual_upload" && (
         <div style={{ ...s.infoBanner, marginBottom: 14 }}>
-          <Info size={14} style={{ flexShrink: 0, color: "#0369a1" }} />
+          <Info size={14} style={{ flexShrink: 0, color: "#374151" }} />
           L'IA proposera uniquement des compléments. Les propositions seront appliquées sur votre
           fichier uploadé, sans écraser les cellules déjà remplies (sauf si vous le validez).
         </div>
@@ -687,7 +687,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
       }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>✨ Propositions IA</div>
-          <div style={{ fontSize: 12, color: "#6d28d9", marginTop: 2 }}>
+          <div style={{ fontSize: 12, color: "#59169c", marginTop: 2 }}>
             {selectedCount} cellule{selectedCount !== 1 ? "s" : ""} sélectionnée{selectedCount !== 1 ? "s" : ""}
             {totalReplaces > 0 && (
               <span style={{ marginLeft: 8, color: CONFLICT_META.replace.color, fontWeight: 700 }}>
@@ -718,7 +718,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
             <button key={opt.id} onClick={() => setActiveFilter(opt.id)} style={{
               fontSize: 11, fontWeight: isActive ? 700 : 500, borderRadius: 999,
               padding: "3px 10px", cursor: "pointer",
-              background: isActive ? "#6d28d9" : "#f3f4f6",
+              background: isActive ? "#59169c" : "#f3f4f6",
               color: isActive ? "white" : "#374151",
               border: isActive ? "none" : "1px solid #e5e7eb",
             }}>
@@ -770,7 +770,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
                   borderBottom: isOpen ? "1px solid #ede9fe" : "none",
                 }}
               >
-                <span style={{ background: "#6d28d9", color: "white", fontWeight: 800, fontSize: 11, padding: "3px 9px", borderRadius: 6, flexShrink: 0 }}>
+                <span style={{ background: "#59169c", color: "white", fontWeight: 800, fontSize: 11, padding: "3px 9px", borderRadius: 6, flexShrink: 0 }}>
                   {sheet}
                 </span>
                 <span style={{ fontWeight: 700, fontSize: 13, color: "#111827", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -851,13 +851,13 @@ function TruncatableValue({ value }) {
   const str = value !== null && value !== undefined ? String(value) : "";
   const isLong = str.length > 120;
   if (!str) return <span style={{ opacity: 0.4, fontStyle: "italic" }}>vide</span>;
-  if (!isLong) return <span style={{ color: "#6d28d9", fontWeight: 600 }}>{str}</span>;
+  if (!isLong) return <span style={{ color: "#59169c", fontWeight: 600 }}>{str}</span>;
   return (
-    <span style={{ color: "#6d28d9" }}>
+    <span style={{ color: "#59169c" }}>
       {expanded ? str : str.slice(0, 120) + "…"}
       <button
         onClick={(e) => { e.stopPropagation(); setExpanded(v => !v); }}
-        style={{ marginLeft: 6, fontSize: 10, color: "#7c3aed", background: "none",
+        style={{ marginLeft: 6, fontSize: 10, color: "#59169c", background: "none",
           border: "none", cursor: "pointer", padding: 0 }}>
         {expanded ? "Réduire" : "Voir tout"}
       </button>
@@ -884,7 +884,7 @@ function ChecklistRow({ item, onToggle }) {
       }}
     >
       {/* Checkbox */}
-      <span style={{ flexShrink: 0, color: isApplied ? "#d1d5db" : (item.selected ? "#6d28d9" : "#d1d5db"), display: "flex", marginTop: 2 }}>
+      <span style={{ flexShrink: 0, color: isApplied ? "#d1d5db" : (item.selected ? "#59169c" : "#d1d5db"), display: "flex", marginTop: 2 }}>
         {isApplied ? <Square size={15} /> : item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
       </span>
 
@@ -1067,7 +1067,7 @@ function HistoryEntry({ entry, projectId }) {
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
           </div>
           {isAI && baseSource && baseSource !== "template" && (
-            <div style={{ fontSize: 11, color: "#0369a1" }}>
+            <div style={{ fontSize: 11, color: "#374151" }}>
               Patché sur : {SOURCE_META[baseSource]?.label || baseSource}
             </div>
           )}
@@ -1080,7 +1080,7 @@ function HistoryEntry({ entry, projectId }) {
             style={{
               padding: "4px 10px", fontSize: 11, borderRadius: 6,
               border: "1px solid #d8b4fe", background: "#faf5ff",
-              color: "#6d28d9", cursor: downloading ? "default" : "pointer",
+              color: "#59169c", cursor: downloading ? "default" : "pointer",
               whiteSpace: "nowrap", flexShrink: 0,
             }}
           >
@@ -1098,18 +1098,18 @@ function HistoryEntry({ entry, projectId }) {
                 const sheetItems = items.filter((i) => i.sheet === sheet);
                 return (
                   <div key={sheet} style={{ marginBottom: 10 }}>
-                    <div style={{ fontWeight: 700, fontSize: 11, color: "#6d28d9", marginBottom: 4 }}>{sheet}</div>
+                    <div style={{ fontWeight: 700, fontSize: 11, color: "#59169c", marginBottom: 4 }}>{sheet}</div>
                     {sheetItems.map((item, idx) => (
                       <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 3 }}>
                         <span style={{ flexShrink: 0 }}>
                           {item.selected
-                            ? <span style={{ color: "#059669" }}>✅</span>
+                            ? <span style={{ color: "#82137e" }}>✅</span>
                             : <span style={{ color: "#9ca3af" }}>⬜</span>}
                         </span>
                         <span style={{ color: "#374151", flex: 1 }}>
                           {(item.label || "").split(" → ")[1] || item.label}
                         </span>
-                        <span style={{ color: "#6d28d9", fontWeight: 700 }}>
+                        <span style={{ color: "#59169c", fontWeight: 700 }}>
                           {fmtValue(item.field, item.value)}
                         </span>
                         <SourceTag source={item.source} />
@@ -1169,7 +1169,7 @@ function SummaryBanner({ actions }) {
         { label: "Actions classe A",      value: `${nbA} / ${actions.length}` },
       ].map((stat) => (
         <div key={stat.label} style={{ flex: "1 1 160px", background: "#f5f3ff", border: "1px solid #ede9fe", borderRadius: 12, padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#6d28d9", fontWeight: 700, marginBottom: 4 }}>{stat.label}</div>
+          <div style={{ fontSize: 11, color: "#59169c", fontWeight: 700, marginBottom: 4 }}>{stat.label}</div>
           <div style={{ fontSize: 20, fontWeight: 800, color: "#111827" }}>{stat.value}</div>
         </div>
       ))}
@@ -1191,13 +1191,13 @@ function SectionCard({ title, subtitle, children }) {
 /* ── Styles ─────────────────────────────────────────────────── */
 const s = {
   primaryBtn: {
-    background: "#6d28d9", color: "white", border: "none",
+    background: "#59169c", color: "white", border: "none",
     padding: "10px 16px", borderRadius: 12, fontWeight: 700,
     cursor: "pointer", display: "inline-flex", alignItems: "center",
     gap: 7, fontSize: 13,
   },
   outlineBtn: {
-    background: "white", color: "#6d28d9", border: "2px solid #6d28d9",
+    background: "white", color: "#59169c", border: "2px solid #59169c",
     padding: "10px 16px", borderRadius: 12, fontWeight: 700,
     cursor: "pointer", display: "inline-flex", alignItems: "center",
     gap: 7, fontSize: 13,
@@ -1209,23 +1209,23 @@ const s = {
     gap: 7, fontSize: 13,
   },
   errorBox: {
-    background: "#fee2e2", color: "#991b1b",
+    background: "#fee2e2", color: "#8f1d2f",
     padding: "10px 14px", borderRadius: 10,
     fontWeight: 600, fontSize: 13,
   },
   okBox: {
-    background: "#dcfce7", color: "#166534",
+    background: "#f3f4f6", color: "#374151",
     padding: "10px 14px", borderRadius: 10,
     fontWeight: 600, fontSize: 13,
   },
   refBadge: {
-    background: "#ede9fe", color: "#6d28d9",
+    background: "#ede9fe", color: "#59169c",
     fontWeight: 700, fontSize: 11,
     padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap",
   },
   infoBanner: {
-    background: "#e0f2fe", color: "#0369a1",
-    border: "1px solid #bae6fd",
+    background: "#f3f4f6", color: "#374151",
+    border: "1px solid #e5e7eb",
     padding: "8px 12px", borderRadius: 8, fontSize: 12,
     display: "flex", alignItems: "flex-start", gap: 8,
   },

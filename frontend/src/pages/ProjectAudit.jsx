@@ -296,7 +296,7 @@ export default function ProjectAudit() {
     return (
       <div>
         <h1 style={{ fontSize: 34, margin: "6px 0 0" }}>Audit</h1>
-        <div style={{ marginTop: 14, background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12, fontWeight: 700 }}>
+        <div style={{ marginTop: 14, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>
           {error}
         </div>
       </div>
@@ -322,7 +322,7 @@ export default function ProjectAudit() {
           <button
             type="button"
             onClick={() => navigate(`/projects/${projectId}/documents`)}
-            style={{ background: "none", border: "none", color: "#7c3aed", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
+            style={{ background: "none", border: "none", color: "#59169c", fontWeight: 700, cursor: "pointer", padding: 0, fontSize: 13 }}
           >
             → Voir les documents
           </button>
@@ -342,7 +342,7 @@ export default function ProjectAudit() {
           <>
             {/* Avertissement si une section dépasse 2 lignes (limite du template Excel) */}
             {sections.some((s) => (audit.year2023[s.key] || []).length > 2) && (
-              <div style={{ marginBottom: 14, background: "#fffbeb", border: "1px solid #fcd34d", color: "#92400e", padding: "10px 14px", borderRadius: 12, fontSize: 13 }}>
+              <div style={{ marginBottom: 14, background: "#fffbeb", border: "1px solid #fcd34d", color: "#8c5100", padding: "10px 14px", borderRadius: 12, fontSize: 13 }}>
                 ⚠️ Le template Excel supporte max <strong>2 lignes par section</strong>. Les lignes supplémentaires sont sauvegardées ici mais ne seront pas écrites dans l'Excel (et n'impacteront pas les indices).
               </div>
             )}
@@ -442,7 +442,7 @@ export default function ProjectAudit() {
             </div>
 
             {indicesError && (
-              <div style={{ marginTop: 12, background: "#fee2e2", color: "#991b1b", padding: 12, borderRadius: 12, fontWeight: 700 }}>
+              <div style={{ marginTop: 12, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>
                 {indicesError}
               </div>
             )}
@@ -517,7 +517,7 @@ function Tab({ label, active, onClick }) {
         padding: "10px 12px",
         borderRadius: 12,
         border: "1px solid #e5e7eb",
-        background: active ? "#6d28d9" : "white",
+        background: active ? "#59169c" : "white",
         color: active ? "white" : "#111827",
         fontWeight: 900,
         cursor: "pointer",
@@ -665,7 +665,7 @@ function IndexRow({ label, value, format }) {
 
 function SourcedInput({ value, onChange, style, placeholder, fieldSource }) {
   const [showTip, setShowTip] = useState(false);
-  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #7c3aed" } : style;
+  const inputSt = fieldSource ? { ...style, borderLeft: "3px solid #59169c" } : style;
   return (
     <div style={{ position: "relative" }}>
       <input
@@ -724,7 +724,7 @@ const inputStyle = {
 };
 
 const primaryBtn = {
-  background: "#6d28d9",
+  background: "#59169c",
   color: "white",
   border: "none",
   padding: "10px 14px",
