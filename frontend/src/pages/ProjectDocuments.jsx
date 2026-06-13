@@ -362,7 +362,7 @@ export default function ProjectDocuments() {
   const pendingCount = documents.filter((d) => d.status === "pending" || d.status === "error").length;
 
   return (
-    <div style={{ maxWidth: 1100, width: "100%" }}>
+    <div style={{ maxWidth: 1400, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
       <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
         Documents — {project.project_name}
@@ -373,16 +373,7 @@ export default function ProjectDocuments() {
 
       {error && <div style={errorBox}>{error}</div>}
 
-      {/* ── Checklist panel ── */}
-      <ChecklistPanel
-        docs={documents}
-        open={checklistOpen}
-        onToggle={() => setChecklistOpen((v) => !v)}
-        onUploadClick={handleChecklistUpload}
-        onEmailClick={handleEmailClick}
-      />
-
-      {/* ── Email draft modal ── */}
+      {/* ── Email draft modal (overlay, position DOM non significative) ── */}
       {emailDraft && (
         <EmailDraftModal
           project={project}
@@ -391,6 +382,12 @@ export default function ProjectDocuments() {
           onClose={() => setEmailDraft(null)}
         />
       )}
+
+      {/* ── Deux zones : gestion (gauche) + référence (droite) ── */}
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+
+        {/* ZONE PRINCIPALE — gestion des documents */}
+        <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
       {/* ── Upload card ── */}
       <div ref={uploadCardRef} style={card}>
@@ -603,6 +600,20 @@ export default function ProjectDocuments() {
           ))}
         </div>
       </div>
+        </div>{/* fin ZONE PRINCIPALE */}
+
+        {/* PANNEAU DROITE — référence : documents attendus (lecture seule, inchangé) */}
+        <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
+          <ChecklistPanel
+            docs={documents}
+            open={checklistOpen}
+            onToggle={() => setChecklistOpen((v) => !v)}
+            onUploadClick={handleChecklistUpload}
+            onEmailClick={handleEmailClick}
+          />
+        </div>{/* fin PANNEAU DROITE */}
+
+      </div>{/* fin rangée flex */}
     </div>
   );
 }
@@ -689,94 +700,55 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
   const allDone = progressPct === 100;
 
   return (
-    <div style={{
-      ...card,
-      border: "1px solid #ede9fe",
-      padding: "18px 22px",
-    }}>
-      {/* ── Header ── */}
+    <div style={{ ...card, border: "1px solid #ede9fe", padding: "16px 18px" }}>
+      {/* ── En-tête (vertical) ── */}
       <div
-        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", cursor: "pointer", userSelect: "none" }}
+        style={{ display: "flex", alignItems: "center", gap: 10, cursor: "pointer", userSelect: "none" }}
         onClick={onToggle}
       >
-        {/* Left: icon + title */}
-        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-          <div style={{
-            width: 34, height: 34, borderRadius: 10, background: "#ede9fe",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 16, flexShrink: 0, color: "#59169c",
-          }}>
-            {open ? "−" : "≡"}
+        <div style={{
+          width: 32, height: 32, borderRadius: 9, background: "#ede9fe",
+          display: "flex", alignItems: "center", justifyContent: "center",
+          fontSize: 15, flexShrink: 0, color: "#59169c",
+        }}>
+          ≡
+        </div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#111827", lineHeight: 1.25 }}>
+            Checklist audit AMUREBA
           </div>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 14, color: "#111827", lineHeight: 1.3 }}>
-              Checklist audit AMUREBA
-            </div>
-            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
-              Documents attendus pour un audit complet
-            </div>
+          <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 1 }}>
+            Documents attendus pour un audit complet
           </div>
         </div>
+        <span style={{ fontSize: 12, color: "#9ca3af", flexShrink: 0, fontWeight: 700 }}>
+          {open ? "▾" : "▸"}
+        </span>
+      </div>
 
-        {/* Right: email button + fraction + progress bar */}
-        <div style={{ display: "flex", alignItems: "center", gap: 16, flexShrink: 0 }}>
-          {/* Email button */}
-          <button
-            type="button"
-            style={{
-              border: "1px solid #c4b5fd",
-              background: "white",
-              color: "#59169c",
-              padding: "5px 12px",
-              borderRadius: 8,
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: "pointer",
-              display: "flex",
-              alignItems: "center",
-              gap: 5,
-              whiteSpace: "nowrap",
-              flexShrink: 0,
-            }}
-            onClick={(e) => {
-              e.stopPropagation();
-              const missing = statuses.filter((s) => s.status !== "complete");
-              onEmailClick(missing);
-            }}
-            onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
-            onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
-          >
-            ✉ Email client
-          </button>
-
-          <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 20, fontWeight: 900, color: allDone ? "#82137e" : "#59169c", lineHeight: 1 }}>
-              {completedCount}
-              <span style={{ fontSize: 13, fontWeight: 500, color: "#d1d5db" }}> / {total}</span>
-            </div>
-            <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 1, letterSpacing: "0.02em" }}>
-              catégories complètes
-            </div>
-          </div>
-          <div style={{ width: 72 }}>
-            <div style={{ height: 4, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
-              <div style={{
-                width: `${progressPct}%`, height: "100%", borderRadius: 99,
-                background: allDone
-                  ? "#82137e"
-                  : "linear-gradient(90deg, #82137e, #59169c)",
-                transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)",
-              }} />
-            </div>
-          </div>
+      {/* ── Compteur + barre (pleine largeur, toujours visible) ── */}
+      <div style={{ marginTop: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 6 }}>
+          <span style={{ fontSize: 12, color: "#6b7280", fontWeight: 600 }}>catégories complètes</span>
+          <span style={{ fontSize: 15, fontWeight: 900, color: allDone ? "#82137e" : "#59169c", lineHeight: 1 }}>
+            {completedCount}
+            <span style={{ fontSize: 12, fontWeight: 500, color: "#d1d5db" }}> / {total}</span>
+          </span>
+        </div>
+        <div style={{ height: 5, background: "#f1f5f9", borderRadius: 99, overflow: "hidden" }}>
+          <div style={{
+            width: `${progressPct}%`, height: "100%", borderRadius: 99,
+            background: allDone ? "#82137e" : "linear-gradient(90deg, #82137e, #59169c)",
+            transition: "width 0.4s cubic-bezier(0.4,0,0.2,1)",
+          }} />
         </div>
       </div>
 
-      {/* ── Body ── */}
+      {/* ── Liste verticale (repliable) ── */}
       {open && (
         <>
-          <div style={{ height: 1, background: "#f3f4f6", margin: "16px -2px 14px" }} />
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 7, alignItems: "start" }}>
+          <div style={{ height: 1, background: "#f3f4f6", margin: "14px -2px" }} />
+          <div style={{ display: "flex", flexDirection: "column", gap: 7 }}>
             {statuses.map((item) => {
               const cfg = CL_STATUS[item.status];
               const hintOpen = expandedHints.has(item.id);
@@ -785,42 +757,38 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
                 <div
                   key={item.id}
                   style={{
-                    padding: "9px 12px",
+                    padding: "10px 12px",
                     background: cfg.bg,
                     border: `1px solid ${cfg.border}`,
                     borderRadius: 10,
-                    minWidth: 0,
                   }}
                 >
-                  {/* Main row */}
+                  {/* Ligne 1 : dot + icône + label + count */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {/* Status dot */}
-                    <div style={{
-                      width: 8, height: 8, borderRadius: "50%",
-                      background: cfg.dot, flexShrink: 0,
-                    }} />
-
-                    {/* Icon + label */}
-                    <span style={{ fontSize: 12, flexShrink: 0, opacity: 0.7 }}>{item.icon}</span>
-                    <span style={{
-                      fontSize: 12, fontWeight: 600, color: "#374151",
-                      flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                    }}>
+                    <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot, flexShrink: 0 }} />
+                    <span style={{ fontSize: 13, flexShrink: 0, opacity: 0.7 }}>{item.icon}</span>
+                    <span style={{ fontSize: 12.5, fontWeight: 600, color: "#374151", flex: 1, minWidth: 0 }}>
                       {item.label}
                     </span>
-
-                    {/* Doc count badge */}
                     {item.count > 0 && (
                       <span style={{
-                        fontSize: 10, fontWeight: 700,
-                        color: cfg.badge, background: cfg.badgeBg,
+                        fontSize: 10, fontWeight: 700, color: cfg.badge, background: cfg.badgeBg,
                         padding: "2px 6px", borderRadius: 99, flexShrink: 0,
                       }}>
                         {item.count}
                       </span>
                     )}
+                  </div>
 
-                    {/* Detail toggle */}
+                  {/* Ligne 2 : statut + détail + upload */}
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 8 }}>
+                    <span style={{
+                      fontSize: 10, fontWeight: 700, color: cfg.badge, background: cfg.badgeBg,
+                      padding: "2px 8px", borderRadius: 99, flexShrink: 0,
+                    }}>
+                      {cfg.label}
+                    </span>
+                    <div style={{ flex: 1 }} />
                     {details.length > 0 && (
                       <button
                         type="button"
@@ -832,25 +800,15 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
                         }}
                         onClick={(e) => toggleHint(item.id, e)}
                       >
-                        {hintOpen ? "▲" : "▼"}
+                        {hintOpen ? "▲ détail" : "▼ détail"}
                       </button>
                     )}
-
-                    {/* Upload button */}
                     <button
                       type="button"
                       style={{
-                        border: "1px solid #c4b5fd",
-                        background: "white",
-                        color: "#59169c",
-                        padding: "3px 9px",
-                        borderRadius: 6,
-                        fontSize: 11,
-                        fontWeight: 700,
-                        cursor: "pointer",
-                        flexShrink: 0,
-                        lineHeight: 1.5,
-                        whiteSpace: "nowrap",
+                        border: "1px solid #c4b5fd", background: "white", color: "#59169c",
+                        padding: "3px 9px", borderRadius: 6, fontSize: 11, fontWeight: 700,
+                        cursor: "pointer", flexShrink: 0, lineHeight: 1.5, whiteSpace: "nowrap",
                       }}
                       onClick={(e) => { e.stopPropagation(); onUploadClick(item.id); }}
                       onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
@@ -860,13 +818,9 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
                     </button>
                   </div>
 
-                  {/* Expandable detail */}
+                  {/* Détail dépliable (contenu inchangé) */}
                   {hintOpen && details.length > 0 && (
-                    <div style={{
-                      marginTop: 8,
-                      paddingTop: 8,
-                      borderTop: `1px solid ${cfg.border}`,
-                    }}>
+                    <div style={{ marginTop: 8, paddingTop: 8, borderTop: `1px solid ${cfg.border}` }}>
                       {details.map((line, i) => (
                         <div key={i} style={{
                           display: "flex", gap: 6, alignItems: "flex-start",
@@ -884,6 +838,25 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
           </div>
         </>
       )}
+
+      {/* ── Email client (pleine largeur, bas, toujours visible) ── */}
+      <button
+        type="button"
+        style={{
+          marginTop: 14, width: "100%",
+          border: "1px solid #c4b5fd", background: "white", color: "#59169c",
+          padding: "9px 12px", borderRadius: 9, fontSize: 13, fontWeight: 700,
+          cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+        }}
+        onClick={() => {
+          const missing = statuses.filter((s) => s.status !== "complete");
+          onEmailClick(missing);
+        }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
+      >
+        ✉ Email client
+      </button>
     </div>
   );
 }
