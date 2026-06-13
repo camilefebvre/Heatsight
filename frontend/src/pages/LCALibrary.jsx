@@ -303,7 +303,7 @@ export default function LCALibrary() {
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion & Administration</div>
       <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
-        🌿 Bibliothèque ACV
+        Bibliothèque ACV
       </h1>
       <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 20 }}>
         Gérez les matériaux de la bibliothèque partagée : importez, modifiez, dupliquez ou supprimez.
