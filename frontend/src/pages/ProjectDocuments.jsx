@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
+import { Zap, Flame, Fuel, Gauge, FileText, Building2, Settings, ClipboardList, Image as ImageIcon, Sparkles } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 
@@ -25,6 +26,29 @@ const CHECKLIST_ITEMS = [
   { id: "donnees_techniques",  label: "Données techniques",     icon: "⚙", filterLabel: "Données techniques" },
   { id: "rapport_existant",    label: "Rapport audit existant", icon: "📋", filterLabel: "Rapport d'audit" },
 ];
+
+// ── Icônes de catégorie (charte : lucide mauve, pastille blanche + contour mauve) ──
+const CATEGORY_ICON = {
+  facture_electricite: Zap,
+  facture_gaz:         Flame,
+  facture_fuel:        Fuel,
+  releve_compteur:     Gauge,
+  contrat:             FileText,
+  plans_batiment:      Building2,
+  donnees_techniques:  Settings,
+  rapport_existant:    ClipboardList,
+};
+
+const iconChip = {
+  display: "inline-flex", alignItems: "center", justifyContent: "center",
+  width: 22, height: 22, borderRadius: 6,
+  background: "white", border: "1px solid #c4b5fd", color: "#59169c", flexShrink: 0,
+};
+
+function CatIcon({ id, size = 12 }) {
+  const I = CATEGORY_ICON[id];
+  return I ? <I size={size} /> : null;
+}
 
 const ENERGY_FIELD_MAP = {
   electricite: "electricity",
@@ -430,7 +454,7 @@ export default function ProjectDocuments() {
               disabled={analyzingAll}
               onClick={handleAnalyzeAll}
             >
-              {analyzingAll ? "Analyse en cours…" : `🤖 Tout analyser (${pendingCount})`}
+              {analyzingAll ? "Analyse en cours…" : <><Sparkles size={14} style={{ verticalAlign: "-2px", marginRight: 5 }} /> Tout analyser ({pendingCount})</>}
             </button>
           )}
         </div>
@@ -549,7 +573,7 @@ export default function ProjectDocuments() {
                 style={filterType === item.id ? activeFilterPill : filterPill}
                 onClick={() => setFilterType(filterType === item.id ? null : item.id)}
               >
-                <span style={{ opacity: 0.6, marginRight: 4, fontSize: 12 }}>{item.icon}</span>
+                <span style={{ ...iconChip, width: 18, height: 18, marginRight: 6 }}><CatIcon id={item.id} size={11} /></span>
                 {item.filterLabel}
               </button>
             ))}
@@ -711,7 +735,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
           display: "flex", alignItems: "center", justifyContent: "center",
           fontSize: 15, flexShrink: 0, color: "#59169c",
         }}>
-          ≡
+          <ClipboardList size={16} />
         </div>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 800, fontSize: 14, color: "#111827", lineHeight: 1.25 }}>
@@ -766,7 +790,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
                   {/* Ligne 1 : dot + icône + label + count */}
                   <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                     <div style={{ width: 8, height: 8, borderRadius: "50%", background: cfg.dot, flexShrink: 0 }} />
-                    <span style={{ fontSize: 13, flexShrink: 0, opacity: 0.7 }}>{item.icon}</span>
+                    <span style={iconChip}><CatIcon id={item.id} size={12} /></span>
                     <span style={{ fontSize: 12.5, fontWeight: 600, color: "#374151", flex: 1, minWidth: 0 }}>
                       {item.label}
                     </span>
@@ -1014,7 +1038,7 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
                     padding: "3px 10px", borderRadius: 99,
                     display: "flex", alignItems: "center", gap: 4,
                   }}>
-                    <span style={{ opacity: 0.8 }}>{item.icon}</span> {item.label}
+                    <CatIcon id={item.id} size={12} /> {item.label}
                   </span>
                 );
               })}
@@ -1307,8 +1331,8 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
   return (
     <div style={{ ...rowBox, cursor: "default" }} onDoubleClick={onDoubleClick} title="Double-clic pour visualiser">
       <div style={{ display: "flex", alignItems: "flex-start", gap: 10, flex: 1, minWidth: 0 }}>
-        <span style={{ fontSize: 20, flexShrink: 0, marginTop: 2 }}>
-          {doc.file_type === "application/pdf" ? "📄" : "🖼️"}
+        <span style={{ ...iconChip, width: 30, height: 30, borderRadius: 8, marginTop: 2 }}>
+          {doc.file_type === "application/pdf" ? <FileText size={16} /> : <ImageIcon size={16} />}
         </span>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 14, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
@@ -1339,7 +1363,7 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
                   disabled={!!applying}
                   onClick={applyAll}
                 >
-                  {applying === "all" ? "…" : "✨ Appliquer partout"}
+                  {applying === "all" ? "…" : <><Sparkles size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} /> Appliquer partout</>}
                 </button>
                 <button
                   type="button"
@@ -1393,7 +1417,7 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
 
         {(doc.status === "pending" || doc.status === "error") && (
           <button type="button" style={{ ...importBtn, padding: "6px 10px", fontSize: 13 }} disabled={analyzing} onClick={onAnalyze}>
-            {analyzing ? "…" : "🤖 Analyser"}
+            {analyzing ? "…" : <><Sparkles size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} /> Analyser</>}
           </button>
         )}
 

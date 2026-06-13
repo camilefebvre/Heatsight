@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
   Download, Upload, Sparkles, RefreshCw,
-  Clock, X, CheckSquare, Square, AlertTriangle,
+  Clock, X, CheckSquare, Square, AlertTriangle, FileCheck,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
+import TemplateLibraryPanel from "../ui/TemplateLibraryPanel";
 
 /* ── Conflict type metadata ──────────────────────────────────── */
 const CONFLICT_META = {
@@ -114,6 +115,7 @@ export default function ProjectReport() {
   const [project,        setProject]        = useState(null);
   const [loading,        setLoading]        = useState(true);
   const [reportStatus,   setReportStatus]   = useState(null);
+  const [prefillDisabled, setPrefillDisabled] = useState(false);
 
   const [proposalData,   setProposalData]   = useState(null); // { sections, has_existing_docx, ... }
   const [items,          setItems]          = useState([]);   // flat list of checkable items
@@ -292,7 +294,7 @@ export default function ProjectReport() {
   const selectedCount = items.filter((i) => i.selected).length;
 
   return (
-    <div style={{ maxWidth: 1100, width: "100%" }}>
+    <div style={{ maxWidth: 1400, width: "100%" }}>
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
       {/* ── Header ─────────────────────────────────────────────── */}
@@ -314,6 +316,10 @@ export default function ProjectReport() {
           Historique
         </button>
       </div>
+
+      {/* ── Deux zones : rapport courant (gauche) + modèles (droite) ── */}
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
       {/* ── Docx status banner ─────────────────────────────────── */}
       <div style={{
@@ -367,14 +373,21 @@ export default function ProjectReport() {
           <button
             type="button"
             onClick={handleAnalyze}
-            disabled={analyzing || applying}
-            style={{ ...s.primaryBtn, flexShrink: 0, opacity: (analyzing || applying) ? 0.7 : 1 }}
+            disabled={analyzing || applying || prefillDisabled}
+            style={{ ...s.primaryBtn, flexShrink: 0, opacity: (analyzing || applying || prefillDisabled) ? 0.7 : 1, cursor: prefillDisabled ? "not-allowed" : "pointer" }}
           >
             {analyzing
               ? <><RefreshCw size={14} style={spin} /> Analyse…</>
               : <><Sparkles size={14} /> Analyser avec l'IA</>}
           </button>
         </div>
+
+        {prefillDisabled && (
+          <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", lineHeight: 1.5 }}>
+            Pré-remplissage IA indisponible avec un modèle personnalisé — mode manuel
+            (télécharger l'officiel → compléter dans Word → réimporter).
+          </div>
+        )}
 
         {analyzeError && <div style={{ ...s.errorBox, marginTop: 12 }}>{analyzeError}</div>}
 
@@ -430,6 +443,21 @@ export default function ProjectReport() {
         </div>
       </div>
 
+        </div>{/* fin ZONE PRINCIPALE */}
+
+        {/* PANNEAU DROITE — bibliothèque de modèles */}
+        <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
+          <TemplateLibraryPanel
+            type="report"
+            projectId={projectId}
+            activeTemplateId={project.active_report_template_id}
+            onActiveChange={(id) => setProject((p) => (p ? { ...p, active_report_template_id: id } : p))}
+            onCapabilityChange={(supportsPrefill) => setPrefillDisabled(!supportsPrefill)}
+          />
+        </div>
+
+      </div>{/* fin deux zones */}
+
       {/* ── History drawer ──────────────────────────────────────── */}
       {historyOpen && (
         <HistoryDrawer
@@ -471,7 +499,7 @@ function ChecklistPanel({ items, proposalData, applying, selectedCount, onToggle
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
       }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>✨ Propositions IA</div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>Propositions IA</div>
           <div style={{ fontSize: 12, color: "#59169c", marginTop: 2 }}>
             {selectedCount} champ{selectedCount !== 1 ? "s" : ""} sélectionné{selectedCount !== 1 ? "s" : ""}
             {totalReplaces > 0 && (
@@ -675,7 +703,7 @@ function ChecklistRow({ item, onToggle }) {
 
 /* ── Source tag ─────────────────────────────────────────────── */
 function SourceTag({ source }) {
-  if (!source) return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+  if (!source) return <SourceChip color="#9ca3af" label="Estimation IA" />;
 
   const doc = source.document;
   if (doc && DB_SOURCE_LABELS[doc]) {
@@ -686,7 +714,7 @@ function SourceTag({ source }) {
     const short = truncateMid(doc, 22);
     return <SourceChip color="#059669" label={`📄 ${short}`} title={source.field ? `${doc} → ${source.field}` : doc} />;
   }
-  return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+  return <SourceChip color="#9ca3af" label="Estimation IA" />;
 }
 
 function SourceChip({ color, label, title }) {
@@ -790,7 +818,9 @@ function HistoryEntry({ entry, projectId }) {
           background: open ? "#faf5ff" : "white",
         }}
       >
-        <span style={{ fontSize: 18 }}>{isAI ? "🤖" : "📤"}</span>
+        {isAI
+          ? <FileCheck size={16} style={{ color: "#59169c", flexShrink: 0 }} />
+          : <Upload size={16} style={{ color: "#6b7280", flexShrink: 0 }} />}
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}

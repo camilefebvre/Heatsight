@@ -3,10 +3,11 @@ import { useParams } from "react-router-dom";
 import {
   Download, Upload, Sparkles, RefreshCw, Trash2,
   Clock, X, CheckSquare, Square,
-  AlertTriangle, Info,
+  AlertTriangle, Info, FileText, FileCheck,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
+import TemplateLibraryPanel from "../ui/TemplateLibraryPanel";
 
 /* ── Type labels ────────────────────────────────────────────── */
 const TYPE_LABEL = {
@@ -37,10 +38,10 @@ const FIELD_META = {
 
 /* ── Version source metadata ─────────────────────────────────── */
 const SOURCE_META = {
-  template:       { label: "Template vierge",    color: "#6b7280", bg: "#f3f4f6", icon: "📄" },
-  ai_prefill:     { label: "Pré-rempli par IA",  color: "#59169c", bg: "#f5f3ff", icon: "🤖" },
-  manual_upload:  { label: "Upload manuel",       color: "#0369a1", bg: "#e0f2fe", icon: "📤" },
-  ai_patched:     { label: "IA + upload manuel", color: "#0f766e", bg: "#f0fdfa", icon: "🤖📤" },
+  template:       { label: "Template vierge",    color: "#6b7280", bg: "#f3f4f6", Icon: FileText },
+  ai_prefill:     { label: "Pré-rempli par IA",  color: "#59169c", bg: "#f5f3ff", Icon: FileCheck },
+  manual_upload:  { label: "Upload manuel",       color: "#0369a1", bg: "#e0f2fe", Icon: Upload },
+  ai_patched:     { label: "IA + upload manuel", color: "#0f766e", bg: "#f0fdfa", Icon: FileCheck },
 };
 
 /* ── Conflict type metadata ──────────────────────────────────── */
@@ -165,6 +166,9 @@ export default function ProjectPlanAmelioration() {
   const [historyOpen,    setHistoryOpen]    = useState(false);
   const [history,        setHistory]        = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+
+  /* Modèle actif (bibliothèque) : prefill IA indisponible si custom (supports_prefill=false) */
+  const [prefillDisabled, setPrefillDisabled] = useState(false);
 
   /* ── Chargement initial ──────────────────────────────────── */
   async function loadAll() {
@@ -357,7 +361,7 @@ export default function ProjectPlanAmelioration() {
   const selectedCount = checklistItems.filter((i) => i.selected).length;
 
   return (
-    <div style={{ maxWidth: 1200, width: "100%" }}>
+    <div style={{ maxWidth: 1400, width: "100%" }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
         <div>
@@ -379,6 +383,10 @@ export default function ProjectPlanAmelioration() {
       </div>
 
       {pageError && <div style={{ ...s.errorBox, marginBottom: 16 }}>{pageError}</div>}
+
+      {/* ── Deux zones : workflow (gauche) + modèles (droite) ── */}
+      <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
+        <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
       <SectionCard title="AMUREBA — Pré-remplissage IA & Excel">
 
@@ -410,6 +418,7 @@ export default function ProjectPlanAmelioration() {
             analyzing={analyzing}
             onAnalyze={handleAnalyze}
             analyzeError={analyzeError}
+            prefillDisabled={prefillDisabled}
           />
         )}
 
@@ -505,6 +514,21 @@ export default function ProjectPlanAmelioration() {
             )}
       </SectionCard>
 
+        </div>{/* fin ZONE PRINCIPALE */}
+
+        {/* PANNEAU DROITE — bibliothèque de modèles */}
+        <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
+          <TemplateLibraryPanel
+            type="audit"
+            projectId={projectId}
+            activeTemplateId={project.active_audit_template_id}
+            onActiveChange={(id) => setProject((p) => (p ? { ...p, active_audit_template_id: id } : p))}
+            onCapabilityChange={(supportsPrefill) => setPrefillDisabled(!supportsPrefill)}
+          />
+        </div>
+
+      </div>{/* fin deux zones */}
+
       {/* ── Historique drawer ────────────────────────────────── */}
       {historyOpen && (
         <HistoryDrawer
@@ -543,7 +567,7 @@ function CurrentVersionBanner({ prefillStatus, downloading, onDownload }) {
       borderRadius: 10, padding: "10px 14px", marginBottom: 16,
     }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-        <span style={{ fontSize: 18 }}>{meta.icon}</span>
+        <meta.Icon size={18} style={{ color: meta.color, flexShrink: 0 }} />
         <div>
           <div style={{ fontWeight: 700, fontSize: 13, color: meta.color }}>
             Version courante : {meta.label}
@@ -581,7 +605,7 @@ function CurrentVersionBanner({ prefillStatus, downloading, onDownload }) {
 }
 
 /* ── Actions workflow ──────────────────────────────────────── */
-function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyzeError }) {
+function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyzeError, prefillDisabled }) {
   const isReanalyze = hasExcel;
   const btnLabel = isReanalyze
     ? (currentSource === "manual_upload"
@@ -604,11 +628,18 @@ function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyz
           fichier uploadé, sans écraser les cellules déjà remplies (sauf si vous le validez).
         </div>
       )}
+      {prefillDisabled && (
+        <div style={{ ...s.infoBanner, marginBottom: 14 }}>
+          <Info size={14} style={{ flexShrink: 0, color: "#374151" }} />
+          Pré-remplissage IA indisponible avec un modèle personnalisé — mode manuel
+          (télécharger → remplir → réimporter).
+        </div>
+      )}
       <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
         <button
           onClick={onAnalyze}
-          disabled={analyzing}
-          style={{ ...s.primaryBtn, opacity: analyzing ? 0.7 : 1 }}
+          disabled={analyzing || prefillDisabled}
+          style={{ ...s.primaryBtn, opacity: (analyzing || prefillDisabled) ? 0.7 : 1, cursor: prefillDisabled ? "not-allowed" : "pointer" }}
         >
           {analyzing
             ? <><RefreshCw size={15} style={spin} /> Analyse IA…</>
@@ -686,7 +717,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
         display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, flexWrap: "wrap",
       }}>
         <div>
-          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>✨ Propositions IA</div>
+          <div style={{ fontWeight: 800, fontSize: 14, color: "#4c1d95" }}>Propositions IA</div>
           <div style={{ fontSize: 12, color: "#59169c", marginTop: 2 }}>
             {selectedCount} cellule{selectedCount !== 1 ? "s" : ""} sélectionnée{selectedCount !== 1 ? "s" : ""}
             {totalReplaces > 0 && (
@@ -934,7 +965,7 @@ function ChecklistRow({ item, onToggle }) {
 function SourceTag({ source }) {
   // No source object at all → estimation
   if (!source) {
-    return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+    return <SourceChip color="#9ca3af" label="Estimation IA" />;
   }
 
   const doc = source.document;
@@ -954,7 +985,7 @@ function SourceTag({ source }) {
   }
 
   // Fallback: IA estimate
-  return <SourceChip color="#9ca3af" label="🤖 Estimation IA" />;
+  return <SourceChip color="#9ca3af" label="Estimation IA" />;
 }
 
 function SourceChip({ color, label, title }) {
@@ -1061,7 +1092,9 @@ function HistoryEntry({ entry, projectId }) {
           background: open ? "#faf5ff" : "white",
         }}
       >
-        <span style={{ fontSize: 18 }}>{isAI ? "🤖" : "📤"}</span>
+        {isAI
+          ? <FileCheck size={16} style={{ color: "#59169c", flexShrink: 0 }} />
+          : <Upload size={16} style={{ color: "#6b7280", flexShrink: 0 }} />}
         <div style={{ flex: 1 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
