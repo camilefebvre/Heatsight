@@ -43,6 +43,8 @@ class Project(ProjectCreate):
     id: str
     created_at: str
     excel_file: str
+    active_audit_template_id: Optional[str] = None
+    active_report_template_id: Optional[str] = None
 
 
 VALID_STATUSES = {"draft", "in_progress", "on_hold", "completed"}
@@ -340,3 +342,24 @@ class ImportResponse(BaseModel):
     sheet_names: List[str]
     filename: str
     imported_at: str
+
+
+# ──────────────────────────────────────────
+# Templates (bibliothèque de modèles de livrable)
+# ──────────────────────────────────────────
+class TemplateOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    type: str
+    name: str
+    is_official: bool
+    supports_prefill: bool
+    scope: str
+    created_at: str
+    usage_count: int = 0          # nb de projets référençant ce modèle (avertissement de suppression)
+
+
+class ActiveTemplateIn(BaseModel):
+    type: str                          # "audit" | "report"
+    template_id: Optional[str] = None  # None = revenir au modèle officiel

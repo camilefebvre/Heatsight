@@ -444,6 +444,40 @@ def _patch_excel_bytes(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Modèles de livrable (templates) — résolution du modèle actif par projet
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _get_active_template(db: Session, project, ttype: str):
+    """Modèle actif d'un projet pour un type ('audit'|'report'). None ⇒ officiel par défaut."""
+    tid = project.active_audit_template_id if ttype == "audit" else project.active_report_template_id
+    if not tid:
+        return None
+    return db.query(models.Template).filter(models.Template.id == tid).first()
+
+
+def _template_supports_prefill(tpl) -> bool:
+    """True si le modèle autorise le pré-remplissage IA (officiel, ou custom validé — false au MVP)."""
+    return True if (tpl is None or tpl.is_official) else bool(tpl.supports_prefill)
+
+
+def _assert_prefill_allowed(db: Session, project, ttype: str) -> None:
+    if not _template_supports_prefill(_get_active_template(db, project, ttype)):
+        raise HTTPException(
+            status_code=409,
+            detail="Modèle personnalisé actif : pré-remplissage IA indisponible. "
+                   "Téléchargez le modèle, complétez-le, puis réimportez/téléversez le fichier.",
+        )
+
+
+def _resolve_audit_template_source(db: Session, project):
+    """Source du modèle audit actif : Path (officiel, disque) ou bytes (custom, DB)."""
+    tpl = _get_active_template(db, project, "audit")
+    if tpl is None or tpl.is_official:
+        return TEMPLATE_FILE
+    return tpl.file_bytes
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # AMUREBA sheet cell mappings
 # ──────────────────────────────────────────────────────────────────────────────
 
@@ -747,6 +781,28 @@ def _ensure_extra_project_columns():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )""",
+        # Bibliothèque de modèles de livrable (idempotent) — table avant FK
+        """CREATE TABLE IF NOT EXISTS templates (
+            id TEXT PRIMARY KEY,
+            type TEXT NOT NULL,
+            name TEXT NOT NULL,
+            file_bytes BYTEA,
+            original_filename TEXT,
+            is_official BOOLEAN NOT NULL DEFAULT false,
+            supports_prefill BOOLEAN NOT NULL DEFAULT false,
+            owner_id TEXT REFERENCES users(id) ON DELETE CASCADE,
+            scope TEXT NOT NULL DEFAULT 'user',
+            created_at TEXT NOT NULL
+        )""",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_audit_template_id TEXT REFERENCES templates(id) ON DELETE SET NULL",
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS active_report_template_id TEXT REFERENCES templates(id) ON DELETE SET NULL",
+        # Seed des modèles officiels (idempotent ; file_bytes NULL → résolus depuis le disque/image)
+        """INSERT INTO templates (id, type, name, file_bytes, original_filename,
+                                  is_official, supports_prefill, owner_id, scope, created_at)
+           VALUES
+             ('official-audit',  'audit',  'Modèle officiel AMUREBA',    NULL, NULL, true, true, NULL, 'official', '2026-01-01T00:00:00+00:00'),
+             ('official-report', 'report', 'Modèle officiel de rapport', NULL, NULL, true, true, NULL, 'official', '2026-01-01T00:00:00+00:00')
+           ON CONFLICT (id) DO NOTHING""",
     ]
     with engine.begin() as conn:
         for stmt in stmts:
@@ -1943,6 +1999,7 @@ async def report_prefill_preview(
     except Exception as e:
         print(f"[report-prefill-preview] ERREUR non-catchée: {type(e).__name__}: {e}", flush=True)
         raise HTTPException(status_code=500, detail=f"Erreur interne : {e}")
+    _assert_prefill_allowed(db, project, "report")
 
     extra = (report.extra_sections or {}) if report else {}
 
@@ -2065,6 +2122,8 @@ async def report_apply_prefill(
     ).first()
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
+
+    _assert_prefill_allowed(db, project, "report")
 
     print(f"[apply-prefill] {len(payload.items)} items reçus", flush=True)
     for item in payload.items:
@@ -3260,6 +3319,7 @@ async def prefill_preview(
     Inclut conflict_type par champ (new / replace / uncertain) quand un Excel courant existe.
     """
     project, entity_name, actions, energy_record, _ = await _get_prefill_actions(project_id, db, current_user)
+    _assert_prefill_allowed(db, project, "audit")
 
     # Detect conflicts with the current stored Excel (if any)
     existing_vals: Dict[str, Dict[str, Any]] = {}
@@ -3319,6 +3379,7 @@ async def prefill_improvement_actions_excel(
     project, entity_name, actions, energy_record, _ = await _get_prefill_actions(
         project_id, db, current_user
     )
+    _assert_prefill_allowed(db, project, "audit")
 
     if not TEMPLATE_FILE.exists():
         raise HTTPException(status_code=500, detail="Template AMUREBA introuvable")
@@ -3424,9 +3485,13 @@ def export_improvement_actions_excel(
             headers={"Content-Disposition": f'attachment; filename="AMUREBA_prefill_{safe_name}.xlsx"'},
         )
 
-    # Sinon : template vierge avec le nom de l'entité (+ données énergie si dispo)
-    if not TEMPLATE_FILE.exists():
-        raise HTTPException(status_code=500, detail="Template AMUREBA introuvable côté serveur")
+    # Sinon : modèle actif (officiel sur disque ou custom en DB) avec le nom de l'entité
+    source = _resolve_audit_template_source(db, project)
+    if isinstance(source, Path):
+        if not source.exists():
+            raise HTTPException(status_code=500, detail="Template AMUREBA introuvable côté serveur")
+    elif not source:
+        raise HTTPException(status_code=500, detail="Modèle personnalisé introuvable (fichier vide).")
 
     entity_name = project.client_name or project.project_name or ""
     energy_record = (
@@ -3436,7 +3501,7 @@ def export_improvement_actions_excel(
         .first()
     )
     try:
-        file_bytes = _write_template_zipfile(TEMPLATE_FILE, entity_name, [], energy_record)
+        file_bytes = _write_template_zipfile(source, entity_name, [], energy_record)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Erreur lors de la génération du fichier: {e}")
 
@@ -3491,6 +3556,8 @@ async def apply_prefill(
         actions_by_sheet[sheet]
         for sheet in sorted(actions_by_sheet.keys(), key=lambda s: int(re.sub(r"[^0-9]", "", s) or 0))
     ]
+
+    _assert_prefill_allowed(db, project, "audit")
 
     # Determine Excel base: use existing stored Excel if available (upload or previous AI),
     # otherwise start from the blank template.
@@ -4411,3 +4478,131 @@ def duplicate_lca_material(
     db.commit()
     db.refresh(copy)
     return copy
+
+
+# ==============================
+# Bibliothèque de modèles de livrable (templates)
+# ==============================
+_TEMPLATE_TYPES = {"audit", "report"}
+_TEMPLATE_OFFICIAL_FILE = {"audit": TEMPLATE_FILE, "report": REPORT_TEMPLATE_FILE}
+_TEMPLATE_MEDIA = {
+    "audit":  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "report": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+}
+_TEMPLATE_EXT = {"audit": ".xlsx", "report": ".docx"}
+
+
+def _template_usage_count(db: Session, tpl) -> int:
+    col = models.Project.active_audit_template_id if tpl.type == "audit" else models.Project.active_report_template_id
+    return db.query(models.Project).filter(col == tpl.id).count()
+
+
+@app.get("/templates", response_model=List[schemas.TemplateOut])
+def list_templates(type: str = Query(...), db: Session = Depends(get_db),
+                   current_user: models.User = Depends(get_current_user)):
+    if type not in _TEMPLATE_TYPES:
+        raise HTTPException(status_code=400, detail="type invalide (audit|report)")
+    rows = db.query(models.Template).filter(
+        models.Template.type == type,
+        (models.Template.is_official == True) | (models.Template.owner_id == current_user.id),  # noqa: E712
+    ).all()
+    out = []
+    for t in rows:
+        item = schemas.TemplateOut.model_validate(t)
+        item.usage_count = _template_usage_count(db, t)
+        out.append(item)
+    return out
+
+
+@app.get("/templates/{template_id}/file")
+def download_template_file(template_id: str, db: Session = Depends(get_db),
+                           current_user: models.User = Depends(get_current_user)):
+    tpl = db.query(models.Template).filter(models.Template.id == template_id).first()
+    if not tpl or not (tpl.is_official or tpl.owner_id == current_user.id):
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+    if tpl.is_official:
+        path = _TEMPLATE_OFFICIAL_FILE[tpl.type]
+        if not path.exists():
+            raise HTTPException(status_code=500, detail="Fichier officiel introuvable côté serveur")
+        data = path.read_bytes()
+    else:
+        data = tpl.file_bytes or b""
+    return StreamingResponse(
+        io.BytesIO(data),
+        media_type=_TEMPLATE_MEDIA[tpl.type],
+        headers={"Content-Disposition": f'attachment; filename="{_safe_filename(tpl.name)}{_TEMPLATE_EXT[tpl.type]}"'},
+    )
+
+
+@app.post("/templates", response_model=schemas.TemplateOut)
+async def upload_template(type: str = Form(...), name: str = Form(...), file: UploadFile = File(...),
+                          db: Session = Depends(get_db),
+                          current_user: models.User = Depends(get_current_user)):
+    if type not in _TEMPLATE_TYPES:
+        raise HTTPException(status_code=400, detail="type invalide (audit|report)")
+    if not (file.filename or "").lower().endswith(_TEMPLATE_EXT[type]):
+        raise HTTPException(status_code=400, detail=f"Extension attendue : {_TEMPLATE_EXT[type]}")
+    content = await file.read()
+
+    if type == "audit":   # structure officielle obligatoire (cf. Q2) : feuilles AA1..AA9 présentes
+        try:
+            wb = load_workbook(io.BytesIO(content), data_only=True, keep_links=False)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Fichier Excel invalide : {e}")
+        missing = [f"AA{i}" for i in range(1, 10) if f"AA{i}" not in wb.sheetnames]
+        if missing:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Modèle audit invalide : feuilles manquantes {', '.join(missing)}. "
+                       "Partez du modèle officiel sans déplacer les feuilles ni les cellules.",
+            )
+    # type == "report" : custom libre, aucun parse retour (cf. Q2)
+
+    now = datetime.now(timezone.utc).isoformat()
+    tpl = models.Template(
+        id=str(uuid4()), type=type, name=(name.strip() or file.filename),
+        file_bytes=content, original_filename=file.filename,
+        is_official=False, supports_prefill=False,   # custom : remplissage manuel uniquement (MVP)
+        owner_id=current_user.id, scope="user", created_at=now,
+    )
+    db.add(tpl); db.commit(); db.refresh(tpl)
+    item = schemas.TemplateOut.model_validate(tpl)
+    item.usage_count = 0
+    return item
+
+
+@app.delete("/templates/{template_id}")
+def delete_template(template_id: str, db: Session = Depends(get_db),
+                    current_user: models.User = Depends(get_current_user)):
+    tpl = db.query(models.Template).filter(models.Template.id == template_id).first()
+    if not tpl:
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+    if tpl.is_official:
+        raise HTTPException(status_code=403, detail="Modèle officiel non supprimable.")
+    if tpl.owner_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Modèle introuvable")
+    db.delete(tpl); db.commit()   # FK ON DELETE SET NULL : les projets repassent à l'officiel
+    return {"status": "deleted", "id": template_id}
+
+
+@app.patch("/projects/{project_id}/active-template")
+def set_active_template(project_id: str, payload: schemas.ActiveTemplateIn,
+                        db: Session = Depends(get_db),
+                        current_user: models.User = Depends(get_current_user)):
+    if payload.type not in _TEMPLATE_TYPES:
+        raise HTTPException(status_code=400, detail="type invalide (audit|report)")
+    project = db.query(models.Project).filter(
+        models.Project.id == project_id, models.Project.owner_id == current_user.id,
+    ).first()
+    if not project:
+        raise HTTPException(status_code=404, detail="Project not found")
+    if payload.template_id is not None:
+        tpl = db.query(models.Template).filter(models.Template.id == payload.template_id).first()
+        if not tpl or tpl.type != payload.type or not (tpl.is_official or tpl.owner_id == current_user.id):
+            raise HTTPException(status_code=404, detail="Modèle introuvable")
+    if payload.type == "audit":
+        project.active_audit_template_id = payload.template_id
+    else:
+        project.active_report_template_id = payload.template_id
+    db.commit()
+    return {"status": "ok", "type": payload.type, "template_id": payload.template_id}

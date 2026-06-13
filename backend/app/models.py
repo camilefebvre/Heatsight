@@ -37,6 +37,8 @@ class Project(Base):
     report_docx_source = Column(String, nullable=True)  # "ai_prefill"|"manual_upload"
     report_prefill_summary = Column(JSONB, nullable=True)  # champs appliqués par AI prefill
     report_prefilled_at = Column(String, nullable=True)  # ISO datetime du dernier prefill rapport
+    active_audit_template_id  = Column(String, ForeignKey("templates.id", ondelete="SET NULL"), nullable=True)
+    active_report_template_id = Column(String, ForeignKey("templates.id", ondelete="SET NULL"), nullable=True)
     # audit_data, energy_accounting, report_data → tables dédiées
 
 
@@ -264,3 +266,19 @@ class LcaProject(Base):
     age_batiment = Column(Integer, nullable=True)              # âge actuel du bâtiment, années
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=False)
+
+
+class Template(Base):
+    """Modèle de livrable (Excel audit / Word rapport). Officiel (protégé) ou personnalisé par utilisateur."""
+    __tablename__ = "templates"
+
+    id = Column(String, primary_key=True)
+    type = Column(String, nullable=False)                 # "audit" | "report"
+    name = Column(String, nullable=False)
+    file_bytes = Column(LargeBinary, nullable=True)       # bytea ; NULL pour l'officiel (résolu depuis le disque)
+    original_filename = Column(String, nullable=True)
+    is_official = Column(Boolean, nullable=False, default=False, server_default="false")       # protégé : non supprimable
+    supports_prefill = Column(Boolean, nullable=False, default=False, server_default="false")  # IA prefill (officiel only au MVP)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)       # NULL = officiel
+    scope = Column(String, nullable=False, default="user", server_default="user")              # "official" | "user" (futur "org")
+    created_at = Column(String, nullable=False)
