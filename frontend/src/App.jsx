@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from "react-router-dom";
 import AppLayout from "./layout/AppLayout";
+import ProjectLayout from "./layout/ProjectLayout";
 import RequireAuth from "./ui/RequireAuth";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
@@ -35,16 +36,17 @@ export default function App() {
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/client-requests" element={<ClientRequests />} />
           <Route path="/share-access" element={<ShareAccess />} />
-          {/* routes "dans un projet" */}
-          <Route path="/projects/:projectId/audit" element={<ProjectPlanAmelioration />} />
-          <Route path="/projects/:projectId/documents" element={<ProjectDocuments />} />
-          <Route path="/projects/:projectId/energy" element={<ProjectEnergy />} />
-          <Route path="/projects/:projectId/report" element={<ProjectReport />} />
-          {/* <Route path="/projects/:projectId/plan-amelioration" element={<ProjectPlanAmelioration />} /> */}
-
-
-          <Route path="/projects/:projectId/lca" element={<ProjectLCA />} />
-          <Route path="/projects/:projectId/lca-v2" element={<ProjectLCA2 />} />
+          {/* routes "dans un projet" — enveloppées par ProjectLayout (fil d'Ariane) */}
+          <Route path="/projects/:projectId" element={<ProjectLayout />}>
+            <Route index element={<Navigate to="audit" replace />} />
+            <Route path="audit" element={<ProjectPlanAmelioration />} />
+            <Route path="documents" element={<ProjectDocuments />} />
+            <Route path="energy" element={<ProjectEnergy />} />
+            <Route path="report" element={<ProjectReport />} />
+            {/* <Route path="plan-amelioration" element={<ProjectPlanAmelioration />} /> */}
+            <Route path="lca" element={<ProjectLCA />} />
+            <Route path="lca-v2" element={<ProjectLCA2 />} />
+          </Route>
           <Route path="/lca/admin" element={<LCAAdmin />} />
           <Route path="/lca/library" element={<LCALibrary />} />
         </Route>
