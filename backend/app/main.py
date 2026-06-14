@@ -19,6 +19,7 @@ from jose import JWTError, jwt
 import io
 import subprocess
 import os
+import secrets
 import tempfile
 import json
 import base64
@@ -101,6 +102,13 @@ print(f"[DEBUG] Templates dir contents: {list((BASE_DIR / 'templates').iterdir()
 REPORT_TEMPLATE_FILE = BASE_DIR / "templates" / "report_template.docx"
 REPORT_DIR = BASE_DIR / "reports"
 REPORT_DIR.mkdir(exist_ok=True)
+
+# URL publique HTTPS du BACKEND (Render) — sert à composer les liens d'abonnement .ics.
+# DOIT être défini dans l'env Render (ex. https://heatsight-api.onrender.com), sinon les
+# liens .ics seront en localhost en prod. Pas de hardcode d'URL backend.
+PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://127.0.0.1:8000")
+# URL publique de l'app (Vercel) — sert au lien "Voir dans HeatSight" dans le .ics.
+FRONTEND_URL = os.getenv("FRONTEND_URL", "https://heatsight.vercel.app")
 
 SHEET_NAME = "2023"
 
@@ -755,6 +763,10 @@ def _ensure_extra_project_columns():
         # Dernière activité du projet (P9) — colonne puis backfill, dans cet ordre
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TEXT",
         "UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL",
+        # Agenda par utilisateur + abonnement .ics (idempotent)
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS owner_id TEXT REFERENCES users(id) ON DELETE CASCADE",
+        "UPDATE events SET owner_id = p.owner_id FROM projects p WHERE events.project_id = p.id AND events.owner_id IS NULL",
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT",
         # Colonne sections étendues du rapport
         "ALTER TABLE reports ADD COLUMN IF NOT EXISTS extra_sections JSONB",
         # Table historique plan d'amélioration (idempotent)
@@ -2360,7 +2372,7 @@ def download_report_history_file(
 # ==============================
 @app.get("/events", response_model=List[schemas.EventSchema])
 def list_events(project_id: Optional[str] = None, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    q = db.query(models.Event)
+    q = db.query(models.Event).filter(models.Event.owner_id == current_user.id)
     if project_id:
         q = q.filter(models.Event.project_id == project_id)
     return q.order_by(models.Event.start).all()
@@ -2368,7 +2380,7 @@ def list_events(project_id: Optional[str] = None, db: Session = Depends(get_db),
 
 @app.post("/events", response_model=schemas.EventSchema)
 def create_event(payload: schemas.EventCreate, db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    event = models.Event(id=str(uuid4()), **payload.model_dump())
+    event = models.Event(id=str(uuid4()), owner_id=current_user.id, **payload.model_dump())
     db.add(event)
     db.commit()
     db.refresh(event)
@@ -2380,6 +2392,8 @@ def update_event(event_id: str, payload: schemas.EventCreate, db: Session = Depe
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
 
     for field, value in payload.model_dump(exclude_unset=True).items():
         setattr(event, field, value)
@@ -2394,10 +2408,148 @@ def delete_event(event_id: str, db: Session = Depends(get_db), current_user: mod
     event = db.query(models.Event).filter(models.Event.id == event_id).first()
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
+    if event.owner_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Accès refusé")
 
     db.delete(event)
     db.commit()
     return {"status": "deleted", "id": event_id}
+
+
+# ==============================
+# ROUTES: CALENDAR (.ics) — abonnement lecture seule, sans OAuth
+# ==============================
+
+_ICS_VTIMEZONE_LINES = [
+    "BEGIN:VTIMEZONE",
+    "TZID:Europe/Brussels",
+    "BEGIN:DAYLIGHT",
+    "TZOFFSETFROM:+0100", "TZOFFSETTO:+0200", "TZNAME:CEST",
+    "DTSTART:19700329T020000",
+    "RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU",
+    "END:DAYLIGHT",
+    "BEGIN:STANDARD",
+    "TZOFFSETFROM:+0200", "TZOFFSETTO:+0100", "TZNAME:CET",
+    "DTSTART:19701025T030000",
+    "RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU",
+    "END:STANDARD",
+    "END:VTIMEZONE",
+]
+
+
+def _ics_escape(text) -> str:
+    if not text:
+        return ""
+    return (str(text).replace("\\", "\\\\").replace(";", "\\;")
+            .replace(",", "\\,").replace("\r\n", "\\n").replace("\n", "\\n"))
+
+
+def _ics_fold(line: str) -> str:
+    """Pliage RFC 5545 à 75 octets (UTF-8), continuation CRLF + espace, sans couper un multioctet."""
+    if len(line.encode("utf-8")) <= 75:
+        return line
+    segments, chunk = [], b""
+    for ch in line:
+        cb = ch.encode("utf-8")
+        limit = 75 if not segments else 74  # 1 octet réservé à l'espace de continuation
+        if len(chunk) + len(cb) > limit:
+            segments.append(chunk)
+            chunk = cb
+        else:
+            chunk += cb
+    segments.append(chunk)
+    return "\r\n ".join(seg.decode("utf-8") for seg in segments)
+
+
+def _ics_dt(start_str: str, add_min: int = 0) -> str:
+    """'YYYY-MM-DDTHH:mm'(:ss) tz-naïf → 'YYYYMMDDTHHMMSS' (secondes paddées)."""
+    s = (start_str or "").strip()
+    fmt = "%Y-%m-%dT%H:%M:%S" if s.count(":") >= 2 else "%Y-%m-%dT%H:%M"
+    dt = datetime.strptime(s, fmt)
+    if add_min:
+        dt += timedelta(minutes=add_min)
+    return dt.strftime("%Y%m%dT%H%M%S")
+
+
+def _ics_summary(title, project_name, location) -> str:
+    base = f"{project_name} — {title}" if project_name else (title or "")
+    if location:
+        base = f"{base} ({location})"
+    return base
+
+
+def _build_ics_for_user(db: Session, user: "models.User") -> str:
+    events = (db.query(models.Event)
+              .filter(models.Event.owner_id == user.id)
+              .order_by(models.Event.start).all())
+    pids = {e.project_id for e in events if e.project_id}
+    pname = {}
+    if pids:
+        for p in db.query(models.Project).filter(models.Project.id.in_(pids)).all():
+            pname[p.id] = p.project_name
+    now = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+    desc = _ics_escape(f"Voir dans HeatSight : {FRONTEND_URL}/dashboard")
+
+    L = ["BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//HeatSight//Agenda//FR",
+         "CALSCALE:GREGORIAN", "METHOD:PUBLISH",
+         "X-WR-CALNAME:HeatSight - Agenda", "X-WR-TIMEZONE:Europe/Brussels"]
+    L += _ICS_VTIMEZONE_LINES
+    for e in events:
+        if not e.start:
+            continue
+        dur = e.duration_min if (e.duration_min and e.duration_min > 0) else 60
+        try:
+            dtstart = _ics_dt(e.start)
+            dtend = _ics_dt(e.start, dur)
+        except ValueError:
+            continue  # start non parsable → on saute (jamais d'export cassé)
+        summary = _ics_summary(e.title, pname.get(e.project_id), e.location)
+        L += ["BEGIN:VEVENT",
+              f"UID:{e.id}@heatsight",
+              f"DTSTAMP:{now}",
+              f"DTSTART;TZID=Europe/Brussels:{dtstart}",
+              f"DTEND;TZID=Europe/Brussels:{dtend}",
+              _ics_fold("SUMMARY:" + _ics_escape(summary))]
+        if e.location:
+            L.append(_ics_fold("LOCATION:" + _ics_escape(e.location)))
+        L.append(_ics_fold("DESCRIPTION:" + desc))  # jamais e.notes
+        L.append("END:VEVENT")
+    L.append("END:VCALENDAR")
+    return "\r\n".join(L) + "\r\n"
+
+
+def _subscription_urls(token: str) -> dict:
+    url = f"{PUBLIC_API_URL.rstrip('/')}/calendar/{token}.ics"
+    webcal = url.replace("https://", "webcal://").replace("http://", "webcal://")
+    return {"url": url, "webcal_url": webcal}
+
+
+@app.get("/calendar/{token}.ics")
+def calendar_ics(token: str, db: Session = Depends(get_db)):
+    """PUBLIC (sans JWT) : token → user → SES events, en VCALENDAR Europe/Brussels."""
+    user = db.query(models.User).filter(models.User.calendar_token == token).first()
+    if not token or not user:
+        raise HTTPException(status_code=404, detail="Calendrier introuvable")
+    ics = _build_ics_for_user(db, user)
+    return Response(content=ics, media_type="text/calendar; charset=utf-8",
+                    headers={"Content-Disposition": 'inline; filename="heatsight.ics"'})
+
+
+@app.get("/calendar/subscription")
+def get_calendar_subscription(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
+    if not user.calendar_token:
+        user.calendar_token = secrets.token_urlsafe(32)
+        db.commit()
+    return _subscription_urls(user.calendar_token)
+
+
+@app.post("/calendar/subscription/regenerate")
+def regenerate_calendar_subscription(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
+    user = db.query(models.User).filter(models.User.id == current_user.id).first()
+    user.calendar_token = secrets.token_urlsafe(32)
+    db.commit()
+    return _subscription_urls(user.calendar_token)
 
 
 # ==============================

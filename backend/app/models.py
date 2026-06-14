@@ -11,6 +11,7 @@ class User(Base):
     full_name = Column(String, nullable=False)
     email = Column(String, nullable=False, unique=True)
     hashed_password = Column(String, nullable=False)
+    calendar_token = Column(String, nullable=True)  # secret URL .ics (génération paresseuse)
 
 
 class Project(Base):
@@ -47,6 +48,7 @@ class Event(Base):
     __tablename__ = "events"
 
     id = Column(String, primary_key=True)
+    owner_id = Column(String, ForeignKey("users.id", ondelete="CASCADE"), nullable=True)  # event par utilisateur
     title = Column(String, nullable=False)
     start = Column(String, nullable=False)          # ISO datetime
     duration_min = Column(Integer, nullable=True)

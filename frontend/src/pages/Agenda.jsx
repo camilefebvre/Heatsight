@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Phone, AlertCircle, CalendarDays, Trash2 } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
@@ -74,6 +74,14 @@ export default function Agenda() {
 
   const empty = { title: "", start: "", duration_min: 60, location: "", project_id: "", notes: "" };
   const [form, setForm] = useState(empty);
+  const [editingId, setEditingId] = useState(null);
+
+  // Abonnement .ics
+  const [sub, setSub] = useState(null);
+  const [copied, setCopied] = useState(false);
+
+  // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
+  const toLocalInput = (iso) => (iso || "").slice(0, 16);
 
   // ── Chargement initial ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -86,6 +94,19 @@ export default function Agenda() {
       setLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    apiFetch("/calendar/subscription").then((r) => (r.ok ? r.json() : null)).then(setSub).catch(() => {});
+  }, []);
+
+  async function copySubUrl() {
+    try { await navigator.clipboard.writeText(sub.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
+  }
+  async function regenerateSub() {
+    if (!confirm("Régénérer le lien ? L'ancien lien cessera de fonctionner.")) return;
+    const res = await apiFetch("/calendar/subscription/regenerate", { method: "POST" });
+    if (res.ok) setSub(await res.json());
+  }
 
   const sorted = useMemo(
     () => [...events].sort((a, b) => new Date(a.start) - new Date(b.start)),
@@ -100,29 +121,60 @@ export default function Agenda() {
     setForm((p) => ({ ...p, [key]: value }));
   }
 
-  // ── Créer un événement ────────────────────────────────────────────────────
-  async function addEvent(e) {
+  // ── Créer ou modifier un événement ────────────────────────────────────────
+  async function submitEvent(e) {
     e.preventDefault();
+    const body = {
+      title:        form.title,
+      start:        form.start,
+      duration_min: Number(form.duration_min || 0),
+      location:     form.location || null,
+      project_id:   form.project_id || null,
+      notes:        form.notes || null,
+    };
     try {
-      const res = await apiFetch(`/events`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          title:       form.title,
-          start:       form.start,
-          duration_min: Number(form.duration_min || 0),
-          location:    form.location || null,
-          project_id:  form.project_id || null,
-          notes:       form.notes || null,
-        }),
-      });
-      if (!res.ok) throw new Error();
-      const created = await res.json();
-      setEvents((prev) => [...prev, created]);
-      setForm(empty);
+      if (editingId) {
+        const res = await apiFetch(`/events/${editingId}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error();
+        const updated = await res.json();
+        setEvents((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
+        setEditingId(null);
+        setForm(empty);
+      } else {
+        const res = await apiFetch(`/events`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        });
+        if (!res.ok) throw new Error();
+        const created = await res.json();
+        setEvents((prev) => [...prev, created]);
+        setForm(empty);
+      }
     } catch {
-      alert("Erreur lors de la création de l'événement.");
+      alert(editingId ? "Erreur lors de la modification de l'événement." : "Erreur lors de la création de l'événement.");
     }
+  }
+
+  function startEdit(ev) {
+    setEditingId(ev.id);
+    setForm({
+      title:        ev.title || "",
+      start:        toLocalInput(ev.start),
+      duration_min: ev.duration_min ?? 60,
+      location:     ev.location || "",
+      project_id:   ev.project_id || "",
+      notes:        ev.notes || "",
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setForm(empty);
   }
 
   // ── Supprimer un événement ────────────────────────────────────────────────
@@ -194,6 +246,13 @@ export default function Agenda() {
                       <div style={{ display: "flex", alignItems: "center",
                         gap: 8, flexShrink: 0 }}>
                         <TypeBadge type={type} />
+                        <button onClick={() => startEdit(ev)}
+                          style={{ border: "none", background: "transparent",
+                            cursor: "pointer", padding: "4px", borderRadius: 8,
+                            display: "flex", alignItems: "center", color: "#59169c" }}
+                          title="Modifier">
+                          <Pencil size={14} strokeWidth={2} />
+                        </button>
                         <button onClick={() => removeEvent(ev.id)}
                           style={{ border: "none", background: "transparent",
                             cursor: "pointer", padding: "4px", borderRadius: 8,
@@ -232,13 +291,13 @@ export default function Agenda() {
         {/* ── FORMULAIRE ───────────────────────────────────────────── */}
         <Card>
           <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
-            Nouvel événement
+            {editingId ? "Modifier l'événement" : "Nouvel événement"}
           </div>
           <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            Remplissez les champs et ajoutez.
+            {editingId ? "Modifiez les champs et enregistrez." : "Remplissez les champs et ajoutez."}
           </div>
 
-          <form onSubmit={addEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
+          <form onSubmit={submitEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
             <Field label="Titre">
               <input value={form.title} onChange={(e) => update("title", e.target.value)}
                 onFocus={() => setFocused("title")} onBlur={() => setFocused(null)}
@@ -290,14 +349,55 @@ export default function Agenda() {
                 placeholder="Check-list, documents à apporter…" />
             </Field>
 
-            <button type="submit" style={{ background: "#59169c", color: "white",
-              border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700,
-              fontSize: 14, cursor: "pointer", marginTop: 4 }}>
-              + Ajouter l'événement
-            </button>
+            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+              <button type="submit" style={{ flex: 1, background: "#59169c", color: "white",
+                border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700,
+                fontSize: 14, cursor: "pointer" }}>
+                {editingId ? "Enregistrer les modifications" : "+ Ajouter l'événement"}
+              </button>
+              {editingId && (
+                <button type="button" onClick={cancelEdit} style={{ background: "white",
+                  color: "#374151", border: "1px solid #e5e7eb", padding: "11px 14px",
+                  borderRadius: 12, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                  Annuler
+                </button>
+              )}
+            </div>
           </form>
         </Card>
       </div>
+
+      {sub && (
+        <Card style={{ marginTop: 20 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 17, color: "#111827" }}>
+            <CalendarDays size={18} color="#59169c" /> Ajouter à mon calendrier
+          </div>
+          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+            Abonnez Google Agenda, Outlook ou Apple Calendrier à ce lien — lecture seule, mise à jour automatique.
+          </div>
+          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+            <input readOnly value={sub.url} onFocus={(e) => e.target.select()}
+              style={{ flex: "1 1 320px", minWidth: 0, padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#374151", background: "#f9fafb" }} />
+            <button type="button" onClick={copySubUrl}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#59169c", color: "white", border: "none", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              <Copy size={14} /> {copied ? "Copié !" : "Copier"}
+            </button>
+            <a href={sub.webcal_url}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#59169c", border: "1px solid #c4b5fd", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
+              Ouvrir (webcal)
+            </a>
+            <button type="button" onClick={regenerateSub}
+              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#6b7280", border: "1px solid #e5e7eb", padding: "9px 14px", borderRadius: 10, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+              <RefreshCw size={14} /> Régénérer
+            </button>
+          </div>
+          <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280", lineHeight: 1.7 }}>
+            <b>Google Agenda</b> : Autres agendas → À partir de l'URL → coller le lien.<br />
+            <b>Outlook</b> : Ajouter un calendrier → S'abonner à partir du web → coller le lien.<br />
+            <b>Apple Calendrier</b> : Fichier → Nouvel abonnement → coller le lien.
+          </div>
+        </Card>
+      )}
     </div>
   );
 }
