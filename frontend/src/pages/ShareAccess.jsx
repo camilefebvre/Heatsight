@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { UserPlus, Trash2, X, Plus, Globe } from "lucide-react";
+import { UserPlus, Trash2, X, Plus, Globe, Pencil } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
@@ -7,6 +7,7 @@ const MOCK_COLLABORATORS = [
   {
     id: "c1",
     projectName: "Résidence Les Acacias",
+    client: "SCI Les Acacias",
     name: "Marie Dupont",
     email: "marie.dupont@audit.be",
     role: "Auditeur principal",
@@ -14,6 +15,7 @@ const MOCK_COLLABORATORS = [
   {
     id: "c2",
     projectName: "Résidence Les Acacias",
+    client: "SCI Les Acacias",
     name: "Lucas Bernard",
     email: "lucas.bernard@bureau.be",
     role: "Collaborateur",
@@ -21,6 +23,7 @@ const MOCK_COLLABORATORS = [
   {
     id: "c3",
     projectName: "Bâtiment Administratif Nord",
+    client: "Province de Namur",
     name: "Sophie Martin",
     email: "sophie.martin@energie.be",
     role: "Lecture seule",
@@ -28,6 +31,7 @@ const MOCK_COLLABORATORS = [
   {
     id: "c4",
     projectName: "École Primaire Saint-Jean",
+    client: "ASBL Saint-Jean",
     name: "Thomas Leroy",
     email: "thomas.leroy@consult.be",
     role: "Collaborateur",
@@ -38,6 +42,7 @@ const MOCK_CLIENT_ACCESS = [
   {
     id: "ca1",
     projectName: "Résidence Les Acacias",
+    client: "SCI Les Acacias",
     email: "gestionnaire@acacias.be",
     access: { documents: true, rapport: true, requetes: false },
     status: "actif",
@@ -45,6 +50,7 @@ const MOCK_CLIENT_ACCESS = [
   {
     id: "ca2",
     projectName: "Bâtiment Administratif Nord",
+    client: "Province de Namur",
     email: "admin@batiment-nord.be",
     access: { documents: true, rapport: false, requetes: true },
     status: "attente",
@@ -52,6 +58,7 @@ const MOCK_CLIENT_ACCESS = [
   {
     id: "ca3",
     projectName: "École Primaire Saint-Jean",
+    client: "ASBL Saint-Jean",
     email: "direction@saintjean.be",
     access: { documents: false, rapport: false, requetes: false },
     status: "expire",
@@ -217,17 +224,28 @@ export default function ShareAccess() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [clientOpen, setClientOpen] = useState(false);
 
+  // Édition (P13) — collaborateur (rôle) / client (statut)
+  const [editCollab, setEditCollab] = useState(null); // { id, name, role } ou null
+  const [editClient, setEditClient] = useState(null); // { id, email, status } ou null
+
   // Formulaire invitation collaborateur
-  const emptyInvite = { projectName: "", name: "", email: "", role: "Collaborateur" };
+  const emptyInvite = { projectName: "", client: "", name: "", email: "", role: "Collaborateur" };
   const [inviteForm, setInviteForm] = useState(emptyInvite);
 
   // Formulaire accès client
   const emptyClient = {
     projectName: "",
+    client: "",
     email: "",
     access: { documents: false, rapport: false, requetes: false },
   };
   const [clientForm, setClientForm] = useState(emptyClient);
+
+  // Capture project_name + client_name depuis le projet sélectionné
+  function pickProject(name) {
+    const proj = projects.find((p) => p.project_name === name);
+    return { projectName: name, client: proj?.client_name || "" };
+  }
 
   useEffect(() => {
     apiFetch(`/projects`)
@@ -243,6 +261,7 @@ export default function ShareAccess() {
       {
         id: `c${nextCollabId++}`,
         projectName: inviteForm.projectName,
+        client: inviteForm.client,
         name: inviteForm.name,
         email: inviteForm.email,
         role: inviteForm.role,
@@ -258,6 +277,14 @@ export default function ShareAccess() {
     setCollaborators((prev) => prev.filter((c) => c.id !== id));
   }
 
+  function handleUpdateCollab(e) {
+    e.preventDefault();
+    setCollaborators((prev) =>
+      prev.map((c) => (c.id === editCollab.id ? { ...c, role: editCollab.role } : c))
+    );
+    setEditCollab(null);
+  }
+
   // ─── Handlers accès client ──────────────────────────────────────────────────
   function handleAddClient(e) {
     e.preventDefault();
@@ -265,6 +292,7 @@ export default function ShareAccess() {
       {
         id: `ca${nextClientId++}`,
         projectName: clientForm.projectName,
+        client: clientForm.client,
         email: clientForm.email,
         access: { ...clientForm.access },
         status: "attente",
@@ -278,6 +306,14 @@ export default function ShareAccess() {
   function handleDeleteClient(id) {
     if (!confirm("Révoquer l'accès client ?")) return;
     setClientAccess((prev) => prev.filter((c) => c.id !== id));
+  }
+
+  function handleUpdateClient(e) {
+    e.preventDefault();
+    setClientAccess((prev) =>
+      prev.map((c) => (c.id === editClient.id ? { ...c, status: editClient.status } : c))
+    );
+    setEditClient(null);
   }
 
   function toggleClientAccess(id, key) {
@@ -335,6 +371,19 @@ export default function ShareAccess() {
   };
 
   const tdStyle = { padding: "12px 12px" };
+
+  const editBtn = {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "7px 12px", borderRadius: 10,
+    border: "1px solid #e5e7eb", background: "white",
+    cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#59169c",
+  };
+  const revokeBtn = {
+    display: "inline-flex", alignItems: "center", gap: 6,
+    padding: "7px 12px", borderRadius: 10,
+    border: "1px solid #fecaca", background: "#fff1f1",
+    cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#ca2946",
+  };
 
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
@@ -439,6 +488,7 @@ export default function ShareAccess() {
                   <tr key={c.id} style={{ borderTop: "1px solid #eef2f7" }}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: "#374151", fontSize: 13 }}>
                       {c.projectName}
+                      {c.client && <div style={{ color: "#9ca3af", fontWeight: 400, fontSize: 12, marginTop: 2 }}>{c.client}</div>}
                     </td>
                     <td style={{ ...tdStyle, fontWeight: 700, color: "#111827" }}>
                       {c.name}
@@ -450,26 +500,24 @@ export default function ShareAccess() {
                       <RoleBadge role={c.role} />
                     </td>
                     <td style={tdStyle}>
-                      <button
-                        onClick={() => handleDeleteCollab(c.id)}
-                        title="Révoquer l'accès"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "7px 12px",
-                          borderRadius: 10,
-                          border: "1px solid #fecaca",
-                          background: "#fff1f1",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          fontSize: 13,
-                          color: "#ca2946",
-                        }}
-                      >
-                        <Trash2 size={13} />
-                        Révoquer
-                      </button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => setEditCollab({ id: c.id, name: c.name, role: c.role })}
+                          title="Modifier le rôle"
+                          style={editBtn}
+                        >
+                          <Pencil size={13} />
+                          Modifier
+                        </button>
+                        <button
+                          onClick={() => handleDeleteCollab(c.id)}
+                          title="Révoquer l'accès"
+                          style={revokeBtn}
+                        >
+                          <Trash2 size={13} />
+                          Révoquer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -498,6 +546,7 @@ export default function ShareAccess() {
                   <tr key={c.id} style={{ borderTop: "1px solid #eef2f7" }}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: "#374151", fontSize: 13 }}>
                       {c.projectName}
+                      {c.client && <div style={{ color: "#9ca3af", fontWeight: 400, fontSize: 12, marginTop: 2 }}>{c.client}</div>}
                     </td>
                     <td style={{ ...tdStyle, color: "#111827", fontWeight: 600, fontSize: 13 }}>
                       {c.email}
@@ -525,26 +574,24 @@ export default function ShareAccess() {
                       <StatusBadge status={c.status} />
                     </td>
                     <td style={tdStyle}>
-                      <button
-                        onClick={() => handleDeleteClient(c.id)}
-                        title="Révoquer l'accès"
-                        style={{
-                          display: "inline-flex",
-                          alignItems: "center",
-                          gap: 6,
-                          padding: "7px 12px",
-                          borderRadius: 10,
-                          border: "1px solid #fecaca",
-                          background: "#fff1f1",
-                          cursor: "pointer",
-                          fontWeight: 600,
-                          fontSize: 13,
-                          color: "#ca2946",
-                        }}
-                      >
-                        <Trash2 size={13} />
-                        Révoquer
-                      </button>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button
+                          onClick={() => setEditClient({ id: c.id, email: c.email, status: c.status })}
+                          title="Modifier le statut"
+                          style={editBtn}
+                        >
+                          <Pencil size={13} />
+                          Modifier
+                        </button>
+                        <button
+                          onClick={() => handleDeleteClient(c.id)}
+                          title="Révoquer l'accès"
+                          style={revokeBtn}
+                        >
+                          <Trash2 size={13} />
+                          Révoquer
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -563,7 +610,7 @@ export default function ShareAccess() {
             {projects.length > 0 ? (
               <select
                 value={inviteForm.projectName}
-                onChange={(e) => setInviteForm((p) => ({ ...p, projectName: e.target.value }))}
+                onChange={(e) => setInviteForm((p) => ({ ...p, ...pickProject(e.target.value) }))}
                 required
                 style={inputStyle}
               >
@@ -643,7 +690,7 @@ export default function ShareAccess() {
             {projects.length > 0 ? (
               <select
                 value={clientForm.projectName}
-                onChange={(e) => setClientForm((p) => ({ ...p, projectName: e.target.value }))}
+                onChange={(e) => setClientForm((p) => ({ ...p, ...pickProject(e.target.value) }))}
                 required
                 style={inputStyle}
               >
@@ -729,6 +776,56 @@ export default function ShareAccess() {
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* ── Modal : Modifier le rôle (collaborateur) ──────────────────────────── */}
+      <Modal open={!!editCollab} onClose={() => setEditCollab(null)} title="Modifier le rôle">
+        {editCollab && (
+          <form onSubmit={handleUpdateCollab} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 13, color: "#6b7280" }}>
+              Collaborateur : <b style={{ color: "#111827" }}>{editCollab.name}</b>
+            </div>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 600 }}>Rôle</span>
+              <select
+                value={editCollab.role}
+                onChange={(e) => setEditCollab((p) => ({ ...p, role: e.target.value }))}
+                style={inputStyle}
+              >
+                {ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button type="button" onClick={() => setEditCollab(null)} style={btnSecondary}>Annuler</button>
+              <button type="submit" style={btnPrimary}><Pencil size={14} />Enregistrer</button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* ── Modal : Modifier le statut (accès client) ─────────────────────────── */}
+      <Modal open={!!editClient} onClose={() => setEditClient(null)} title="Modifier le statut">
+        {editClient && (
+          <form onSubmit={handleUpdateClient} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            <div style={{ fontSize: 13, color: "#6b7280" }}>
+              Client : <b style={{ color: "#111827" }}>{editClient.email}</b>
+            </div>
+            <label style={{ display: "grid", gap: 6 }}>
+              <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 600 }}>Statut</span>
+              <select
+                value={editClient.status}
+                onChange={(e) => setEditClient((p) => ({ ...p, status: e.target.value }))}
+                style={inputStyle}
+              >
+                {Object.entries(STATUS_CONFIG).map(([v, cfg]) => <option key={v} value={v}>{cfg.label}</option>)}
+              </select>
+            </label>
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 4 }}>
+              <button type="button" onClick={() => setEditClient(null)} style={btnSecondary}>Annuler</button>
+              <button type="submit" style={btnPrimary}><Pencil size={14} />Enregistrer</button>
+            </div>
+          </form>
+        )}
       </Modal>
     </div>
   );
