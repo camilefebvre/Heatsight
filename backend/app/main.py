@@ -2484,14 +2484,14 @@ async def import_client_file(
 # ==============================
 
 _ANALYZE_PROMPT = (
-    "Tu es un assistant spécialisé en audit énergétique belge. "
+    "Tu es un assistant spécialisé en audit énergétique belge (méthode AMUREBA). "
     "Analyse ce document et extrait TOUTES les informations pertinentes. "
     "Retourne UNIQUEMENT un JSON valide sans markdown avec cette structure :\n"
-    '{"type_document":"facture_electricite|facture_gaz|facture_fuel|releve|contrat|autre",'
+    '{"type_document":"facture_electricite|facture_gaz|facture_fuel|rapport_entretien|releve|contrat|autre",'
     '"energie":"electricite|gaz|fuel|biogas|null",'
     '"annee":nombre_ou_null,'
     '"consommation":nombre_ou_null,'
-    '"unite":"kWh|m3|litres|null",'
+    '"unite":"kWh|kWhs|m3|litres|null",'
     '"cout_total":nombre_ou_null,'
     '"periode_debut":"YYYY-MM ou null",'
     '"periode_fin":"YYYY-MM ou null",'
@@ -2501,6 +2501,13 @@ _ANALYZE_PROMPT = (
     '"type_batiment":"string ou null",'
     '"surface":nombre_ou_null,'
     '"auditeur":"string ou null",'
+    '"puissance_cogen_kwe":nombre_ou_null,'
+    '"chaleur_recuperee_kwh":nombre_ou_null,'
+    '"puissance_pv_kwc":nombre_ou_null,'
+    '"energie_pv_kwh":nombre_ou_null,'
+    '"facteur_co2":nombre_ou_null,'
+    '"numero_ean":"string ou null",'
+    '"puissance_souscrite_kva":nombre_ou_null,'
     '"notes":"string ou null"}'
 )
 
@@ -3030,13 +3037,47 @@ def _parse_aa_sheet(ws) -> Optional[Dict[str, Any]]:
 # ──────────────────────────────────────────────────────────────────────────────
 
 _PREFILL_SYSTEM = """\
-Tu es un expert en audit énergétique industriel (méthode AMUREBA belge).
-Tu reçois des données d'un projet d'audit : factures analysées par IA, comptabilité
-énergétique de la DB, et éventuellement des données d'audit structurées.
-Tu dois proposer des actions d'amélioration énergétique concrètes et chiffrées,
-adaptées aux consommations réelles détectées, en JSON uniquement — aucun texte autour.
-Sois précis sur les chiffres quand les données le permettent. Si une donnée manque,
-estime-la avec une hypothèse raisonnable (secteur/taille) et marque estimated=true.
+Tu es un expert en audit énergétique belge selon la méthode AMUREBA (SPW Wallonie énergie v2024.2).
+Tu reçois des données d'un projet d'audit et tu proposes des actions d'amélioration en JSON uniquement.
+
+## Vocabulaire officiel type_amelioration (utilise UNIQUEMENT ces valeurs exactes) :
+CCS | CCU | Chaleur fatale | Changement procédé | COGEN SER | COGEN fossile |
+Economie circulaire | Efficacité Energétique | Electrification | Fluide frigorigène |
+Fuel Switch | H2 | Modal shift transport | PPA |
+Réseau chaleur | SER biomasse, biogaz, e-fuel | SER PV, éolien, géothermie, solaire | Autres
+
+## Classification (§8.7.2.1 AMUREBA) :
+- A : techniquement disponible, faisabilité certaine (quick-win, maintenance, régulation, remplacement standard)
+- B : techniquement disponible, faisabilité à confirmer (permis environnement, R&D, investissement lourd, géothermie profonde)
+
+## Durées d'amortissement conseillées (§8.7.2.2.3) :
+- Consommables et comportements (éclairage, régulation, automatisation) → 3 ans
+- Éléments techniques (moteurs, PAC, isolation, PV, cogénération, chaudière) → 8 ans
+- Infrastructures lourdes (génie civil, réseau énergétique, géothermie) → 15 ans
+
+## Paramètres financiers belges par défaut :
+- Taux d'actualisation : 6 %
+- ISOC : 25 %
+- Déduction fiscale investissements éco-énergie : 20,5 %
+- Coût CO2 ETS : 70 €/tonne
+
+## Facteurs d'émission CO2 Belgique :
+- Électricité réseau belge : 0,216 kgCO2/kWh
+- Gaz naturel (PCS) : 0,218 kgCO2/kWhs
+- PV / éolien / cogén SER : 0 kgCO2/kWh
+
+## Prix énergie Belgique 2024 (HTVA, professionnel) :
+- Électricité : ~0,25 €/kWh
+- Gaz naturel : ~0,10 €/kWhs
+
+## Méthode Five Step (priorisation) :
+1. Quick Win : sobriété, monitoring, optimisation réglages
+2. Réduire les besoins : isolation, enveloppe, systèmes HVAC performants
+3. SER locale : PV, solaire thermique, cogénération biomasse
+4. Mutualiser : CER, réseau chaleur, stockage
+5. Fossile résiduel efficace : cogénération gaz, pompe à chaleur
+
+Sois précis sur les chiffres. Si une donnée manque, estime-la avec une hypothèse raisonnable et marque estimated=true.
 """
 
 _PREFILL_USER_TPL = """\
@@ -3047,14 +3088,18 @@ Données du projet "{project_name}" :
 Sources disponibles dans ce projet (utilise ces identifiants EXACTS dans le champ "document" des sources) :
 {doc_list}
 
-Génère entre 3 et {max_actions} actions d'amélioration énergétique réalistes et variées (lighting, HVAC, enveloppe, production, transport, EnR…).
+Génère entre 3 et {max_actions} actions d'amélioration énergétique réalistes et variées, en suivant la méthode Five Step AMUREBA (priorité aux quick-wins, puis réduction des besoins, puis SER locale).
+Utilise UNIQUEMENT les valeurs exactes de type_amelioration listées dans le prompt système.
+Pour duree_amortissement : 3 ans (consommables/régulation), 8 ans (éléments techniques), 15 ans (infrastructure lourde).
+Pour jalon : "2030" si faisable à court terme, "2040" si travaux importants, "2050" si rupture technologique.
 Propose toujours {max_actions} actions si les données le permettent, même si certaines valeurs sont des estimations raisonnables (estimated: true).
 Réponds UNIQUEMENT avec un tableau JSON de la forme :
 [
   {{
     "intitule": "...",
     "type_amelioration": "...",
-    "classification": "A",
+    "classification": "A ou B selon faisabilité",
+    "jalon": "2030",
     "investissement_k_eur": 0,
     "economie_energie_mwh_an": 0,
     "economie_co2_kg_an": 0,
