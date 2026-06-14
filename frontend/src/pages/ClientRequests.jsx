@@ -87,6 +87,9 @@ export default function ClientRequests() {
 
   const detailReq = requests.find((r) => r.id === detailId) || null;
 
+  // Emails déjà utilisés dans les projets, pour l'auto-complétion (P15)
+  const clientEmails = [...new Set(projects.map((p) => p.client_email).filter(Boolean))];
+
   // ── Chargement initial ─────────────────────────────────────────────────────
   useEffect(() => {
     Promise.all([
@@ -387,7 +390,13 @@ export default function ClientRequests() {
             </span>
             <input type="email" value={form.client_email}
               onChange={(e) => setForm((prev) => ({ ...prev, client_email: e.target.value }))}
-              placeholder="client@exemple.be" required style={inputStyle} />
+              placeholder="client@exemple.be" required style={inputStyle}
+              list="client-emails" />
+            <datalist id="client-emails">
+              {clientEmails.map((email) => (
+                <option key={email} value={email} />
+              ))}
+            </datalist>
           </label>
 
           {/* Message */}
