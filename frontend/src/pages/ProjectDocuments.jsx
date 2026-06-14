@@ -71,7 +71,7 @@ export default function ProjectDocuments() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const [selectedFile, setSelectedFile] = useState(null);
+  const [selectedFiles, setSelectedFiles] = useState([]);
   const [docType, setDocType] = useState("autre");
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
@@ -142,33 +142,48 @@ export default function ProjectDocuments() {
   // ── Upload ──────────────────────────────────────────────────────────────────
 
   function handleFileChange(e) {
-    setSelectedFile(e.target.files[0] || null);
+    setSelectedFiles(Array.from(e.target.files));
     setUploadMsg("");
     e.target.value = "";
   }
 
   async function handleUpload() {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
     setUploading(true);
     setUploadMsg("");
-    try {
-      const fd = new FormData();
-      fd.append("file", selectedFile);
-      fd.append("doc_type", docType);
-      const res = await apiFetch(`/projects/${projectId}/documents`, { method: "POST", body: fd });
-      if (!res.ok) {
-        const txt = await res.text();
-        throw new Error(txt || "Upload échoué");
+    const total = selectedFiles.length;
+    const newDocs = [];
+    const failures = [];
+    for (let i = 0; i < total; i++) {
+      const f = selectedFiles[i];
+      setUploadMsg(`Upload en cours… ${i + 1}/${total}`);
+      try {
+        const fd = new FormData();
+        fd.append("file", f);
+        fd.append("doc_type", docType);
+        const res = await apiFetch(`/projects/${projectId}/documents`, { method: "POST", body: fd });
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error(txt || "Upload échoué");
+        }
+        const doc = await res.json();
+        newDocs.push(doc);
+      } catch (e) {
+        failures.push(f.name);
       }
-      const doc = await res.json();
-      setDocuments((prev) => [doc, ...prev]);
-      setSelectedFile(null);
-      setUploadMsg("✅ Fichier uploadé");
-    } catch (e) {
-      setUploadMsg(`❌ ${e.message}`);
-    } finally {
-      setUploading(false);
     }
+    if (newDocs.length > 0) setDocuments((prev) => [...newDocs, ...prev]);
+    setSelectedFiles([]);
+    const ok = newDocs.length;
+    const ko = failures.length;
+    if (ko === 0) {
+      setUploadMsg(`✅ ${ok} fichier${ok > 1 ? "s" : ""} uploadé${ok > 1 ? "s" : ""}`);
+    } else if (ok === 0) {
+      setUploadMsg(`❌ ${ko} fichier${ko > 1 ? "s" : ""} ignoré${ko > 1 ? "s" : ""}`);
+    } else {
+      setUploadMsg(`✅ ${ok} fichier${ok > 1 ? "s" : ""} uploadé${ok > 1 ? "s" : ""}, ${ko} ignoré${ko > 1 ? "s" : ""}`);
+    }
+    setUploading(false);
   }
 
   // ── Analysis ────────────────────────────────────────────────────────────────
@@ -420,7 +435,7 @@ export default function ProjectDocuments() {
         </div>
 
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "flex-end" }}>
-          <input ref={fileInputRef} type="file" accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={handleFileChange} />
+          <input ref={fileInputRef} type="file" multiple accept=".pdf,.jpg,.jpeg,.png" style={{ display: "none" }} onChange={handleFileChange} />
 
           <label style={{ display: "grid", gap: 6 }}>
             <span style={labelStyle}>Type de document</span>
@@ -434,14 +449,16 @@ export default function ProjectDocuments() {
           <label style={{ display: "grid", gap: 6 }}>
             <span style={labelStyle}>Fichier (PDF, JPG, PNG)</span>
             <button type="button" style={secondaryBtn} onClick={() => fileInputRef.current?.click()}>
-              {selectedFile ? `📎 ${selectedFile.name}` : "Choisir un fichier…"}
+              {selectedFiles.length > 0
+                ? `📎 ${selectedFiles.length} fichier${selectedFiles.length > 1 ? "s" : ""} sélectionné${selectedFiles.length > 1 ? "s" : ""}`
+                : "Choisir un fichier…"}
             </button>
           </label>
 
           <button
             type="button"
-            style={{ ...primaryBtn, opacity: (!selectedFile || uploading) ? 0.6 : 1 }}
-            disabled={!selectedFile || uploading}
+            style={{ ...primaryBtn, opacity: (selectedFiles.length === 0 || uploading) ? 0.6 : 1 }}
+            disabled={selectedFiles.length === 0 || uploading}
             onClick={handleUpload}
           >
             {uploading ? "Upload…" : "Uploader"}
