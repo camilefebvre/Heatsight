@@ -834,6 +834,9 @@ def _ensure_extra_project_columns():
     with engine.begin() as conn:
         for stmt in stmts:
             conn.execute(text(stmt))
+        # Seed idempotent des fiches de référence ACV (bibliothèque officielle)
+        from .lca_reference_data import seed_lca_reference_materials
+        seed_lca_reference_materials(conn)
 
 
 # ==============================
