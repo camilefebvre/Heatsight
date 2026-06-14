@@ -201,7 +201,7 @@ export default function ProjectDocuments() {
         }
         const doc = await res.json();
         newDocs.push(doc);
-      } catch (e) {
+      } catch {
         failures.push(f.name);
       }
     }
