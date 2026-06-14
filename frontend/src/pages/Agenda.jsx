@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video, Mail } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
@@ -177,6 +177,25 @@ export default function Agenda() {
     });
   }
 
+  // ── Brouillon email client (mailto, pur front) ────────────────────────────
+  function openClientEmail(ev) {
+    const clientEmail = projects.find((p) => p.id === ev.project_id)?.client_email;
+    if (!clientEmail) return;
+    const subject = `Audit énergétique ${projectName(ev.project_id)} — ${ev.title}`;
+    const lines = [
+      "Bonjour,",
+      "",
+      `Je reviens vers vous concernant : ${ev.title}.`,
+      `Date : ${formatDate(ev.start)}`,
+    ];
+    if (ev.location) lines.push(`Lieu : ${ev.location}`);
+    if (ev.link) lines.push(`Lien visio : ${ev.link}`);
+    lines.push("", "Bien à vous,");
+    const body = lines.join("\n");
+    const url = `mailto:${clientEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    window.location.href = url;
+  }
+
   function cancelEdit() {
     setEditingId(null);
     setForm(empty);
@@ -233,6 +252,7 @@ export default function Agenda() {
                 const type = ev.type || detectType(ev.title);
                 const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
                 const { Icon } = cfg;
+                const clientEmail = projects.find((p) => p.id === ev.project_id)?.client_email;
 
                 return (
                   <div key={ev.id} style={{ border: "1px solid #f3f4f6",
@@ -251,6 +271,21 @@ export default function Agenda() {
                       <div style={{ display: "flex", alignItems: "center",
                         gap: 8, flexShrink: 0 }}>
                         <TypeBadge type={type} />
+                        <button
+                          type="button"
+                          onClick={() => openClientEmail(ev)}
+                          disabled={!clientEmail}
+                          title={clientEmail ? "Envoyer un email au client" : "Aucun email client — associez un projet"}
+                          style={{
+                            border: "none", background: "transparent",
+                            cursor: clientEmail ? "pointer" : "not-allowed",
+                            padding: 4, borderRadius: 8,
+                            display: "flex", alignItems: "center",
+                            color: clientEmail ? "#59169c" : "#cbd5e1",
+                          }}
+                        >
+                          <Mail size={14} strokeWidth={2} />
+                        </button>
                         <button onClick={() => startEdit(ev)}
                           style={{ border: "none", background: "transparent",
                             cursor: "pointer", padding: "4px", borderRadius: 8,
