@@ -28,6 +28,7 @@ class Project(Base):
     status = Column(String, nullable=False, default="draft")
     excel_file = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
+    updated_at = Column(String, nullable=True)        # ISO datetime de la dernière activité (touch cross-table)
     excel_summary = Column(JSONB, nullable=True)      # résumé importé depuis AMUREBA (import-excel)
     prefill_summary = Column(JSONB, nullable=True)    # actions proposées par Claude (prefill-excel)
     prefilled_excel = Column(LargeBinary, nullable=True)  # fichier xlsx généré par prefill-excel

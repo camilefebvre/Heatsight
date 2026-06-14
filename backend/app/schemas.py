@@ -42,6 +42,7 @@ class Project(ProjectCreate):
 
     id: str
     created_at: str
+    updated_at: Optional[str] = None
     excel_file: str
     active_audit_template_id: Optional[str] = None
     active_report_template_id: Optional[str] = None

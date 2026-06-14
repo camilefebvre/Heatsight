@@ -477,6 +477,18 @@ def _resolve_audit_template_source(db: Session, project):
     return tpl.file_bytes
 
 
+def _touch_project(db: Session, project_id: str) -> None:
+    """Marque la dernière activité d'un projet (P9). Appel explicite sur le chemin
+    succès (juste avant le return) de chaque endpoint qui modifie le projet ou son
+    contenu. UPDATE par id (ne nécessite pas l'objet Project en session) + commit :
+    le touch est indépendant de la mutation principale, déjà effectuée à ce stade."""
+    db.query(models.Project).filter(models.Project.id == project_id).update(
+        {"updated_at": datetime.now(timezone.utc).isoformat()},
+        synchronize_session=False,
+    )
+    db.commit()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # AMUREBA sheet cell mappings
 # ──────────────────────────────────────────────────────────────────────────────
@@ -740,6 +752,9 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_docx_source TEXT",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefill_summary JSONB",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefilled_at TEXT",
+        # Dernière activité du projet (P9) — colonne puis backfill, dans cet ordre
+        "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TEXT",
+        "UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL",
         # Colonne sections étendues du rapport
         "ALTER TABLE reports ADD COLUMN IF NOT EXISTS extra_sections JSONB",
         # Table historique plan d'amélioration (idempotent)
@@ -1210,10 +1225,12 @@ def create_project(payload: schemas.ProjectCreate, db: Session = Depends(get_db)
 
     copyfile(TEMPLATE_FILE, excel_path)
 
+    now = datetime.now(timezone.utc).isoformat()
     project = models.Project(
         id=project_id,
         owner_id=current_user.id,
-        created_at=datetime.now(timezone.utc).isoformat(),
+        created_at=now,
+        updated_at=now,
         excel_file=excel_name,
         **payload.model_dump(),
     )
@@ -1233,6 +1250,7 @@ def update_project(project_id: str, payload: schemas.ProjectUpdate, db: Session 
         setattr(project, field, value)
 
     db.commit()
+    _touch_project(db, project_id)
     db.refresh(project)
     return project
 
@@ -1312,6 +1330,7 @@ def update_project_audit(project_id: str, payload: schemas.AuditUpdate, db: Sess
 
     write_audit_to_excel(project, audit_data)
 
+    _touch_project(db, project_id)
     return {"status": "ok", "audit_data": audit_data}
 
 
@@ -1442,6 +1461,7 @@ def update_energy_accounting(project_id: str, payload: schemas.EnergyAccountingU
         _upsert_energy_year(project_id, year_str, year_data, db)
 
     db.commit()
+    _touch_project(db, project_id)
     return {"status": "ok", "energy_accounting": _reconstruct_energy(project_id, db)}
 
 
@@ -1490,6 +1510,7 @@ def import_energy_from_audit(project_id: str, payload: schemas.EnergyYearImportR
 
     _upsert_energy_year(project_id, year, year_data, db)
     db.commit()
+    _touch_project(db, project_id)
     return {"status": "ok", "energy_accounting": _reconstruct_energy(project_id, db)}
 
 
@@ -1922,6 +1943,7 @@ def update_project_report(project_id: str, payload: schemas.ReportUpdate, db: Se
         "amureba_skills":   report.competences or "",
         "field_sources":    report.field_sources or {},
     }
+    _touch_project(db, project_id)
     return {"status": "ok", "report_data": report_data}
 
 
@@ -2214,6 +2236,7 @@ async def report_apply_prefill(
     db.add(history_entry)
     db.commit()
 
+    _touch_project(db, project_id)
     return StreamingResponse(
         io.BytesIO(docx_bytes),
         media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
@@ -2261,6 +2284,7 @@ async def upload_report_docx(
     db.add(history_entry)
     db.commit()
 
+    _touch_project(db, project_id)
     return {"status": "ok", "filename": file.filename, "size": len(content)}
 
 
@@ -2712,6 +2736,7 @@ async def upload_document(
     db.add(doc)
     db.commit()
     db.refresh(doc)
+    _touch_project(db, project_id)
     return _doc_to_dict(doc)
 
 
@@ -2757,6 +2782,7 @@ def delete_document(
 
     db.delete(doc)
     db.commit()
+    _touch_project(db, project_id)
     return {"status": "deleted", "id": doc_id}
 
 
@@ -2810,6 +2836,7 @@ async def analyze_all_documents(
         for doc_id in doc_ids
     ])
 
+    _touch_project(db, project_id)
     return {"analyzed": len(doc_ids), "documents": list(results)}
 
 
@@ -2861,6 +2888,7 @@ def analyze_document(
     _analyze_one(doc, db_session=db)
     db.commit()
     db.refresh(doc)
+    _touch_project(db, project_id)
     return _doc_to_dict(doc)
 
 
@@ -2911,6 +2939,7 @@ def create_improvement_action(
     db.add(action)
     db.commit()
     db.refresh(action)
+    _touch_project(db, project_id)
     return action
 
 
@@ -2938,6 +2967,7 @@ def update_improvement_action(
         setattr(action, field, value)
     db.commit()
     db.refresh(action)
+    _touch_project(db, project_id)
     return action
 
 
@@ -2962,6 +2992,7 @@ def delete_improvement_action(
         raise HTTPException(status_code=404, detail="Action not found")
     db.delete(action)
     db.commit()
+    _touch_project(db, project_id)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -3473,6 +3504,7 @@ async def prefill_improvement_actions_excel(
     flag_modified(project, "prefill_summary")
     db.commit()
 
+    _touch_project(db, project_id)
     safe_name = _safe_filename(entity_name or project.project_name)
     return StreamingResponse(
         io.BytesIO(file_bytes),
@@ -3657,6 +3689,7 @@ async def apply_prefill(
     ))
     db.commit()
 
+    _touch_project(db, project_id)
     return StreamingResponse(
         io.BytesIO(file_bytes),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -3849,6 +3882,7 @@ async def import_improvement_actions_excel(
     ))
 
     db.commit()
+    _touch_project(db, project_id)
     return {"imported": len(parsed), "actions": [d["intitule"] for d in parsed]}
 
 
@@ -3933,6 +3967,7 @@ def delete_amelioration_action(
 
     db.delete(action)
     db.commit()
+    _touch_project(db, project_id)
 
 
 @app.post(
@@ -4052,6 +4087,7 @@ async def import_plan_amelioration(
 
     db.commit()
 
+    _touch_project(db, project_id)
     return schemas.ImportResponse(
         imported_sheets=len(mapped),
         sheet_names=list(mapped.keys()),
@@ -4145,6 +4181,7 @@ def update_project_lca(
 
     db.commit()
     db.refresh(lca)
+    _touch_project(db, project_id)
     return {"elements": lca.elements}
 
 
@@ -4200,6 +4237,7 @@ def update_project_lca_batiments(
 
     db.commit()
     db.refresh(lca)
+    _touch_project(db, project_id)
     return {"batiments": lca.batiments}
 
 
@@ -4650,4 +4688,5 @@ def set_active_template(project_id: str, payload: schemas.ActiveTemplateIn,
     else:
         project.active_report_template_id = payload.template_id
     db.commit()
+    _touch_project(db, project_id)
     return {"status": "ok", "type": payload.type, "template_id": payload.template_id}
