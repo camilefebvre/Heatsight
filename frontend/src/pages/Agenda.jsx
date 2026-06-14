@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
@@ -12,10 +12,11 @@ function detectType(title = "") {
 }
 
 const TYPE_CONFIG = {
-  visite:   { label: "Visite",    color: "#2563eb", bg: "#eff6ff", Icon: MapPin       },
-  call:     { label: "Call",      color: "#16a34a", bg: "#f0fdf4", Icon: Phone        },
-  deadline: { label: "Deadline",  color: "#dc2626", bg: "#fef2f2", Icon: AlertCircle  },
-  autre:    { label: "Autre",     color: "#64748b", bg: "#f8fafc", Icon: CalendarDays },
+  rdv:      { label: "Rendez-vous", color: "#59169c", bg: "#faf5ff", Icon: CalendarClock },
+  visite:   { label: "Visite",      color: "#2563eb", bg: "#eff6ff", Icon: MapPin        },
+  call:     { label: "Appel",       color: "#16a34a", bg: "#f0fdf4", Icon: Phone         },
+  deadline: { label: "Échéance",    color: "#dc2626", bg: "#fef2f2", Icon: AlertCircle   },
+  autre:    { label: "Autre",       color: "#64748b", bg: "#f8fafc", Icon: CalendarDays  },
 };
 
 function formatDate(d) {
@@ -72,7 +73,7 @@ export default function Agenda() {
   const [loading, setLoading] = useState(true);
   const [focused, setFocused] = useState(null);
 
-  const empty = { title: "", start: "", duration_min: 60, location: "", project_id: "", notes: "" };
+  const empty = { title: "", start: "", duration_min: 60, location: "", project_id: "", notes: "", type: "rdv", link: "" };
   const [form, setForm] = useState(empty);
   const [editingId, setEditingId] = useState(null);
 
@@ -131,6 +132,8 @@ export default function Agenda() {
       location:     form.location || null,
       project_id:   form.project_id || null,
       notes:        form.notes || null,
+      type:         form.type || null,
+      link:         form.link || null,
     };
     try {
       if (editingId) {
@@ -169,6 +172,8 @@ export default function Agenda() {
       location:     ev.location || "",
       project_id:   ev.project_id || "",
       notes:        ev.notes || "",
+      type:         ev.type || "rdv",
+      link:         ev.link || "",
     });
   }
 
@@ -225,8 +230,8 @@ export default function Agenda() {
               </div>
             ) : (
               sorted.map((ev) => {
-                const type = detectType(ev.title);
-                const cfg = TYPE_CONFIG[type];
+                const type = ev.type || detectType(ev.title);
+                const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
                 const { Icon } = cfg;
 
                 return (
@@ -269,6 +274,17 @@ export default function Agenda() {
                       {ev.location ? ` • ${ev.location}` : ""}
                     </div>
 
+                    {ev.link && (
+                      <div style={{ fontSize: 12 }}>
+                        <a href={/^https?:\/\//i.test(ev.link) ? ev.link : `https://${ev.link}`}
+                          target="_blank" rel="noopener noreferrer"
+                          style={{ color: "#59169c", fontWeight: 600, textDecoration: "none",
+                            display: "inline-flex", alignItems: "center", gap: 4 }}>
+                          <Video size={13} strokeWidth={2} /> Lien visio
+                        </a>
+                      </div>
+                    )}
+
                     {ev.project_id && (
                       <div style={{ fontSize: 12, color: "#374151" }}>
                         <span style={{ fontWeight: 600 }}>Projet :</span>{" "}
@@ -304,6 +320,26 @@ export default function Agenda() {
                 style={focusStyle("title")}
                 placeholder="Ex: Visite bâtiment, Call client…" required />
             </Field>
+
+            <Field label="Type">
+              <select value={form.type} onChange={(e) => update("type", e.target.value)}
+                onFocus={() => setFocused("type")} onBlur={() => setFocused(null)}
+                style={focusStyle("type")}>
+                <option value="rdv">Rendez-vous</option>
+                <option value="visite">Visite</option>
+                <option value="call">Appel</option>
+                <option value="deadline">Échéance</option>
+                <option value="autre">Autre</option>
+              </select>
+            </Field>
+
+            {(form.type === "call" || form.type === "rdv") && (
+              <Field label="Lien (visio)">
+                <input value={form.link} onChange={(e) => update("link", e.target.value)}
+                  onFocus={() => setFocused("link")} onBlur={() => setFocused(null)}
+                  style={focusStyle("link")} placeholder="https://…" />
+              </Field>
+            )}
 
             <Field label="Date & heure">
               <input type="datetime-local" value={form.start}

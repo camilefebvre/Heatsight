@@ -767,6 +767,9 @@ def _ensure_extra_project_columns():
         "ALTER TABLE events ADD COLUMN IF NOT EXISTS owner_id TEXT REFERENCES users(id) ON DELETE CASCADE",
         "UPDATE events SET owner_id = p.owner_id FROM projects p WHERE events.project_id = p.id AND events.owner_id IS NULL",
         "ALTER TABLE users ADD COLUMN IF NOT EXISTS calendar_token TEXT",
+        # Type d'événement + lien optionnel (P19, idempotent)
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS type TEXT",
+        "ALTER TABLE events ADD COLUMN IF NOT EXISTS link TEXT",
         # Colonne sections étendues du rapport
         "ALTER TABLE reports ADD COLUMN IF NOT EXISTS extra_sections JSONB",
         # Table historique plan d'amélioration (idempotent)

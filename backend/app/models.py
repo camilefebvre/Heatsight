@@ -57,6 +57,8 @@ class Event(Base):
         String, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
     )
     notes = Column(String, nullable=True)
+    type = Column(String, nullable=True)            # type d'événement (rdv/visite/call/deadline/autre)
+    link = Column(String, nullable=True)            # lien optionnel (ex. visio)
 
 
 class ClientRequest(Base):

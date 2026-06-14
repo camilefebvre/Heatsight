@@ -118,6 +118,8 @@ class EventCreate(BaseModel):
     location: Optional[str] = None
     project_id: Optional[str] = None
     notes: Optional[str] = None
+    type: Optional[str] = None          # type d'événement (rdv/visite/call/deadline/autre)
+    link: Optional[str] = None          # lien optionnel (ex. visio)
 
 
 class EventSchema(EventCreate):
