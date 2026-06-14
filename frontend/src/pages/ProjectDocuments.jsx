@@ -1,8 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Zap, Flame, Fuel, Gauge, FileText, Building2, Settings, ClipboardList, Image as ImageIcon, Sparkles } from "lucide-react";
+import { Zap, Flame, Fuel, Gauge, FileText, Building2, Settings, ClipboardList, Image as ImageIcon, Sparkles, X } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
+
+// Extensions acceptées pour l'upload (même périmètre que l'attribut accept de l'input)
+const ACCEPTED_EXTS = [".pdf", ".jpg", ".jpeg", ".png"];
+function hasAcceptedExt(name) {
+  const lower = (name || "").toLowerCase();
+  return ACCEPTED_EXTS.some((ext) => lower.endsWith(ext));
+}
 
 const DOC_TYPE_LABELS = {
   facture_electricite: "Facture élec.",
@@ -75,6 +82,8 @@ export default function ProjectDocuments() {
   const [docType, setDocType] = useState("autre");
   const [uploading, setUploading] = useState(false);
   const [uploadMsg, setUploadMsg] = useState("");
+  const [dragging, setDragging] = useState(false);
+  const dragCounter = useRef(0);
 
   const [analyzingAll, setAnalyzingAll] = useState(false);
   const [analyzingId, setAnalyzingId] = useState(null);
@@ -145,6 +154,30 @@ export default function ProjectDocuments() {
     setSelectedFiles(Array.from(e.target.files));
     setUploadMsg("");
     e.target.value = "";
+  }
+
+  // ── Drag & drop sur la carte d'upload ────────────────────────────────────────
+  function handleDragEnter(e) {
+    e.preventDefault();
+    dragCounter.current++;
+    setDragging(true);
+  }
+  function handleDragOver(e) {
+    e.preventDefault(); // nécessaire pour autoriser le drop
+  }
+  function handleDragLeave(e) {
+    e.preventDefault();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setDragging(false);
+  }
+  function handleDrop(e) {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setDragging(false);
+    const filtered = Array.from(e.dataTransfer.files).filter((f) => hasAcceptedExt(f.name));
+    if (filtered.length === 0) return; // tout filtré : on n'écrase pas la sélection existante
+    setSelectedFiles(filtered);
+    setUploadMsg("");
   }
 
   async function handleUpload() {
@@ -429,7 +462,19 @@ export default function ProjectDocuments() {
         <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
       {/* ── Upload card ── */}
-      <div ref={uploadCardRef} style={card}>
+      <div
+        ref={uploadCardRef}
+        onDragEnter={handleDragEnter}
+        onDragOver={handleDragOver}
+        onDragLeave={handleDragLeave}
+        onDrop={handleDrop}
+        style={{
+          ...card,
+          border: dragging ? "2px dashed #59169c" : "2px solid transparent",
+          background: dragging ? "#faf5ff" : card.background,
+          transition: "background 0.15s ease, border-color 0.15s ease",
+        }}
+      >
         <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 14 }}>
           Ajouter un document
         </div>
@@ -451,7 +496,7 @@ export default function ProjectDocuments() {
             <button type="button" style={secondaryBtn} onClick={() => fileInputRef.current?.click()}>
               {selectedFiles.length > 0
                 ? `📎 ${selectedFiles.length} fichier${selectedFiles.length > 1 ? "s" : ""} sélectionné${selectedFiles.length > 1 ? "s" : ""}`
-                : "Choisir un fichier…"}
+                : "Choisir des fichiers…"}
             </button>
           </label>
 
@@ -475,6 +520,37 @@ export default function ProjectDocuments() {
             </button>
           )}
         </div>
+
+        {selectedFiles.length > 0 && (
+          <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 6 }}>
+            {selectedFiles.map((f, i) => (
+              <div key={`${f.name}-${i}`} style={{
+                display: "flex", alignItems: "center", gap: 8,
+                padding: "6px 10px", borderRadius: 8,
+                background: "#faf5ff", border: "1px solid #ede9fe",
+              }}>
+                <span style={{
+                  flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "#59169c",
+                  overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
+                }}>
+                  {f.name}
+                </span>
+                <button
+                  type="button"
+                  title="Retirer"
+                  onClick={() => setSelectedFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                  style={{
+                    flexShrink: 0, border: "none", background: "transparent",
+                    cursor: "pointer", color: "#59169c", display: "flex",
+                    alignItems: "center", padding: 2,
+                  }}
+                >
+                  <X size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         {uploadMsg && (
           <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: uploadMsg.startsWith("✅") ? "#374151" : "#8f1d2f" }}>
