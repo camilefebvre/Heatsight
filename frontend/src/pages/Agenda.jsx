@@ -30,6 +30,21 @@ function formatDate(d) {
   }
 }
 
+// ─── Vue semaine : constantes & helpers ───────────────────────────────────────
+const HOUR_START = 7;
+const HOUR_END = 21;          // plage horaire affichée (modifiable ici)
+const HOUR_PX = 48;           // hauteur d'une heure, en px
+const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
+
+// Lundi 00:00 local de la semaine de `date` (jamais d'UTC)
+function startOfWeek(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  const dow = (d.getDay() + 6) % 7; // 0 = lundi
+  d.setDate(d.getDate() - dow);
+  return d;
+}
+
 // ─── Composants UI ────────────────────────────────────────────────────────────
 function Card({ children, style }) {
   return (
@@ -81,6 +96,9 @@ export default function Agenda() {
   const [sub, setSub] = useState(null);
   const [copied, setCopied] = useState(false);
 
+  // Vue semaine
+  const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
   const toLocalInput = (iso) => (iso || "").slice(0, 16);
 
@@ -113,6 +131,38 @@ export default function Agenda() {
     () => [...events].sort((a, b) => new Date(a.start) - new Date(b.start)),
     [events]
   );
+
+  // ── Vue semaine : dérivés & navigation ─────────────────────────────────────
+  const days = useMemo(
+    () => Array.from({ length: 7 }, (_, i) => {
+      const d = new Date(weekStart);
+      d.setDate(d.getDate() + i);
+      return d;
+    }),
+    [weekStart]
+  );
+
+  const weekLabel = useMemo(() => {
+    const a = days[0], b = days[6];
+    const sameMonth = a.getMonth() === b.getMonth() && a.getFullYear() === b.getFullYear();
+    return sameMonth
+      ? `${a.getDate()} - ${b.getDate()} ${b.toLocaleDateString("fr-BE", { month: "long", year: "numeric" })}`
+      : `${a.toLocaleDateString("fr-BE", { day: "numeric", month: "short" })} - ${b.toLocaleDateString("fr-BE", { day: "numeric", month: "short", year: "numeric" })}`;
+  }, [days]);
+
+  function shiftWeek(deltaDays) {
+    setWeekStart((prev) => { const d = new Date(prev); d.setDate(d.getDate() + deltaDays); return d; });
+  }
+  function goToday() { setWeekStart(startOfWeek(new Date())); }
+
+  const isToday = (d) => {
+    const n = new Date();
+    return d.getDate() === n.getDate() && d.getMonth() === n.getMonth() && d.getFullYear() === n.getFullYear();
+  };
+  const dayHeader = (d) => {
+    const wd = d.toLocaleDateString("fr-BE", { weekday: "short" }).replace(".", "");
+    return `${wd.charAt(0).toUpperCase()}${wd.slice(1)} ${d.getDate()}`;
+  };
 
   function projectName(project_id) {
     return projects.find((p) => p.id === project_id)?.project_name || "";
@@ -225,6 +275,69 @@ export default function Agenda() {
       <div style={{ color: "#6b7280", fontSize: 14 }}>
         Visites, appels et deadlines - sauvegardés en base de données.
       </div>
+
+      {/* ── VUE SEMAINE (échafaudage — étape 1) ───────────────────── */}
+      <Card style={{ marginTop: 22, padding: 0, overflow: "hidden" }}>
+
+        {/* Barre d'outils */}
+        <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "12px 16px", borderBottom: "1px solid #f3f4f6" }}>
+          <button type="button" onClick={() => shiftWeek(-7)} title="Semaine précédente"
+            style={{ width: 34, height: 34, borderRadius: 10, border: "1px solid #e5e7eb", background: "white", color: "#374151", cursor: "pointer", fontSize: 18, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            ‹
+          </button>
+          <button type="button" onClick={() => shiftWeek(7)} title="Semaine suivante"
+            style={{ width: 34, height: 34, borderRadius: 10, border: "1px solid #e5e7eb", background: "white", color: "#374151", cursor: "pointer", fontSize: 18, lineHeight: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            ›
+          </button>
+          <button type="button" onClick={goToday}
+            style={{ height: 34, padding: "0 14px", borderRadius: 10, border: "1px solid #c4b5fd", background: "white", color: "#59169c", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            Aujourd'hui
+          </button>
+          <div style={{ marginLeft: 6, fontWeight: 800, fontSize: 16, color: "#111827", textTransform: "capitalize" }}>
+            {weekLabel}
+          </div>
+        </div>
+
+        {/* En-têtes des jours */}
+        <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid #ede9fe" }}>
+          <div />
+          {days.map((d, i) => {
+            const today = isToday(d);
+            return (
+              <div key={i} style={{ textAlign: "center", padding: "8px 4px", fontSize: 13, fontWeight: 700,
+                color: today ? "#59169c" : "#6b7280", background: today ? "#faf5ff" : "transparent",
+                borderLeft: "1px solid #f3f4f6" }}>
+                {dayHeader(d)}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Corps : colonne heures + 7 colonnes jours */}
+        <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)" }}>
+          {/* Colonne des heures */}
+          <div>
+            {HOURS.map((h) => (
+              <div key={h} style={{ height: HOUR_PX, position: "relative", borderTop: "1px solid #f3f4f6" }}>
+                <span style={{ position: "absolute", top: -8, right: 6, fontSize: 11, color: "#9ca3af" }}>{h}h</span>
+              </div>
+            ))}
+          </div>
+
+          {/* Colonnes des jours (position:relative pour les blocs des étapes suivantes) */}
+          {days.map((d, i) => {
+            const today = isToday(d);
+            return (
+              <div key={i} style={{ position: "relative", borderLeft: "1px solid #f3f4f6",
+                background: today ? "#faf5ff" : "transparent" }}>
+                {HOURS.map((h) => (
+                  <div key={h} style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6" }} />
+                ))}
+              </div>
+            );
+          })}
+        </div>
+      </Card>
 
       <div style={{ marginTop: 22, display: "grid",
         gridTemplateColumns: "1fr 360px", gap: 20, alignItems: "start" }}>
