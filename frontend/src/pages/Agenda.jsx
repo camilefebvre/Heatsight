@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video, Mail } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video, Mail, X } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
@@ -65,6 +65,12 @@ function placeEvent(ev, days) {
   return { dayIndex, top, height };
 }
 
+// Date locale → "YYYY-MM-DDTHH:mm" (construit manuellement, jamais toISOString/UTC)
+function fmtLocalInput(date) {
+  const p = (n) => String(n).padStart(2, "0");
+  return `${date.getFullYear()}-${p(date.getMonth() + 1)}-${p(date.getDate())}T${p(date.getHours())}:${p(date.getMinutes())}`;
+}
+
 // ─── Composants UI ────────────────────────────────────────────────────────────
 function Card({ children, style }) {
   return (
@@ -118,6 +124,7 @@ export default function Agenda() {
 
   // Vue semaine
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
+  const [modalOpen, setModalOpen] = useState(false);
 
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
   const toLocalInput = (iso) => (iso || "").slice(0, 16);
@@ -137,6 +144,14 @@ export default function Agenda() {
   useEffect(() => {
     apiFetch("/calendar/subscription").then((r) => (r.ok ? r.json() : null)).then(setSub).catch(() => {});
   }, []);
+
+  // Fermeture de la modale sur Échap
+  useEffect(() => {
+    if (!modalOpen) return;
+    const onKey = (e) => { if (e.key === "Escape") cancelEdit(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [modalOpen]);
 
   async function copySubUrl() {
     try { await navigator.clipboard.writeText(sub.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
@@ -227,6 +242,7 @@ export default function Agenda() {
         setEvents((prev) => prev.map((x) => (x.id === editingId ? updated : x)));
         setEditingId(null);
         setForm(empty);
+        setModalOpen(false);
       } else {
         const res = await apiFetch(`/events`, {
           method: "POST",
@@ -237,6 +253,7 @@ export default function Agenda() {
         const created = await res.json();
         setEvents((prev) => [...prev, created]);
         setForm(empty);
+        setModalOpen(false);
       }
     } catch {
       alert(editingId ? "Erreur lors de la modification de l'événement." : "Erreur lors de la création de l'événement.");
@@ -255,6 +272,7 @@ export default function Agenda() {
       type:         ev.type || "rdv",
       link:         ev.link || "",
     });
+    setModalOpen(true);
   }
 
   // ── Brouillon email client (mailto, pur front) ────────────────────────────
@@ -279,6 +297,21 @@ export default function Agenda() {
   function cancelEdit() {
     setEditingId(null);
     setForm(empty);
+    setModalOpen(false);
+  }
+
+  // ── Ouverture de la modale en création ─────────────────────────────────────
+  function openCreate() {
+    setEditingId(null);
+    setForm(empty);
+    setModalOpen(true);
+  }
+  function openCreateAt(day, hour) {
+    const d = new Date(day);
+    d.setHours(hour, 0, 0, 0);
+    setEditingId(null);
+    setForm({ ...empty, start: fmtLocalInput(d) });
+    setModalOpen(true);
   }
 
   // ── Supprimer un événement ────────────────────────────────────────────────
@@ -326,6 +359,10 @@ export default function Agenda() {
           <div style={{ marginLeft: 6, fontWeight: 800, fontSize: 16, color: "#111827", textTransform: "capitalize" }}>
             {weekLabel}
           </div>
+          <button type="button" onClick={openCreate}
+            style={{ marginLeft: "auto", height: 34, padding: "0 14px", borderRadius: 10, border: "none", background: "#59169c", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+            + Nouvel événement
+          </button>
         </div>
 
         {/* En-têtes des jours */}
@@ -361,7 +398,8 @@ export default function Agenda() {
               <div key={i} style={{ position: "relative", borderLeft: "1px solid #f3f4f6",
                 background: today ? "#faf5ff" : "transparent" }}>
                 {HOURS.map((h) => (
-                  <div key={h} style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6" }} />
+                  <div key={h} onClick={() => openCreateAt(days[i], h)}
+                    style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6", cursor: "pointer" }} />
                 ))}
                 {weekEvents[i].map(({ ev, top, height }) => {
                   const type = ev.type || detectType(ev.title);
@@ -390,7 +428,7 @@ export default function Agenda() {
       </Card>
 
       <div style={{ marginTop: 22, display: "grid",
-        gridTemplateColumns: "1fr 360px", gap: 20, alignItems: "start" }}>
+        gridTemplateColumns: "1fr", gap: 20, alignItems: "start" }}>
 
         {/* ── LISTE DES ÉVÉNEMENTS ─────────────────────────────────── */}
         <Card>
@@ -501,105 +539,111 @@ export default function Agenda() {
             )}
           </div>
         </Card>
+      </div>
 
-        {/* ── FORMULAIRE ───────────────────────────────────────────── */}
-        <Card>
-          <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
-            {editingId ? "Modifier l'événement" : "Nouvel événement"}
-          </div>
-          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            {editingId ? "Modifiez les champs et enregistrez." : "Remplissez les champs et ajoutez."}
-          </div>
+      {/* ── MODALE FORMULAIRE ─────────────────────────────────────── */}
+      {modalOpen && (
+        <div onClick={cancelEdit}
+          style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", zIndex: 1000,
+            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+              width: "100%", maxWidth: 460, maxHeight: "90vh", overflow: "auto", padding: 22, boxSizing: "border-box" }}>
 
-          <form onSubmit={submitEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
-            <Field label="Titre">
-              <input value={form.title} onChange={(e) => update("title", e.target.value)}
-                onFocus={() => setFocused("title")} onBlur={() => setFocused(null)}
-                style={focusStyle("title")}
-                placeholder="Ex: Visite bâtiment, Call client…" required />
-            </Field>
-
-            <Field label="Type">
-              <select value={form.type} onChange={(e) => update("type", e.target.value)}
-                onFocus={() => setFocused("type")} onBlur={() => setFocused(null)}
-                style={focusStyle("type")}>
-                <option value="rdv">Rendez-vous</option>
-                <option value="visite">Visite</option>
-                <option value="call">Appel</option>
-                <option value="deadline">Échéance</option>
-                <option value="autre">Autre</option>
-              </select>
-            </Field>
-
-            {(form.type === "call" || form.type === "rdv") && (
-              <Field label="Lien (visio)">
-                <input value={form.link} onChange={(e) => update("link", e.target.value)}
-                  onFocus={() => setFocused("link")} onBlur={() => setFocused(null)}
-                  style={focusStyle("link")} placeholder="https://…" />
-              </Field>
-            )}
-
-            <Field label="Date & heure">
-              <input type="datetime-local" value={form.start}
-                onChange={(e) => update("start", e.target.value)}
-                onFocus={() => setFocused("start")} onBlur={() => setFocused(null)}
-                style={focusStyle("start")} required />
-            </Field>
-
-            <Field label="Durée (min)">
-              <input type="number" min="5" step="5" value={form.duration_min}
-                onChange={(e) => update("duration_min", e.target.value)}
-                onFocus={() => setFocused("duration")} onBlur={() => setFocused(null)}
-                style={focusStyle("duration")} />
-            </Field>
-
-            <Field label="Lieu">
-              <input value={form.location} onChange={(e) => update("location", e.target.value)}
-                onFocus={() => setFocused("location")} onBlur={() => setFocused(null)}
-                style={focusStyle("location")} placeholder="Bruxelles, Teams…" />
-            </Field>
-
-            <Field label="Projet (optionnel)">
-              {projects.length > 0 ? (
-                <select value={form.project_id}
-                  onChange={(e) => update("project_id", e.target.value)}
-                  style={focusStyle("project")}>
-                  <option value="">- Aucun projet -</option>
-                  {projects.map((p) => (
-                    <option key={p.id} value={p.id}>{p.project_name}</option>
-                  ))}
-                </select>
-              ) : (
-                <input value={form.project_id}
-                  onChange={(e) => update("project_id", e.target.value)}
-                  style={focusStyle("project")} placeholder="Nom du projet…" />
-              )}
-            </Field>
-
-            <Field label="Notes">
-              <textarea value={form.notes} onChange={(e) => update("notes", e.target.value)}
-                onFocus={() => setFocused("notes")} onBlur={() => setFocused(null)}
-                rows={3} style={{ ...focusStyle("notes"), resize: "vertical" }}
-                placeholder="Check-list, documents à apporter…" />
-            </Field>
-
-            <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-              <button type="submit" style={{ flex: 1, background: "#59169c", color: "white",
-                border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700,
-                fontSize: 14, cursor: "pointer" }}>
-                {editingId ? "Enregistrer les modifications" : "+ Ajouter l'événement"}
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
+                  {editingId ? "Modifier l'événement" : "Nouvel événement"}
+                </div>
+                <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
+                  {editingId ? "Modifiez les champs et enregistrez." : "Remplissez les champs et ajoutez."}
+                </div>
+              </div>
+              <button type="button" onClick={cancelEdit} title="Fermer"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#9ca3af", padding: 4, borderRadius: 8, display: "flex", alignItems: "center", flexShrink: 0 }}>
+                <X size={18} />
               </button>
-              {editingId && (
+            </div>
+
+            <form onSubmit={submitEvent} style={{ marginTop: 16, display: "grid", gap: 12 }}>
+              <Field label="Titre">
+                <input value={form.title} onChange={(e) => update("title", e.target.value)}
+                  onFocus={() => setFocused("title")} onBlur={() => setFocused(null)}
+                  style={focusStyle("title")} placeholder="Ex: Visite bâtiment, Call client…" required />
+              </Field>
+
+              <Field label="Type">
+                <select value={form.type} onChange={(e) => update("type", e.target.value)}
+                  onFocus={() => setFocused("type")} onBlur={() => setFocused(null)} style={focusStyle("type")}>
+                  <option value="rdv">Rendez-vous</option>
+                  <option value="visite">Visite</option>
+                  <option value="call">Appel</option>
+                  <option value="deadline">Échéance</option>
+                  <option value="autre">Autre</option>
+                </select>
+              </Field>
+
+              {(form.type === "call" || form.type === "rdv") && (
+                <Field label="Lien (visio)">
+                  <input value={form.link} onChange={(e) => update("link", e.target.value)}
+                    onFocus={() => setFocused("link")} onBlur={() => setFocused(null)}
+                    style={focusStyle("link")} placeholder="https://…" />
+                </Field>
+              )}
+
+              <Field label="Date & heure">
+                <input type="datetime-local" value={form.start}
+                  onChange={(e) => update("start", e.target.value)}
+                  onFocus={() => setFocused("start")} onBlur={() => setFocused(null)}
+                  style={focusStyle("start")} required />
+              </Field>
+
+              <Field label="Durée (min)">
+                <input type="number" min="5" step="5" value={form.duration_min}
+                  onChange={(e) => update("duration_min", e.target.value)}
+                  onFocus={() => setFocused("duration")} onBlur={() => setFocused(null)}
+                  style={focusStyle("duration")} />
+              </Field>
+
+              <Field label="Lieu">
+                <input value={form.location} onChange={(e) => update("location", e.target.value)}
+                  onFocus={() => setFocused("location")} onBlur={() => setFocused(null)}
+                  style={focusStyle("location")} placeholder="Bruxelles, Teams…" />
+              </Field>
+
+              <Field label="Projet (optionnel)">
+                {projects.length > 0 ? (
+                  <select value={form.project_id} onChange={(e) => update("project_id", e.target.value)} style={focusStyle("project")}>
+                    <option value="">- Aucun projet -</option>
+                    {projects.map((p) => (<option key={p.id} value={p.id}>{p.project_name}</option>))}
+                  </select>
+                ) : (
+                  <input value={form.project_id} onChange={(e) => update("project_id", e.target.value)}
+                    style={focusStyle("project")} placeholder="Nom du projet…" />
+                )}
+              </Field>
+
+              <Field label="Notes">
+                <textarea value={form.notes} onChange={(e) => update("notes", e.target.value)}
+                  onFocus={() => setFocused("notes")} onBlur={() => setFocused(null)}
+                  rows={3} style={{ ...focusStyle("notes"), resize: "vertical" }}
+                  placeholder="Check-list, documents à apporter…" />
+              </Field>
+
+              <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
+                <button type="submit" style={{ flex: 1, background: "#59169c", color: "white",
+                  border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+                  {editingId ? "Enregistrer les modifications" : "+ Ajouter l'événement"}
+                </button>
                 <button type="button" onClick={cancelEdit} style={{ background: "white",
-                  color: "#374151", border: "1px solid #e5e7eb", padding: "11px 14px",
-                  borderRadius: 12, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                  color: "#374151", border: "1px solid #e5e7eb", padding: "11px 14px", borderRadius: 12, fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
                   Annuler
                 </button>
-              )}
-            </div>
-          </form>
-        </Card>
-      </div>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {sub && (
         <Card style={{ marginTop: 20 }}>

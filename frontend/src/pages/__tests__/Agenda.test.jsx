@@ -32,6 +32,7 @@ describe("Agenda - édition d'un événement (P20)", () => {
 
     // Entrée en mode édition
     await userEvent.click(screen.getByTitle("Modifier"));
+    // Le formulaire s'ouvre désormais dans une modale
     expect(screen.getByDisplayValue("Visite bâtiment")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Enregistrer les modifications/i })).toBeInTheDocument();
 
@@ -44,8 +45,10 @@ describe("Agenda - édition d'un événement (P20)", () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith("/events/ev1", expect.objectContaining({ method: "PATCH" }))
     );
-    // La liste reflète le nouveau titre, et on est sorti du mode édition
+    // La liste reflète le nouveau titre, et la modale s'est refermée (sortie du mode édition)
     await screen.findByText("Visite bâtiment (reportée)");
-    expect(screen.getByRole("button", { name: /\+ Ajouter l'événement/i })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: /Enregistrer les modifications/i })).not.toBeInTheDocument()
+    );
   });
 });
