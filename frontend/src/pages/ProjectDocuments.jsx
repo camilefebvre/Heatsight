@@ -295,7 +295,7 @@ export default function ProjectDocuments() {
     <div style={{ maxWidth: 1400, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
       <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
-        Documents — {project.project_name}
+        Documents - {project.project_name}
       </h1>
       <div style={{ color: "#6b7280", fontSize: 14 }}>
         Uploadez des factures ou relevés, analysez-les avec l'IA et appliquez les données à l'audit.
@@ -316,7 +316,7 @@ export default function ProjectDocuments() {
       {/* ── Deux zones : gestion (gauche) + référence (droite) ── */}
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
 
-        {/* ZONE PRINCIPALE — gestion des documents */}
+        {/* ZONE PRINCIPALE - gestion des documents */}
         <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
       {/* ── Upload card ── */}
@@ -519,7 +519,7 @@ export default function ProjectDocuments() {
       </div>
         </div>{/* fin ZONE PRINCIPALE */}
 
-        {/* PANNEAU DROITE — référence : documents attendus (lecture seule, inchangé) */}
+        {/* PANNEAU DROITE - référence : documents attendus (lecture seule, inchangé) */}
         <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
           <ChecklistPanel
             docs={documents}
@@ -813,7 +813,7 @@ Cordialement,`;
 function EmailDraftModal({ project, projectId, missingItems, onClose }) {
   const allComplete = missingItems.length === 0;
   const emailBody = buildEmailText(project, missingItems);
-  const subject = `Audit énergétique ${project.project_name} — Documents complémentaires`;
+  const subject = `Audit énergétique ${project.project_name} - Documents complémentaires`;
 
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -885,7 +885,7 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
-              Email — documents manquants
+              Email - documents manquants
             </div>
             <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>
               {project.client_email
@@ -914,7 +914,7 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
                 Tous les documents principaux sont fournis
               </div>
               <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>
-                La checklist AMUREBA est complète — aucun document ne manque.
+                La checklist AMUREBA est complète - aucun document ne manque.
               </div>
             </div>
           </div>
