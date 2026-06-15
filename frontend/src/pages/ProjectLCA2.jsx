@@ -1558,8 +1558,7 @@ export default function ProjectLCA2() {
 
   return (
     <div style={{ maxWidth: 1400, width: "100%" }}>
-      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-        <div style={{ color: "#6b7280" }}>Projet</div>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end" }}>
         {saveStatus !== "idle" && (
           <div style={{
             fontSize: 12, fontWeight: 600,
@@ -1580,8 +1579,6 @@ export default function ProjectLCA2() {
           </div>
         )}
       </div>
-      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>Analyse ACV — {project.project_name}</h1>
-      <div style={{ color: "#6b7280" }}>Créez des configurations de bâtiment et comparez leurs résultats.</div>
 
       {error && (
         <div style={{ marginTop: 12, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>

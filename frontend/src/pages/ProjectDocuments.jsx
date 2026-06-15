@@ -435,14 +435,6 @@ export default function ProjectDocuments() {
 
   return (
     <div style={{ maxWidth: 1400, width: "100%" }}>
-      <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
-      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
-        Documents — {project.project_name}
-      </h1>
-      <div style={{ color: "#6b7280", fontSize: 14 }}>
-        Uploadez des factures ou relevés, analysez-les avec l'IA et appliquez les données à l'audit.
-      </div>
-
       {error && <div style={errorBox}>{error}</div>}
 
       {/* ── Email draft modal (overlay, position DOM non significative) ── */}

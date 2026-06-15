@@ -299,15 +299,6 @@ export default function ProjectReport() {
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <div>
-          <div style={{ color: "#6b7280", fontSize: 13 }}>Projet</div>
-          <h1 style={{ fontSize: 32, margin: "4px 0 2px", color: "#111827" }}>
-            Rapport — {project.project_name}
-          </h1>
-          <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 20 }}>
-            Pré-remplissez toutes les sections du rapport Word avec l'IA, puis téléchargez le fichier.
-          </div>
-        </div>
         <button
           onClick={openHistory}
           style={{ ...s.ghostBtn, fontSize: 12, padding: "8px 14px", marginTop: 8, whiteSpace: "nowrap" }}

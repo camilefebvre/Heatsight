@@ -56,7 +56,6 @@ describe("ProjectPlanAmelioration — gating modèle audit", () => {
     renderAudit();
 
     // Page + panneau chargés
-    await screen.findByText("Audit — Projet X");
     await screen.findByText("Mon modèle");
     expect(screen.getByText("Officiel")).toBeInTheDocument();
     expect(screen.getByText("Perso")).toBeInTheDocument();

@@ -49,7 +49,6 @@ describe("ProjectReport — gating modèle rapport", () => {
 
   it("modèle perso actif : prefill IA désactivé, download + import disponibles", async () => {
     const { container } = renderReport();
-    await screen.findByText("Rapport — Projet X");
     await screen.findByText("Mon rapport");
     expect(screen.getByText("Officiel")).toBeInTheDocument();
     expect(screen.getByText("Perso")).toBeInTheDocument();
