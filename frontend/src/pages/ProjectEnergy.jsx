@@ -392,9 +392,6 @@ export default function ProjectEnergy() {
 
   return (
     <div style={{ maxWidth: 1100, width: "100%" }}>
-      <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 16 }}>
-        Ajoutez des années, saisissez les totaux et visualisez les graphes globaux.
-      </div>
       {analyzedDocsCount > 0 && (
         <div style={{ marginTop: 10, padding: "8px 14px", background: "#f5f3ff", border: "1px solid #ddd6fe", borderRadius: 10, fontSize: 13, color: "#4c1d95", display: "flex", alignItems: "center", gap: 8 }}>
           📄 {analyzedDocsCount} document{analyzedDocsCount > 1 ? "s" : ""} analysé{analyzedDocsCount > 1 ? "s" : ""} disponible{analyzedDocsCount > 1 ? "s" : ""}

@@ -1579,7 +1579,6 @@ export default function ProjectLCA2() {
           </div>
         )}
       </div>
-      <div style={{ color: "#6b7280", marginBottom: 16 }}>Créez des configurations de bâtiment et comparez leurs résultats.</div>
 
       {error && (
         <div style={{ marginTop: 12, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>

@@ -299,9 +299,6 @@ export default function ProjectReport() {
 
       {/* ── Header ─────────────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
-        <div style={{ color: "#6b7280", fontSize: 14 }}>
-          Pré-remplissez toutes les sections du rapport Word avec l'IA, puis téléchargez le fichier.
-        </div>
         <button
           onClick={openHistory}
           style={{ ...s.ghostBtn, fontSize: 12, padding: "8px 14px", marginTop: 8, whiteSpace: "nowrap" }}
