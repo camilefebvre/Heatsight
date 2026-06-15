@@ -435,6 +435,9 @@ export default function ProjectDocuments() {
 
   return (
     <div style={{ maxWidth: 1400, width: "100%" }}>
+      <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 16 }}>
+        Uploadez des factures ou relevés, analysez-les avec l'IA et appliquez les données à l'audit.
+      </div>
       {error && <div style={errorBox}>{error}</div>}
 
       {/* ── Email draft modal (overlay, position DOM non significative) ── */}

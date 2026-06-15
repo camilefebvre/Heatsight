@@ -364,6 +364,9 @@ export default function ProjectPlanAmelioration() {
     <div style={{ maxWidth: 1400, width: "100%" }}>
       {/* ── Header ─────────────────────────────────────────── */}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 8 }}>
+        <div style={{ color: "#6b7280", fontSize: 14 }}>
+          Gérez vos actions d'amélioration énergétique.
+        </div>
         <button
           onClick={openHistory}
           style={{ ...s.ghostBtn, fontSize: 12, padding: "8px 14px", marginTop: 8, whiteSpace: "nowrap" }}
