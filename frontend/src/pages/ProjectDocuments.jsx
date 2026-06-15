@@ -94,11 +94,6 @@ export default function ProjectDocuments() {
 
   const uploadCardRef = useRef(null);
 
-  // Extracted summary panel
-  const [summary, setSummary] = useState(null); // null | { docs, auditPatch, energyPatch, reportPatch }
-  const [applying, setApplying] = useState("");
-  const [applyMsg, setApplyMsg] = useState("");
-
   const fileInputRef = useRef(null);
 
   async function load() {
@@ -123,7 +118,6 @@ export default function ProjectDocuments() {
         const docs = await docsRes.json().catch(() => []);
         console.log("[ProjectDocuments] docs loaded:", docs.length);
         setDocuments(docs);
-        buildSummary(docs);
       } else {
         console.warn("[ProjectDocuments] /documents response not ok:", docsRes?.status);
       }
@@ -234,11 +228,9 @@ export default function ProjectDocuments() {
       if (listRes.ok) {
         const freshDocs = await listRes.json();
         setDocuments(freshDocs);
-        buildSummary(freshDocs);
       } else {
         // Fallback : mise à jour locale depuis la réponse analyze
         setDocuments((prev) => prev.map((d) => (d.id === docId ? updated : d)));
-        buildSummary(documents.map((d) => (d.id === docId ? updated : d)));
       }
     } catch (e) {
       console.error("[analyze] erreur:", e);
@@ -257,7 +249,6 @@ export default function ProjectDocuments() {
       for (const d of data.documents || []) updatedMap[d.id] = d;
       const merged = documents.map((d) => updatedMap[d.id] || d);
       setDocuments(merged);
-      buildSummary(merged);
     } catch {
       // keep
     } finally {
@@ -270,139 +261,6 @@ export default function ProjectDocuments() {
     const res = await apiFetch(`/projects/${projectId}/documents/${docId}`, { method: "DELETE" });
     if (res.ok) {
       setDocuments((prev) => prev.filter((d) => d.id !== docId));
-    }
-  }
-
-  // ── Summary builder ─────────────────────────────────────────────────────────
-
-  function buildSummary(docs) {
-    const analyzed = docs.filter((d) => d.status === "analyzed" && d.extracted_data);
-    if (!analyzed.length) { setSummary(null); return; }
-
-    // Audit invoice_meter patch (last value wins per energy type)
-    const invoicePatch = {};
-    for (const d of analyzed) {
-      const field = ENERGY_FIELD_MAP[d.extracted_data.energie];
-      if (field && d.extracted_data.consommation != null)
-        invoicePatch[field] = String(d.extracted_data.consommation);
-    }
-
-    // Energy accounting patch (sum per year+energy)
-    const energyByYear = {};
-    for (const d of analyzed) {
-      const field = ENERGY_FIELD_MAP[d.extracted_data.energie];
-      const year = String(d.extracted_data.annee || "2023");
-      if (!field) continue;
-      if (!energyByYear[year]) energyByYear[year] = {};
-      if (d.extracted_data.consommation != null) {
-        energyByYear[year][field] = (energyByYear[year][field] || 0) + Number(d.extracted_data.consommation);
-      }
-      if (d.extracted_data.cout_total != null) {
-        const costKey = `${field}_cost`;
-        energyByYear[year][costKey] = (energyByYear[year][costKey] || 0) + Number(d.extracted_data.cout_total);
-      }
-    }
-
-    // Report patch (first non-null value)
-    const reportPatch = {};
-    for (const d of analyzed) {
-      const x = d.extracted_data;
-      if (!reportPatch.provider_company && x.fournisseur) reportPatch.provider_company = x.fournisseur;
-      if (!reportPatch.auditor_name && x.auditeur) reportPatch.auditor_name = x.auditeur;
-    }
-
-    setSummary({ count: analyzed.length, invoicePatch, energyByYear, reportPatch });
-  }
-
-  // ── Apply helpers ────────────────────────────────────────────────────────────
-
-  async function applyToAudit() {
-    setApplying("audit");
-    setApplyMsg("");
-    try {
-      const current = await apiFetch(`/projects/${projectId}/audit`);
-      const auditData = current.ok ? await current.json() : {};
-      const year2023 = auditData.year2023 || {};
-      const invoiceMeter = { ...(year2023.invoice_meter || {}), ...summary.invoicePatch };
-      const patched = { ...auditData, year2023: { ...year2023, invoice_meter: invoiceMeter } };
-      const res = await apiFetch(`/projects/${projectId}/audit`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audit_data: patched }),
-      });
-      if (!res.ok) throw new Error("Échec application audit");
-      setApplyMsg("✅ Données appliquées à l'Audit (onglet Factures/Compteur)");
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
-    }
-  }
-
-  async function applyToEnergy() {
-    setApplying("energy");
-    setApplyMsg("");
-    try {
-      const current = await apiFetch(`/projects/${projectId}/energy-accounting`);
-      const energyData = current.ok ? await current.json() : { years: {} };
-      const years = JSON.parse(JSON.stringify(energyData.years || {}));
-      let updated = 0, skipped = 0;
-      for (const [year, fields] of Object.entries(summary.energyByYear)) {
-        if (!years[year]) years[year] = { year, totals: {}, notes: "" };
-        const totals = years[year].totals || {};
-        for (const [k, v] of Object.entries(fields)) {
-          const existing = totals[k];
-          if (!existing || existing === "" || existing === "0" || Number(existing) === 0) {
-            totals[k] = String(v);
-            updated++;
-          } else {
-            skipped++;
-          }
-        }
-        years[year].totals = totals;
-      }
-      const res = await apiFetch(`/projects/${projectId}/energy-accounting`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ energy_accounting: { years } }),
-      });
-      if (!res.ok) throw new Error("Échec application comptabilité");
-      const parts = [];
-      if (updated > 0) parts.push(`${updated} champ${updated > 1 ? "s" : ""} mis à jour`);
-      if (skipped > 0) parts.push(`${skipped} ignoré${skipped > 1 ? "s" : ""} (déjà rempli${skipped > 1 ? "s" : ""})`);
-      setApplyMsg(updated > 0
-        ? `✅ Comptabilité mise à jour · ${parts.join(" · ")}`
-        : `ℹ️ Aucun champ modifié — ${parts.join(" · ")}`);
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
-    }
-  }
-
-  async function applyToReport() {
-    setApplying("report");
-    setApplyMsg("");
-    try {
-      if (!Object.keys(summary.reportPatch).length) {
-        setApplyMsg("ℹ️ Aucune donnée rapport extraite (fournisseur, auditeur)");
-        setApplying("");
-        return;
-      }
-      const current = await apiFetch(`/projects/${projectId}/report`);
-      const reportData = current.ok ? await current.json() : {};
-      const patched = { ...reportData, ...summary.reportPatch };
-      const res = await apiFetch(`/projects/${projectId}/report`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report_data: patched }),
-      });
-      if (!res.ok) throw new Error("Échec application rapport");
-      setApplyMsg("✅ Données appliquées au Rapport");
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
     }
   }
 
@@ -558,64 +416,6 @@ export default function ProjectDocuments() {
           </div>
         )}
       </div>
-
-      {/* ── Extracted summary panel ── */}
-      {summary && (
-        <div style={{ ...card, background: "#f3f4f6", border: "1px solid #e5e7eb" }}>
-          <div style={{ fontWeight: 800, fontSize: 15, color: "#374151", marginBottom: 10 }}>
-            Données extraites depuis {summary.count} document{summary.count > 1 ? "s" : ""}
-          </div>
-
-          {/* Preview extracted values */}
-          <div style={{ fontSize: 13, color: "#374151", marginBottom: 14 }}>
-            {Object.keys(summary.invoicePatch).length > 0 && (
-              <div>• Factures/Compteur : {Object.entries(summary.invoicePatch).map(([k, v]) => `${k}=${v}`).join(", ")}</div>
-            )}
-            {Object.keys(summary.energyByYear).length > 0 && (
-              <div>• Comptabilité énergie : {Object.entries(summary.energyByYear).map(([y, t]) => `${y}:(${Object.entries(t).map(([k, v]) => `${k}=${v}`).join(",")})`).join(" | ")}</div>
-            )}
-            {Object.keys(summary.reportPatch).length > 0 && (
-              <div>• Rapport : {Object.entries(summary.reportPatch).map(([k, v]) => `${k}=${v}`).join(", ")}</div>
-            )}
-          </div>
-
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-            <button
-              type="button"
-              style={{ ...primaryBtn, opacity: applying ? 0.7 : 1 }}
-              disabled={!!applying || !Object.keys(summary.invoicePatch).length}
-              onClick={applyToAudit}
-            >
-              {applying === "audit" ? "Application…" : "Appliquer à l'Audit"}
-            </button>
-            <button
-              type="button"
-              style={{ ...primaryBtn, opacity: applying ? 0.7 : 1 }}
-              disabled={!!applying || !Object.keys(summary.energyByYear).length}
-              onClick={applyToEnergy}
-            >
-              {applying === "energy" ? "Application…" : "Appliquer à la Comptabilité"}
-            </button>
-            <button
-              type="button"
-              style={{ ...primaryBtn, opacity: applying ? 0.7 : 1 }}
-              disabled={!!applying}
-              onClick={applyToReport}
-            >
-              {applying === "report" ? "Application…" : "Appliquer au Rapport"}
-            </button>
-            <button type="button" style={secondaryBtn} onClick={() => { setSummary(null); setApplyMsg(""); }}>
-              Fermer
-            </button>
-          </div>
-
-          {applyMsg && (
-            <div style={{ marginTop: 10, fontSize: 13, fontWeight: 700, color: applyMsg.startsWith("✅") ? "#374151" : applyMsg.startsWith("ℹ") ? "#374151" : "#8f1d2f" }}>
-              {applyMsg}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* ── Documents list ── */}
       <div style={card}>
@@ -972,7 +772,7 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
         onMouseEnter={(e) => { e.currentTarget.style.background = "#ede9fe"; }}
         onMouseLeave={(e) => { e.currentTarget.style.background = "white"; }}
       >
-        ✉ Email client
+        ✉ Envoyer un rappel au client
       </button>
     </div>
   );
@@ -1203,12 +1003,9 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
 
 function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleClick }) {
   const [open, setOpen] = useState(false);
-  const [applying, setApplying] = useState(""); // "" | "audit" | "energy" | "report"
-  const [applyMsg, setApplyMsg] = useState("");
   const ext = doc.extracted_data;
 
   const energyField = ENERGY_FIELD_MAP[ext?.energie];
-  const year = String(ext?.annee || "2023");
 
   const statusColor = {
     pending: { bg: "#fef9c3", color: "#854d0e" },
@@ -1217,209 +1014,6 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
   }[doc.status] || { bg: "#f3f4f6", color: "#6b7280" };
 
   const statusLabel = { pending: "En attente", analyzed: "Analysé", error: "Erreur" }[doc.status] || doc.status;
-
-  async function applyToAudit() {
-    if (!energyField || ext.consommation == null) {
-      setApplyMsg("ℹ️ Énergie ou consommation non extraite");
-      return;
-    }
-    setApplying("audit");
-    setApplyMsg("");
-    try {
-      const current = await apiFetch(`/projects/${projectId}/audit`);
-      const auditData = current.ok ? await current.json() : {};
-      const year2023 = auditData.year2023 || {};
-      const invoiceMeter = { ...(year2023.invoice_meter || {}), [energyField]: String(ext.consommation) };
-      const fs = { [`invoice_meter.${energyField}`]: { source: "document", doc_name: doc.original_name, doc_id: doc.id } };
-      const res = await apiFetch(`/projects/${projectId}/audit`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audit_data: { ...auditData, year2023: { ...year2023, invoice_meter: invoiceMeter } }, field_sources: fs }),
-      });
-      if (!res.ok) throw new Error("Échec PATCH audit");
-      setApplyMsg("✅ Appliqué avec succès");
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
-    }
-  }
-
-  async function applyToEnergy() {
-    if (!energyField) {
-      setApplyMsg("ℹ️ Énergie non extraite");
-      return;
-    }
-    setApplying("energy");
-    setApplyMsg("");
-    try {
-      const current = await apiFetch(`/projects/${projectId}/energy-accounting`);
-      const energyData = current.ok ? await current.json() : { years: {} };
-      const years = JSON.parse(JSON.stringify(energyData.years || {}));
-      if (!years[year]) years[year] = { year, totals: {}, notes: "" };
-      const totals = years[year].totals || {};
-      let updated = 0, skipped = 0;
-
-      if (ext.consommation != null) {
-        const existing = totals[energyField];
-        if (!existing || existing === "" || existing === "0" || Number(existing) === 0) {
-          totals[energyField] = String(ext.consommation);
-          updated++;
-        } else {
-          skipped++;
-        }
-      }
-      if (ext.cout_total != null) {
-        const costKey = `${energyField}_cost`;
-        const existing = totals[costKey];
-        if (!existing || existing === "" || existing === "0" || Number(existing) === 0) {
-          totals[costKey] = String(ext.cout_total);
-          updated++;
-        } else {
-          skipped++;
-        }
-      }
-
-      if (updated > 0) {
-        const docFs = { source: "document", doc_name: doc.original_name, doc_id: doc.id };
-        years[year].field_sources = { ...(years[year].field_sources || {}), [energyField]: docFs };
-      }
-      years[year].totals = totals;
-      const res = await apiFetch(`/projects/${projectId}/energy-accounting`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ energy_accounting: { years } }),
-      });
-      if (!res.ok) throw new Error("Échec PATCH energy-accounting");
-      const parts = [];
-      if (updated > 0) parts.push(`${updated} champ${updated > 1 ? "s" : ""} mis à jour`);
-      if (skipped > 0) parts.push(`${skipped} valeur${skipped > 1 ? "s" : ""} ignorée${skipped > 1 ? "s" : ""} (déjà remplie${skipped > 1 ? "s" : ""})`);
-      setApplyMsg(updated > 0
-        ? `✅ Appliqué · ${parts.join(" · ")}`
-        : `ℹ️ Aucun champ modifié — ${parts.join(" · ")}`);
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
-    }
-  }
-
-  async function applyToReport() {
-    setApplying("report");
-    setApplyMsg("");
-    try {
-      const patch = {};
-      const fs = {};
-      const docRef = { source: "document", doc_name: doc.original_name, doc_id: doc.id };
-      if (ext.fournisseur) { patch.provider_company = ext.fournisseur; fs.provider_company = docRef; }
-      if (ext.auditeur) { patch.auditor_name = ext.auditeur; fs.auditor_name = docRef; }
-      if (!Object.keys(patch).length) {
-        setApplyMsg("ℹ️ Aucune donnée rapport dans ce document (fournisseur, auditeur)");
-        setApplying("");
-        return;
-      }
-      const current = await apiFetch(`/projects/${projectId}/report`);
-      const reportData = current.ok ? await current.json() : {};
-      const res = await apiFetch(`/projects/${projectId}/report`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report_data: { ...reportData, ...patch }, field_sources: fs }),
-      });
-      if (!res.ok) throw new Error("Échec PATCH report");
-      setApplyMsg("✅ Appliqué avec succès");
-    } catch (e) {
-      setApplyMsg(`❌ ${e.message}`);
-    } finally {
-      setApplying("");
-    }
-  }
-
-  async function applyAll() {
-    setApplying("all");
-    setApplyMsg("");
-    let modules = 0, updated = 0, skipped = 0, errors = [];
-
-    // ── Audit ──
-    if (energyField && ext.consommation != null) {
-      try {
-        const current = await apiFetch(`/projects/${projectId}/audit`);
-        const auditData = current.ok ? await current.json() : {};
-        const year2023 = auditData.year2023 || {};
-        const invoiceMeter = { ...(year2023.invoice_meter || {}), [energyField]: String(ext.consommation) };
-        const fs = { [`invoice_meter.${energyField}`]: { source: "document", doc_name: doc.original_name, doc_id: doc.id } };
-        const res = await apiFetch(`/projects/${projectId}/audit`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ audit_data: { ...auditData, year2023: { ...year2023, invoice_meter: invoiceMeter } }, field_sources: fs }),
-        });
-        if (res.ok) { modules++; updated++; }
-      } catch { errors.push("Audit"); }
-    }
-
-    // ── Comptabilité ──
-    if (energyField) {
-      try {
-        const current = await apiFetch(`/projects/${projectId}/energy-accounting`);
-        const energyData = current.ok ? await current.json() : { years: {} };
-        const years = JSON.parse(JSON.stringify(energyData.years || {}));
-        if (!years[year]) years[year] = { year, totals: {}, notes: "" };
-        const totals = years[year].totals || {};
-        let u = 0, s = 0;
-        if (ext.consommation != null) {
-          const existing = totals[energyField];
-          if (!existing || existing === "" || existing === "0" || Number(existing) === 0) { totals[energyField] = String(ext.consommation); u++; }
-          else s++;
-        }
-        if (ext.cout_total != null) {
-          const ck = `${energyField}_cost`;
-          const existing = totals[ck];
-          if (!existing || existing === "" || existing === "0" || Number(existing) === 0) { totals[ck] = String(ext.cout_total); u++; }
-          else s++;
-        }
-        if (u > 0) years[year].field_sources = { ...(years[year].field_sources || {}), [energyField]: { source: "document", doc_name: doc.original_name, doc_id: doc.id } };
-        years[year].totals = totals;
-        updated += u; skipped += s;
-        const res = await apiFetch(`/projects/${projectId}/energy-accounting`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ energy_accounting: { years } }),
-        });
-        if (res.ok) modules++;
-      } catch { errors.push("Comptabilité"); }
-    }
-
-    // ── Rapport ──
-    const patch = {};
-    const fs = {};
-    const docRef = { source: "document", doc_name: doc.original_name, doc_id: doc.id };
-    if (ext.fournisseur) { patch.provider_company = ext.fournisseur; fs.provider_company = docRef; }
-    if (ext.auditeur) { patch.auditor_name = ext.auditeur; fs.auditor_name = docRef; }
-    if (Object.keys(patch).length) {
-      try {
-        const current = await apiFetch(`/projects/${projectId}/report`);
-        const reportData = current.ok ? await current.json() : {};
-        const res = await apiFetch(`/projects/${projectId}/report`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ report_data: { ...reportData, ...patch }, field_sources: fs }),
-        });
-        if (res.ok) { modules++; updated += Object.keys(patch).length; }
-      } catch { errors.push("Rapport"); }
-    }
-
-    setApplying("");
-    const parts = [];
-    if (modules > 0) parts.push(`${modules} module${modules > 1 ? "s" : ""}`);
-    if (updated > 0) parts.push(`${updated} champ${updated > 1 ? "s" : ""} mis à jour`);
-    if (skipped > 0) parts.push(`${skipped} ignoré${skipped > 1 ? "s" : ""}`);
-    if (errors.length) {
-      setApplyMsg(`⚠️ Erreur sur : ${errors.join(", ")}`);
-    } else if (modules > 0) {
-      setApplyMsg(`✅ Appliqué à ${parts.join(" · ")}`);
-    } else {
-      setApplyMsg("ℹ️ Aucune donnée applicable depuis ce document");
-    }
-  }
 
   return (
     <div style={{ ...rowBox, cursor: "default" }} onDoubleClick={onDoubleClick} title="Double-clic pour visualiser">
@@ -1448,50 +1042,6 @@ function DocumentRow({ doc, projectId, analyzing, onAnalyze, onDelete, onDoubleC
               {ext.periode_debut && <div><strong>Période :</strong> {ext.periode_debut} → {ext.periode_fin || "?"}</div>}
               {ext.notes && <div><strong>Notes :</strong> {ext.notes}</div>}
 
-              {/* Apply buttons */}
-              <div style={{ marginTop: 10, display: "flex", gap: 8, flexWrap: "wrap" }}>
-                <button
-                  type="button"
-                  style={{ ...applyBtn, background: "#59169c", color: "white", opacity: applying ? 0.7 : 1 }}
-                  disabled={!!applying}
-                  onClick={applyAll}
-                >
-                  {applying === "all" ? "…" : <><Sparkles size={13} style={{ verticalAlign: "-2px", marginRight: 5 }} /> Appliquer partout</>}
-                </button>
-                <button
-                  type="button"
-                  style={{ ...applyBtn, opacity: applying ? 0.7 : 1 }}
-                  disabled={!!applying}
-                  onClick={applyToAudit}
-                >
-                  {applying === "audit" ? "…" : "→ Audit"}
-                </button>
-                <button
-                  type="button"
-                  style={{ ...applyBtn, opacity: applying ? 0.7 : 1 }}
-                  disabled={!!applying}
-                  onClick={applyToEnergy}
-                >
-                  {applying === "energy" ? "…" : "→ Comptabilité"}
-                </button>
-                <button
-                  type="button"
-                  style={{ ...applyBtn, opacity: applying ? 0.7 : 1 }}
-                  disabled={!!applying}
-                  onClick={applyToReport}
-                >
-                  {applying === "report" ? "…" : "→ Rapport"}
-                </button>
-              </div>
-
-              {applyMsg && (
-                <div style={{
-                  marginTop: 8, fontSize: 12, fontWeight: 700,
-                  color: applyMsg.startsWith("✅") ? "#374151" : applyMsg.startsWith("ℹ") ? "#374151" : "#8f1d2f",
-                }}>
-                  {applyMsg}
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -1697,17 +1247,6 @@ const iconBtn = {
   cursor: "pointer",
   fontWeight: 900,
   fontSize: 13,
-};
-
-const applyBtn = {
-  border: "1.5px solid #59169c",
-  background: "white",
-  color: "#59169c",
-  padding: "5px 10px",
-  borderRadius: 8,
-  fontWeight: 700,
-  cursor: "pointer",
-  fontSize: 12,
 };
 
 const filterPill = {
