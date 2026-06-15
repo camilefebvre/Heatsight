@@ -35,6 +35,8 @@ const HOUR_START = 7;
 const HOUR_END = 21;          // plage horaire affichée (modifiable ici)
 const HOUR_PX = 48;           // hauteur d'une heure, en px
 const HOURS = Array.from({ length: HOUR_END - HOUR_START + 1 }, (_, i) => HOUR_START + i);
+const PX_PER_MIN = HOUR_PX / 60;            // 0.8
+const GRID_HEIGHT = HOURS.length * HOUR_PX; // hauteur totale de la grille (px)
 
 // Lundi 00:00 local de la semaine de `date` (jamais d'UTC)
 function startOfWeek(date) {
@@ -43,6 +45,24 @@ function startOfWeek(date) {
   const dow = (d.getDay() + 6) % 7; // 0 = lundi
   d.setDate(d.getDate() - dow);
   return d;
+}
+
+// Placement d'un event dans la grille (heure locale uniquement, jamais d'UTC).
+// Retourne { dayIndex, top, height } ou null si hors semaine visible.
+function placeEvent(ev, days) {
+  const d = new Date(ev.start);
+  if (isNaN(d.getTime())) return null;
+  const dayIndex = days.findIndex((day) =>
+    day.getFullYear() === d.getFullYear() &&
+    day.getMonth() === d.getMonth() &&
+    day.getDate() === d.getDate()
+  );
+  if (dayIndex === -1) return null;
+  const minutesFromStart = (d.getHours() * 60 + d.getMinutes()) - HOUR_START * 60;
+  const top = Math.max(0, Math.min(minutesFromStart * PX_PER_MIN, GRID_HEIGHT));
+  let height = Math.max((ev.duration_min || 0) * PX_PER_MIN, 22); // min cliquable
+  if (top + height > GRID_HEIGHT) height = GRID_HEIGHT - top;      // borne le bas
+  return { dayIndex, top, height };
 }
 
 // ─── Composants UI ────────────────────────────────────────────────────────────
@@ -149,6 +169,16 @@ export default function Agenda() {
       ? `${a.getDate()} - ${b.getDate()} ${b.toLocaleDateString("fr-BE", { month: "long", year: "numeric" })}`
       : `${a.toLocaleDateString("fr-BE", { day: "numeric", month: "short" })} - ${b.toLocaleDateString("fr-BE", { day: "numeric", month: "short", year: "numeric" })}`;
   }, [days]);
+
+  // Events de la semaine visible, placés et groupés par jour (0=lun … 6=dim)
+  const weekEvents = useMemo(() => {
+    const byDay = Array.from({ length: 7 }, () => []);
+    for (const ev of sorted) {
+      const pos = placeEvent(ev, days);
+      if (pos) byDay[pos.dayIndex].push({ ev, top: pos.top, height: pos.height });
+    }
+    return byDay;
+  }, [sorted, days]);
 
   function shiftWeek(deltaDays) {
     setWeekStart((prev) => { const d = new Date(prev); d.setDate(d.getDate() + deltaDays); return d; });
@@ -333,6 +363,26 @@ export default function Agenda() {
                 {HOURS.map((h) => (
                   <div key={h} style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6" }} />
                 ))}
+                {weekEvents[i].map(({ ev, top, height }) => {
+                  const type = ev.type || detectType(ev.title);
+                  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
+                  return (
+                    <div key={ev.id}
+                      onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
+                      title={ev.title}
+                      style={{ position: "absolute", top, height, left: 2, right: 2,
+                        background: cfg.bg, borderLeft: `3px solid ${cfg.color}`, borderRadius: 6,
+                        padding: "2px 6px", fontSize: 11, overflow: "hidden", cursor: "pointer",
+                        boxSizing: "border-box", display: "flex", gap: 4, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, color: cfg.color, flexShrink: 0 }}>
+                        {ev.start.slice(11, 16)}
+                      </span>
+                      <span style={{ color: "#111827", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {ev.title}
+                      </span>
+                    </div>
+                  );
+                })}
               </div>
             );
           })}
