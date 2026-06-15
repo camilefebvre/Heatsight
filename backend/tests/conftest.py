@@ -1,7 +1,7 @@
 """
 Fixtures partagées pour les tests d'intégration HeatSight.
 
-Base de données : SQLite en mémoire — aucune configuration externe requise.
+Base de données : SQLite en mémoire - aucune configuration externe requise.
 
 Lancement :
   cd backend

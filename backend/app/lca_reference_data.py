@@ -1,4 +1,4 @@
-"""Fiches de référence ACV (bibliothèque officielle) — données figées, seedées
+"""Fiches de référence ACV (bibliothèque officielle) - données figées, seedées
 idempotemment depuis la migration 018 ET le startup-hook. Keyé sur l'id (UUID stable)
 → ON CONFLICT (id) DO NOTHING : aucun doublon au reboot. Postgres uniquement (cast jsonb).
 
@@ -417,6 +417,6 @@ def seed_lca_reference_materials(conn) -> int:
     for m in LCA_REFERENCE_MATERIALS:
         conn.execute(stmt, {**m, "impacts": json.dumps(m["impacts"])})
     # Neutralise la fiche legacy de la migration 005 : on la retire de la bibliothèque
-    # de référence (non destructif — la ligne reste, juste is_reference=false). Idempotent.
+    # de référence (non destructif - la ligne reste, juste is_reference=false). Idempotent.
     conn.execute(text("UPDATE lca_materials SET is_reference = false WHERE id = 'mat-mur-brique-001'"))
     return len(LCA_REFERENCE_MATERIALS)

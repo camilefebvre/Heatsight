@@ -250,7 +250,7 @@ export default function ProjectAudit() {
       if (field && data.consommation != null) {
         updateInvoice(field, String(data.consommation));
       }
-      setExtractMsg("✅ Données extraites — vérifiez et sauvegardez");
+      setExtractMsg("✅ Données extraites - vérifiez et sauvegardez");
     } catch (err) {
       setExtractMsg(`❌ ${err.message || "Extraction échouée"}`);
     } finally {
@@ -311,7 +311,7 @@ export default function ProjectAudit() {
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280" }}>Projet</div>
-      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>Audit — {project.project_name}</h1>
+      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>Audit - {project.project_name}</h1>
       <div style={{ color: "#6b7280" }}>
         Les données ci-dessous mettent à jour le template Excel (sheet 2023).
       </div>
@@ -630,7 +630,7 @@ function toNumber(v) {
 }
 
 function formatPercent(v) {
-  if (!isNumberLike(v)) return "—";
+  if (!isNumberLike(v)) return "-";
   const n = toNumber(v);
 
   // Excel renvoie souvent 0.96 pour 96% → on convertit
@@ -641,14 +641,14 @@ function formatPercent(v) {
 }
 
 function formatIntNoDecimals(v) {
-  if (!isNumberLike(v)) return "—";
+  if (!isNumberLike(v)) return "-";
   return `${Math.round(toNumber(v))}`;
 }
 
 function IndexRow({ label, value, format }) {
   const display =
     value === null || value === undefined || value === ""
-      ? "—"
+      ? "-"
       : format
       ? format(value)
       : String(value);

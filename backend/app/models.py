@@ -246,10 +246,10 @@ class LcaMaterial(Base):
     valeur_r = Column(Float, nullable=True)          # résistance thermique R (m²K/W) pour matériaux composites, valeur de référence 1.0 pour Isolants Convention 2
     is_fixed = Column(Boolean, nullable=False, default=False)  # non substituable en optimisation
     is_reference = Column(Boolean, nullable=False, default=False, server_default="false")  # fiche de référence : non modifiable / non supprimable
-    flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) — pour isolants: quantité = R × flux_ref × surface
+    flux_reference = Column(Float, nullable=True)    # kg/(m²·K/W) - pour isolants: quantité = R × flux_ref × surface
     valeur_lambda  = Column(Float, nullable=True, comment="Conductivité thermique λ (W/m·K), pour les Isolants uniquement")
     dvr_materiau = Column(Integer, nullable=True)    # durée de vie de référence, années
-    poids_unite  = Column(Float,   nullable=True)    # masse par unité fonctionnelle (kg/unité) — Module C déconstruction
+    poids_unite  = Column(Float,   nullable=True)    # masse par unité fonctionnelle (kg/unité) - Module C déconstruction
 
 
 class LcaProject(Base):

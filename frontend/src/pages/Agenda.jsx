@@ -181,7 +181,7 @@ export default function Agenda() {
   function openClientEmail(ev) {
     const clientEmail = projects.find((p) => p.id === ev.project_id)?.client_email;
     if (!clientEmail) return;
-    const subject = `Audit énergétique ${projectName(ev.project_id)} — ${ev.title}`;
+    const subject = `Audit énergétique ${projectName(ev.project_id)} - ${ev.title}`;
     const lines = [
       "Bonjour,",
       "",
@@ -223,7 +223,7 @@ export default function Agenda() {
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
       <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Agenda</h1>
       <div style={{ color: "#6b7280", fontSize: 14 }}>
-        Visites, appels et deadlines — sauvegardés en base de données.
+        Visites, appels et deadlines - sauvegardés en base de données.
       </div>
 
       <div style={{ marginTop: 22, display: "grid",
@@ -275,7 +275,7 @@ export default function Agenda() {
                           type="button"
                           onClick={() => openClientEmail(ev)}
                           disabled={!clientEmail}
-                          title={clientEmail ? "Envoyer un email au client" : "Aucun email client — associez un projet"}
+                          title={clientEmail ? "Envoyer un email au client" : "Aucun email client - associez un projet"}
                           style={{
                             border: "none", background: "transparent",
                             cursor: clientEmail ? "pointer" : "not-allowed",
@@ -401,7 +401,7 @@ export default function Agenda() {
                 <select value={form.project_id}
                   onChange={(e) => update("project_id", e.target.value)}
                   style={focusStyle("project")}>
-                  <option value="">— Aucun projet —</option>
+                  <option value="">- Aucun projet -</option>
                   {projects.map((p) => (
                     <option key={p.id} value={p.id}>{p.project_name}</option>
                   ))}
@@ -444,7 +444,7 @@ export default function Agenda() {
             <CalendarDays size={18} color="#59169c" /> Ajouter à mon calendrier
           </div>
           <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            Abonnez Google Agenda, Outlook ou Apple Calendrier à ce lien — lecture seule, mise à jour automatique.
+            Abonnez Google Agenda, Outlook ou Apple Calendrier à ce lien - lecture seule, mise à jour automatique.
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
             <input readOnly value={sub.url} onFocus={(e) => e.target.select()}

@@ -103,11 +103,11 @@ REPORT_TEMPLATE_FILE = BASE_DIR / "templates" / "report_template.docx"
 REPORT_DIR = BASE_DIR / "reports"
 REPORT_DIR.mkdir(exist_ok=True)
 
-# URL publique HTTPS du BACKEND (Render) — sert à composer les liens d'abonnement .ics.
+# URL publique HTTPS du BACKEND (Render) - sert à composer les liens d'abonnement .ics.
 # DOIT être défini dans l'env Render (ex. https://heatsight-api.onrender.com), sinon les
 # liens .ics seront en localhost en prod. Pas de hardcode d'URL backend.
 PUBLIC_API_URL = os.getenv("PUBLIC_API_URL", "http://127.0.0.1:8000")
-# URL publique de l'app (Vercel) — sert au lien "Voir dans HeatSight" dans le .ics.
+# URL publique de l'app (Vercel) - sert au lien "Voir dans HeatSight" dans le .ics.
 FRONTEND_URL = os.getenv("FRONTEND_URL", "https://heatsight.vercel.app")
 
 SHEET_NAME = "2023"
@@ -227,7 +227,7 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
     Strategy: use ElementTree ONLY to modify <sheetData>, then splice the
     new <sheetData> bytes back into the original XML bytes.  This preserves
     every namespace declaration, mc:Ignorable, extLst, x14/xm inline-namespace
-    blocks, etc. untouched — avoiding the ET serialisation bug that mangles
+    blocks, etc. untouched - avoiding the ET serialisation bug that mangles
     namespace prefixes (x14→ns4, xm→ns5) and corrupts the worksheet.
 
     - Numbers  → plain <v>N</v>, t attribute removed (default numeric type).
@@ -281,18 +281,18 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
             cell_el.remove(child)
 
         if isinstance(value, (int, float)) and not isinstance(value, bool):
-            # Numeric constant — remove t so Excel treats cell as number
+            # Numeric constant - remove t so Excel treats cell as number
             cell_el.attrib.pop("t", None)
             ET.SubElement(cell_el, f"{{{NS}}}v").text = str(value)
             patched_cells.append(f"{cell_ref}={value}")
         elif value is not None and str(value).strip():
-            # String — inline string (no sharedStrings.xml involvement)
+            # String - inline string (no sharedStrings.xml involvement)
             cell_el.set("t", "inlineStr")
             is_el = ET.SubElement(cell_el, f"{{{NS}}}is")
             ET.SubElement(is_el, f"{{{NS}}}t").text = str(value)
             patched_cells.append(f"{cell_ref}={value!r}")
         else:
-            # Empty cell — clear type, leave no value child
+            # Empty cell - clear type, leave no value child
             cell_el.attrib.pop("t", None)
 
     if patched_cells:
@@ -311,7 +311,7 @@ def _patch_sheet_xml(xml_bytes: bytes, changes: Dict[str, Any]) -> bytes:
         sheet_data.append(row_el)
 
     # ── Serialize ONLY <sheetData> and splice into original bytes ──────────
-    # Do NOT use ET.tostring(root) — it would move x14/xm namespace declarations
+    # Do NOT use ET.tostring(root) - it would move x14/xm namespace declarations
     # from their original inline location (on <ext> child elements) to the root
     # element, producing wrong prefixes (ns4/ns5) that corrupt the worksheet.
     new_sd_bytes = ET.tostring(sheet_data, encoding="unicode").encode("utf-8")
@@ -366,7 +366,7 @@ def _apply_changes_to_template(
     template_path: Path,
     sheet_changes: Dict[str, Dict[str, Any]],
 ) -> bytes:
-    """Kept for backward compatibility — delegates to _apply_changes_to_source."""
+    """Kept for backward compatibility - delegates to _apply_changes_to_source."""
     return _apply_changes_to_source(template_path, sheet_changes)
 
 
@@ -452,7 +452,7 @@ def _patch_excel_bytes(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Modèles de livrable (templates) — résolution du modèle actif par projet
+# Modèles de livrable (templates) - résolution du modèle actif par projet
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _get_active_template(db: Session, project, ttype: str):
@@ -464,7 +464,7 @@ def _get_active_template(db: Session, project, ttype: str):
 
 
 def _template_supports_prefill(tpl) -> bool:
-    """True si le modèle autorise le pré-remplissage IA (officiel, ou custom validé — false au MVP)."""
+    """True si le modèle autorise le pré-remplissage IA (officiel, ou custom validé - false au MVP)."""
     return True if (tpl is None or tpl.is_official) else bool(tpl.supports_prefill)
 
 
@@ -630,7 +630,7 @@ def _build_prefill_sheet_changes(
     if energy_changes:
         sheet_changes["2023"] = energy_changes
 
-    # ── AA1–AA9 ─────────────────────────────────────────────────────────────
+    # ── AA1-AA9 ─────────────────────────────────────────────────────────────
     for i, action in enumerate(actions[:9], start=1):
         sh = action.get("sheet") or f"AA{i}"
 
@@ -760,7 +760,7 @@ def _ensure_extra_project_columns():
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_docx_source TEXT",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefill_summary JSONB",
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS report_prefilled_at TEXT",
-        # Dernière activité du projet (P9) — colonne puis backfill, dans cet ordre
+        # Dernière activité du projet (P9) - colonne puis backfill, dans cet ordre
         "ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TEXT",
         "UPDATE projects SET updated_at = created_at WHERE updated_at IS NULL",
         # Agenda par utilisateur + abonnement .ics (idempotent)
@@ -800,7 +800,7 @@ def _ensure_extra_project_columns():
         "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_name TEXT",
         "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_mime_type TEXT",
         "ALTER TABLE report_history ADD COLUMN IF NOT EXISTS file_size INTEGER",
-        # Table ACV projets (idempotent — peut être absente sur anciennes DB)
+        # Table ACV projets (idempotent - peut être absente sur anciennes DB)
         """CREATE TABLE IF NOT EXISTS lca_projects (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
@@ -811,7 +811,7 @@ def _ensure_extra_project_columns():
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
         )""",
-        # Bibliothèque de modèles de livrable (idempotent) — table avant FK
+        # Bibliothèque de modèles de livrable (idempotent) - table avant FK
         """CREATE TABLE IF NOT EXISTS templates (
             id TEXT PRIMARY KEY,
             type TEXT NOT NULL,
@@ -1542,7 +1542,7 @@ Tu dois rédiger du contenu concret et professionnel pour 4 sections d'un rappor
 RÈGLES OBLIGATOIRES :
 - Utilise UNIQUEMENT les données fournies dans le contexte. Ne fabrique pas de valeurs numériques.
 - Si une donnée est disponible (comptabilité énergétique, actions AMUREBA, audit, ACV, documents),
-  utilise-la DIRECTEMENT — cite les valeurs exactes.
+  utilise-la DIRECTEMENT - cite les valeurs exactes.
 - Si une donnée est indisponible, utilise une formulation neutre et indique "estimated": true.
 - Tous les champs sont des strings. Formate les chiffres (ex: "250 000 kWh/an", "150 k€", "1 200 m²").
 - Le texte doit être directement intégrable dans un rapport professionnel : complet, rédigé, sans placeholder.
@@ -1608,7 +1608,7 @@ Réponds UNIQUEMENT avec un objet JSON de la forme exacte suivante (tous les cha
 Règles détaillées par champ :
 - page_de_garde.audit_type : "Audit GLOBAL" ou "Audit Partiel" selon project.audit_type.
 - page_de_garde.audit_theme : phrase complète décrivant la portée (ex: "Audit énergétique global
-  portant sur l'ensemble des consommations — électricité, gaz, chauffage — conformément à la
+  portant sur l'ensemble des consommations - électricité, gaz, chauffage - conformément à la
   méthode AMUREBA belge").
 - page_de_garde.provider_company : cherche dans les documents analysés ; sinon "Heat Sight".
 - page_de_garde.auditor_name : cherche dans les docs ; sinon "".
@@ -1616,9 +1616,9 @@ Règles détaillées par champ :
   Isolation thermique (IT), Systèmes de chauffage (CH)").
 
 - description_batiment.batiment_usage : usage principal (bureau, logement, industrie, commerce…).
-- description_batiment.batiment_surface : surface totale en m² — cherche dans ACV ou audit.
+- description_batiment.batiment_surface : surface totale en m² - cherche dans ACV ou audit.
   Format : "1 200 m²". Si inconnue, "Non renseignée".
-- description_batiment.batiment_description : 3 à 5 phrases décrivant le bâtiment —
+- description_batiment.batiment_description : 3 à 5 phrases décrivant le bâtiment -
   type de construction, année estimée, état général, équipements principaux (chauffage,
   ventilation, éclairage), enveloppe thermique. Utilise les données des documents analysés
   (factures, plans, descriptions) et de l'audit.
@@ -1626,7 +1626,7 @@ Règles détaillées par champ :
 - synthese_energetique.energie_electricite_kwh : consommation électricité totale de la dernière
   année disponible, en kWh/an. Format : "250 000 kWh/an". Source : energy_accounting.
 - synthese_energetique.energie_gaz_kwh : même logique pour le gaz.
-- synthese_energetique.energie_synthese : 3 à 5 phrases — consommation totale (kWh/an et kgCO₂/an
+- synthese_energetique.energie_synthese : 3 à 5 phrases - consommation totale (kWh/an et kgCO₂/an
   si disponible), répartition électricité/gaz/fuel, ratio kWh/m²/an si la surface est connue,
   évolution sur plusieurs années si plusieurs années disponibles, comparaison aux références belges.
   Basé exclusivement sur energy_accounting.
@@ -1636,7 +1636,7 @@ Règles détaillées par champ :
   Format : "150 k€".
 - plan_amelioration.actions_economie_energie : somme des économies d'énergie en MWh/an.
   Format : "45 MWh/an".
-- plan_amelioration.actions_synthese : 3 à 5 phrases — nombre d'actions, investissement total,
+- plan_amelioration.actions_synthese : 3 à 5 phrases - nombre d'actions, investissement total,
   économie d'énergie totale, réduction CO₂ totale, retour sur investissement moyen, type
   d'actions (isolation, PV, HVAC…). Basé sur improvement_actions.
 
@@ -1734,7 +1734,7 @@ async def _get_report_prefill_proposals(
     """
     Fetch all available project data, call Claude, return (project, report, proposed_dict).
     proposed_dict has 4 top-level keys: page_de_garde, description_batiment,
-    synthese_energetique, plan_amelioration — each with a 'sources' sub-dict.
+    synthese_energetique, plan_amelioration - each with a 'sources' sub-dict.
     """
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
@@ -1826,7 +1826,7 @@ async def _get_report_prefill_proposals(
             for a in actions
         ]
 
-    # LCA project (optional — table peut être absente sur anciennes DB)
+    # LCA project (optional - table peut être absente sur anciennes DB)
     try:
         lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
         if lca:
@@ -2031,7 +2031,7 @@ async def report_prefill_preview(
     """
     Appelle Claude et retourne les propositions groupées par section, avec conflict_type par champ.
     """
-    print(f"[report-prefill-preview] début — project_id={project_id}", flush=True)
+    print(f"[report-prefill-preview] début - project_id={project_id}", flush=True)
     try:
         project, report, proposed = await _get_report_prefill_proposals(project_id, db, current_user)
     except HTTPException:
@@ -2423,7 +2423,7 @@ def delete_event(event_id: str, db: Session = Depends(get_db), current_user: mod
 
 
 # ==============================
-# ROUTES: CALENDAR (.ics) — abonnement lecture seule, sans OAuth
+# ROUTES: CALENDAR (.ics) - abonnement lecture seule, sans OAuth
 # ==============================
 
 _ICS_VTIMEZONE_LINES = [
@@ -2478,7 +2478,7 @@ def _ics_dt(start_str: str, add_min: int = 0) -> str:
 
 
 def _ics_summary(title, project_name, location) -> str:
-    base = f"{project_name} — {title}" if project_name else (title or "")
+    base = f"{project_name} - {title}" if project_name else (title or "")
     if location:
         base = f"{base} ({location})"
     return base
@@ -3154,7 +3154,7 @@ def delete_improvement_action(
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# HELPERS — Plan d'amélioration Excel
+# HELPERS - Plan d'amélioration Excel
 # ──────────────────────────────────────────────────────────────────────────────
 
 _IMPROVEMENT_TYPE_MAP = [
@@ -3222,7 +3222,7 @@ def _parse_aa_sheet(ws) -> Optional[Dict[str, Any]]:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# ROUTES — Export / Import / Prefill Excel AMUREBA
+# ROUTES - Export / Import / Prefill Excel AMUREBA
 # ──────────────────────────────────────────────────────────────────────────────
 
 _PREFILL_SYSTEM = """\
@@ -3442,7 +3442,7 @@ async def _get_prefill_actions(
         doc_list=doc_list,
     )
 
-    print(f"[prefill] appel Claude — {len(extracted_parts)} sources, max {max_actions} actions", flush=True)
+    print(f"[prefill] appel Claude - {len(extracted_parts)} sources, max {max_actions} actions", flush=True)
 
     claude_client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
     for attempt in range(3):
@@ -3958,7 +3958,7 @@ async def import_improvement_actions_excel(
     if not parsed:
         raise HTTPException(
             status_code=422,
-            detail="Aucune action trouvée dans l'Excel (feuilles AA1–AA9 vides ou non reconnues). Les données existantes n'ont pas été modifiées.",
+            detail="Aucune action trouvée dans l'Excel (feuilles AA1-AA9 vides ou non reconnues). Les données existantes n'ont pas été modifiées.",
         )
 
     # Supprimer les anciennes actions et réinsérer
@@ -4045,7 +4045,7 @@ async def import_improvement_actions_excel(
 
 
 # ══════════════════════════════════════════════════════════════════════════════
-# ROUTES: Plan d'amélioration — import / preview  (AmurebaMappingService)
+# ROUTES: Plan d'amélioration - import / preview  (AmurebaMappingService)
 # ══════════════════════════════════════════════════════════════════════════════
 
 _ALL_SEMANTIC_FIELDS = [
@@ -4140,7 +4140,7 @@ async def preview_plan_amelioration(
     current_user: models.User = Depends(get_current_user),
 ):
     """
-    Read an AMUREBA xlsx and return a structured preview — nothing is saved.
+    Read an AMUREBA xlsx and return a structured preview - nothing is saved.
 
     Use this endpoint to let the frontend show the user which sheets were
     detected, which semantic fields were mapped, and what data will be
@@ -4311,7 +4311,7 @@ def update_project_lca(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Legacy route — sauvegarde uniquement les éléments ACV (ancien format)."""
+    """Legacy route - sauvegarde uniquement les éléments ACV (ancien format)."""
     project = db.query(models.Project).filter(
         models.Project.id == project_id,
         models.Project.owner_id == current_user.id,
@@ -4436,7 +4436,7 @@ def patch_lca_optimisation_cache(
             {"h": payload.hash, "c": json.dumps(payload.cache), "now": now, "pid": project_id},
         )
     else:
-        # No LCA row yet — create a minimal one so the cache isn't lost
+        # No LCA row yet - create a minimal one so the cache isn't lost
         db.execute(
             _sa_text(
                 "INSERT INTO lca_projects "
@@ -4464,14 +4464,14 @@ def patch_lca_optimisation_cache(
 # On cherche chaque sous-chaîne dans le nom de colonne normalisé (lowercase, espaces normalisés).
 # Les sous-catégories (biogenic, fossil…) doivent précéder leur catégorie parente (climate change).
 _EF_COLUMN_PATTERNS: list = [
-    # GWP total EF v3.0 explicite — avant les sous-catégories pour qu'EN 15804+A2
+    # GWP total EF v3.0 explicite - avant les sous-catégories pour qu'EN 15804+A2
     # avec colonnes v3.0 ET v3.1 mappe correctement la bonne valeur vers gwp100.
     ("climate change: total (ef v3.0",                 "gwp100"),
-    # Climate change — sous-catégories d'abord
+    # Climate change - sous-catégories d'abord
     ("climate change: biogenic",                        "climate_biogenic"),
     ("climate change: fossil",                          "climate_fossil"),
     ("climate change: land use",                        "climate_landuse"),
-    # Human toxicity — carcinogène avant non-carcinogène (évite faux positif sur "non")
+    # Human toxicity - carcinogène avant non-carcinogène (évite faux positif sur "non")
     ("human toxicity: carcinogenic",                    "human_tox_carc"),
     ("human toxicity: non-carcinogenic",                "human_tox_noncarc"),
     # Ecotoxicity freshwater
@@ -4492,7 +4492,7 @@ _EF_COLUMN_PATTERNS: list = [
     ("| land use |",                                    "land_use"),   # pipes pour éviter collision avec "climate change: land use"
     ("water use",                                       "water_use"),
     ("acidification",                                   "acidification"),
-    # Climate change général (GWP100) — en dernier pour ne pas écraser les sous-catégories
+    # Climate change général (GWP100) - en dernier pour ne pas écraser les sous-catégories
     ("climate change",                                  "gwp100"),
 ]
 

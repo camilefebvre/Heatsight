@@ -12,7 +12,7 @@ const EVENT = {
 };
 const ok = (data) => Promise.resolve({ ok: true, json: () => Promise.resolve(data) });
 
-describe("Agenda — édition d'un événement (P20)", () => {
+describe("Agenda - édition d'un événement (P20)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiFetch.mockImplementation((path, opts = {}) => {

@@ -14,13 +14,13 @@ const CATEGORY_LABELS = {
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function fmtNum(v, d = 2) {
-  if (v == null) return "—";
+  if (v == null) return "-";
   const n = Number(v);
-  return isNaN(n) ? "—" : n.toFixed(d);
+  return isNaN(n) ? "-" : n.toFixed(d);
 }
 
 function fmtImpact(v) {
-  if (v == null) return "—";
+  if (v == null) return "-";
   if (v === 0) return "0";
   if (Math.abs(v) < 0.001) return Number(v).toExponential(2);
   if (Math.abs(v) < 1)     return Number(v).toFixed(4);
@@ -35,7 +35,7 @@ const EMPTY_IMP_FORM = {
   importing: false, result: null,
 };
 
-// ─── 19 indicateurs EF v3.0 — ordre et unités fixes ─────────────────────────
+// ─── 19 indicateurs EF v3.0 - ordre et unités fixes ─────────────────────────
 
 const IMPACT_INDICATORS = [
   { label: "GWP100",                                  unit: "kg CO₂eq",      keys: ["gwp100"] },
@@ -76,21 +76,21 @@ function getValeurRLabel(category) {
   const cat = (category || "").toLowerCase().trim();
   if (cat === "mur" || cat === "toiture" || cat === "plancher" || cat === "cloison" || cat === "parement") {
     return {
-      label: "R — Résistance thermique",
+      label: "R - Résistance thermique",
       unit: "m²·K/W",
       tooltip: "Résistance thermique R (m²·K/W) du matériau, correspondant à la configuration de la fiche FDES de référence"
     };
   }
   if (cat === "vitrage" || cat === "fenetre" || cat === "fenêtre") {
     return {
-      label: "R — Résistance thermique",
+      label: "R - Résistance thermique",
       unit: "m²·K/W",
       tooltip: "Résistance thermique globale du vitrage (R = 1/U)"
     };
   }
   if (cat === "cadre") {
     return {
-      label: "R — Résistance thermique",
+      label: "R - Résistance thermique",
       unit: "m²·K/W",
       tooltip: "Résistance thermique du cadre (R = 1/U)"
     };
@@ -99,7 +99,7 @@ function getValeurRLabel(category) {
     return {
       label: "Valeur de référence",
       unit: "sans dimension",
-      tooltip: "Valeur de référence Convention 2 ACV. Le λ réel est saisi dans le champ λ — Conductivité thermique."
+      tooltip: "Valeur de référence Convention 2 ACV. Le λ réel est saisi dans le champ λ - Conductivité thermique."
     };
   }
   return { label: "R", unit: "m²·K/W", tooltip: "" };
@@ -372,7 +372,7 @@ export default function LCALibrary() {
                         )}
                         {mat.is_reference && (
                           <span
-                            title="Fiche de référence — non modifiable. Utilisez Dupliquer pour en faire une copie éditable."
+                            title="Fiche de référence - non modifiable. Utilisez Dupliquer pour en faire une copie éditable."
                             style={{
                               background: "#f5f3ff", color: "#59169c", border: "1px solid #ddd6fe",
                               borderRadius: 6, fontSize: 10, fontWeight: 700, padding: "1px 6px",
@@ -389,18 +389,18 @@ export default function LCALibrary() {
                     </td>
                     <td style={{ ...td, color: "#9ca3af", fontSize: 12 }}>{mat.unit}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                      {mat.prix != null ? fmtNum(mat.prix) : "—"}
+                      {mat.prix != null ? fmtNum(mat.prix) : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                      {mat.valeur_r != null ? `${fmtNum(mat.valeur_r)} ${getValeurRLabel(mat.category).unit}` : "—"}
+                      {mat.valeur_r != null ? `${fmtNum(mat.valeur_r)} ${getValeurRLabel(mat.category).unit}` : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                      {mat.dvr_materiau != null ? mat.dvr_materiau : "—"}
+                      {mat.dvr_materiau != null ? mat.dvr_materiau : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#9ca3af" }}>
                       {isIsolantCategory(mat.category)
-                        ? mat.flux_reference != null ? fmtNum(mat.flux_reference, 2) : "—"
-                        : mat.poids_unite != null ? fmtNum(mat.poids_unite, 1) : "—"}
+                        ? mat.flux_reference != null ? fmtNum(mat.flux_reference, 2) : "-"
+                        : mat.poids_unite != null ? fmtNum(mat.poids_unite, 1) : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#59169c", fontWeight: 700 }}>
                       {fmtImpact(gwpKey(mat.impacts))}
@@ -464,10 +464,10 @@ export default function LCALibrary() {
         )}
       </div>
 
-      {/* ── Encart Module C — lecture seule ─────────────────────────────────── */}
+      {/* ── Encart Module C - lecture seule ─────────────────────────────────── */}
       <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "14px 18px" }}>
         <div style={{ fontWeight: 700, fontSize: 13, color: "#8c5100", marginBottom: 6 }}>
-          Procédé système — Déconstruction (Module C, EN 15978)
+          Procédé système - Déconstruction (Module C, EN 15978)
         </div>
         <div style={{ fontSize: 12, color: "#78350f", marginBottom: 8 }}>
           Appliqué à tous les matériaux ayant un poids/unité renseigné. Source : ACV interne, procédé C1.
@@ -511,7 +511,7 @@ export default function LCALibrary() {
                 {imp.file ? (
                   <div>
                     <div style={{ fontWeight: 700, color: "#59169c", fontSize: 14 }}>{imp.file.name}</div>
-                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{(imp.file.size / 1024).toFixed(1)} Ko — cliquez pour changer</div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>{(imp.file.size / 1024).toFixed(1)} Ko - cliquez pour changer</div>
                   </div>
                 ) : (
                   <div>
@@ -564,7 +564,7 @@ export default function LCALibrary() {
                     <FormField label={<span>Flux de référence (kg/m²·K/W) <span>*</span> <span title="Masse de matériau nécessaire pour 1 m²·K/W sur 1 m², requis pour les calculs ACV des isolants" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input type="number" min="0" step="any" value={imp.fluxReference} onChange={(e) => setImp((s) => ({ ...s, fluxReference: e.target.value }))} style={inputStyle} placeholder="8.5" required />
                     </FormField>
-                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>λ - Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
                         type="number" min="0" step="any"
                         value={imp.valeurLambda}
@@ -576,7 +576,7 @@ export default function LCALibrary() {
                   </>
                 )}
                 {!isIsolantCategory(imp.category) && (
-                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle — requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle - requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                     <input type="number" min="0" step="any" value={imp.poidsUnite} onChange={(e) => setImp((s) => ({ ...s, poidsUnite: e.target.value }))} style={inputStyle} placeholder="ex : 350" />
                   </FormField>
                 )}
@@ -618,12 +618,12 @@ export default function LCALibrary() {
           <div style={{ ...modal, width: 620 }}>
             <ModalHeader title={ficheModal.name} onClose={() => setFicheModal(null)} />
 
-            {/* Section 1 — Informations générales */}
+            {/* Section 1 - Informations générales */}
             <div style={sectionLabel}>Informations générales</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", marginBottom: 22 }}>
               <InfoRow label="Catégorie"            value={CATEGORY_LABELS[ficheModal.category] || ficheModal.category} />
-              <InfoRow label="Unité fonctionnelle"  value={ficheModal.functional_unit || "—"} />
-              <InfoRow label="Prix (€)"             value={ficheModal.prix != null ? `${fmtNum(ficheModal.prix)} €` : "—"} />
+              <InfoRow label="Unité fonctionnelle"  value={ficheModal.functional_unit || "-"} />
+              <InfoRow label="Prix (€)"             value={ficheModal.prix != null ? `${fmtNum(ficheModal.prix)} €` : "-"} />
               {(() => {
                 const lbl = getValeurRLabel(ficheModal.category);
                 return (
@@ -634,29 +634,29 @@ export default function LCALibrary() {
                         {lbl.tooltip && <span title={lbl.tooltip} style={{ color: "#9ca3af", cursor: "help" }}> (?)</span>}
                       </span>
                     }
-                    value={ficheModal.valeur_r != null ? fmtNum(ficheModal.valeur_r) : "—"}
+                    value={ficheModal.valeur_r != null ? fmtNum(ficheModal.valeur_r) : "-"}
                   />
                 );
               })()}
-              <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "—"} />
+              <InfoRow label="DVR matériau (ans)"   value={ficheModal.dvr_materiau != null ? `${ficheModal.dvr_materiau} ans` : "-"} />
               {isIsolantCategory(ficheModal.category) && (
-                <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "—"} />
+                <InfoRow label="Flux ref (kg/m²·K/W)" value={ficheModal.flux_reference != null ? fmtNum(ficheModal.flux_reference, 4) : "-"} />
               )}
               {isIsolantCategory(ficheModal.category) && (
                 <InfoRow
-                  label="λ — Conductivité thermique (W/m·K)"
+                  label="λ - Conductivité thermique (W/m·K)"
                   value={
                     ficheModal.valeur_lambda != null
                       ? fmtNum(ficheModal.valeur_lambda, 3)
                       : ficheModal.impacts?.valeur_lambda != null
                       ? fmtNum(ficheModal.impacts.valeur_lambda, 3)
-                      : "—"
+                      : "-"
                   }
                 />
               )}
             </div>
 
-            {/* Section 2 — Impacts EF v3.0 */}
+            {/* Section 2 - Impacts EF v3.0 */}
             <div style={sectionLabel}>Impacts environnementaux EF v3.0</div>
             <div style={{ border: "1px solid #f3f4f6", borderRadius: 10, overflow: "hidden" }}>
               <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -681,7 +681,7 @@ export default function LCALibrary() {
                       <tr key={i} style={{ borderTop: "1px solid #f9fafb" }}>
                         <td style={{ padding: "6px 12px", fontSize: 13, color: "#374151" }}>{ind.label}</td>
                         <td style={{ padding: "6px 12px", fontSize: 13, fontWeight: isEmpty ? 400 : 700, color: isEmpty ? "#d1d5db" : "#59169c", textAlign: "right", fontVariantNumeric: "tabular-nums" }}>
-                          {isEmpty ? "—" : fmtImpact(raw)}
+                          {isEmpty ? "-" : fmtImpact(raw)}
                         </td>
                         <td style={{ padding: "6px 12px", fontSize: 12, color: "#9ca3af" }}>{ind.unit}</td>
                       </tr>
@@ -740,7 +740,7 @@ export default function LCALibrary() {
                     value={editModal.prix}
                     onChange={(e) => setEditModal((s) => ({ ...s, prix: e.target.value }))}
                     style={inputStyle}
-                    placeholder="—"
+                    placeholder="-"
                   />
                 </FormField>
                 <FormField label={(() => {
@@ -757,7 +757,7 @@ export default function LCALibrary() {
                     value={editModal.valeur_r}
                     onChange={(e) => setEditModal((s) => ({ ...s, valeur_r: e.target.value }))}
                     style={inputStyle}
-                    placeholder="—"
+                    placeholder="-"
                   />
                 </FormField>
                 <FormField label={<span>DVR matériau (années) <span>*</span> <span title="Durée de Vie de Référence du matériau, obligatoire pour les calculs ACV" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
@@ -769,7 +769,7 @@ export default function LCALibrary() {
                       ...inputStyle,
                       ...(editModal.highlightIncomplete && editModal.dvr_materiau === "" ? { border: "2px solid #f97316", background: "#fff7ed" } : {}),
                     }}
-                    placeholder="—"
+                    placeholder="-"
                   />
                 </FormField>
                 {isIsolantCategory(editModal.category) && (
@@ -783,10 +783,10 @@ export default function LCALibrary() {
                           ...inputStyle,
                           ...(editModal.highlightIncomplete && editModal.flux_reference === "" ? { border: "2px solid #f97316", background: "#fff7ed" } : {}),
                         }}
-                        placeholder="—"
+                        placeholder="-"
                       />
                     </FormField>
-                    <FormField label={<span>λ — Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                    <FormField label={<span>λ - Conductivité thermique (W/m·K) <span title="Conductivité thermique réelle de l'isolant. Utilisée par le moteur ACV pour calculer les épaisseurs." style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                       <input
                         type="number" min="0" step="any"
                         value={editModal.valeur_lambda ?? ""}
@@ -798,7 +798,7 @@ export default function LCALibrary() {
                   </>
                 )}
                 {!isIsolantCategory(editModal.category) && (
-                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle — requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
+                  <FormField label={<span>Poids/unité (kg/unité fonctionnelle) <span title="Masse par unité fonctionnelle - requis pour le calcul de la déconstruction (Module C, EN 15978)" style={{ color: "#9ca3af", cursor: "help" }}>(?)</span></span>}>
                     <input
                       type="number" min="0" step="any"
                       value={editModal.poids_unite ?? ""}
@@ -810,11 +810,11 @@ export default function LCALibrary() {
                 )}
               </div>
 
-              {/* Impacts EF v3.0 — lecture seule */}
+              {/* Impacts EF v3.0 - lecture seule */}
               {Object.keys(editModal.impacts).some(k => k !== "valeur_lambda") && (
                 <>
                   <div style={{ marginBottom: 10, fontWeight: 700, fontSize: 12, color: "#6b7280", textTransform: "uppercase", letterSpacing: "0.06em" }}>
-                    Impacts EF v3.0 — lecture seule
+                    Impacts EF v3.0 - lecture seule
                   </div>
                   <div style={{ border: "1px solid #f3f4f6", borderRadius: 10, overflowX: "auto", marginBottom: 18 }}>
                     <table style={{ width: "100%", borderCollapse: "collapse" }}>

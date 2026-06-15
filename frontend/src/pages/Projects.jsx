@@ -16,11 +16,11 @@ function buildingTypeLabel(value) {
 }
 
 function fmtDate(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   try {
     return new Date(iso).toLocaleDateString("fr-BE", { day: "2-digit", month: "2-digit", year: "numeric" });
   } catch {
-    return "—";
+    return "-";
   }
 }
 
@@ -156,7 +156,7 @@ export default function Projects() {
   const { setSelectedProjectId, selectedProjectId } = useProject();
   const navigate = useNavigate();
 
-  // Tri + filtres (P10) — liste chargée en entier, tri/filtre côté client
+  // Tri + filtres (P10) - liste chargée en entier, tri/filtre côté client
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");   // "" = tous
   const [auditFilter, setAuditFilter] = useState("");      // "" = tous

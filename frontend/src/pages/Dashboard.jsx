@@ -52,7 +52,7 @@ function StatCard({ title, value, subtitle, Icon, accentColor }) {
 }
 
 function formatDate(iso) {
-  if (!iso) return "—";
+  if (!iso) return "-";
   return new Date(iso).toLocaleDateString("fr-BE", {
     day: "2-digit",
     month: "2-digit",
@@ -109,7 +109,7 @@ export default function Dashboard() {
         Tableau de bord
       </h1>
 
-      {/* Grille 4 colonnes — cartes statistiques */}
+      {/* Grille 4 colonnes - cartes statistiques */}
       <div
         style={{
           display: "grid",
@@ -120,28 +120,28 @@ export default function Dashboard() {
       >
         <StatCard
           title="Total projets"
-          value={loading ? "—" : stats.total}
-          subtitle={`${loading ? "—" : stats.newThisMonth} ce mois-ci`}
+          value={loading ? "-" : stats.total}
+          subtitle={`${loading ? "-" : stats.newThisMonth} ce mois-ci`}
           Icon={FolderOpen}
           accentColor="#6b7280"
         />
         <StatCard
           title="Audits en cours"
-          value={loading ? "—" : stats.active}
+          value={loading ? "-" : stats.active}
           subtitle="En progression"
           Icon={Play}
           accentColor="#59169c"
         />
         <StatCard
           title="En attente"
-          value={loading ? "—" : stats.onHold}
+          value={loading ? "-" : stats.onHold}
           subtitle="Mis en pause"
           Icon={Clock}
           accentColor="#fe9300"
         />
         <StatCard
           title="Audits terminés"
-          value={loading ? "—" : stats.completed}
+          value={loading ? "-" : stats.completed}
           subtitle="Finalisés"
           Icon={CheckCircle}
           accentColor="#82137e"
@@ -201,7 +201,7 @@ export default function Dashboard() {
                       {p.project_name}
                     </span>
                     <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
-                      {buildingTypeLabel(p.building_type) || "—"}
+                      {buildingTypeLabel(p.building_type) || "-"}
                     </div>
                   </td>
                   <td style={td}>

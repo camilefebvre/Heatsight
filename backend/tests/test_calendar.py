@@ -1,4 +1,4 @@
-"""Tests — abonnement .ics personnel (lecture seule)."""
+"""Tests - abonnement .ics personnel (lecture seule)."""
 from uuid import uuid4
 from app import models
 
@@ -50,7 +50,7 @@ def test_ics_wellformed_tz_and_no_notes(client, db_session):
         "title": "Visite chantier", "start": "2026-07-01T09:30",
         "duration_min": 45, "location": "Bruxelles", "notes": "SECRET-NOTE-CONFIDENTIELLE",
     })
-    # event d'un AUTRE user (ne doit pas apparaître) — user committé AVANT l'event (FK)
+    # event d'un AUTRE user (ne doit pas apparaître) - user committé AVANT l'event (FK)
     other = f"other-{uuid4().hex[:8]}"
     db_session.add(models.User(id=other, full_name="A", email=f"{other}@t.internal", hashed_password="x"))
     db_session.commit()

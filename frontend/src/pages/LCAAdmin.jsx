@@ -103,7 +103,7 @@ export default function LCAAdmin() {
       if (!res.ok) throw new Error();
       setMaterials((prev) => prev.filter((m) => m.id !== id));
     } catch {
-      // silently fail — list reload will reflect real state
+      // silently fail - list reload will reflect real state
     } finally {
       setDeletingId(null);
       setConfirmDelete(null);
@@ -156,7 +156,7 @@ export default function LCAAdmin() {
               <div>
                 <div style={{ fontWeight: 700, color: "#59169c", fontSize: 14 }}>{file.name}</div>
                 <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
-                  {(file.size / 1024).toFixed(1)} Ko — cliquez pour changer
+                  {(file.size / 1024).toFixed(1)} Ko - cliquez pour changer
                 </div>
               </div>
             ) : (
@@ -298,7 +298,7 @@ export default function LCAAdmin() {
                     <td style={td}>{CATEGORY_LABELS[mat.category] || mat.category}</td>
                     <td style={{ ...td, color: "#6b7280", fontSize: 13 }}>{mat.functional_unit}</td>
                     <td style={{ ...td, textAlign: "right", fontVariantNumeric: "tabular-nums", color: "#59169c", fontWeight: 700 }}>
-                      {mat.impacts?.GWP100 != null ? `${mat.impacts.GWP100} kg CO₂ eq` : "—"}
+                      {mat.impacts?.GWP100 != null ? `${mat.impacts.GWP100} kg CO₂ eq` : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "center" }}>
                       <span style={{ background: "#f3f4f6", borderRadius: 8, padding: "2px 10px", fontSize: 12, fontWeight: 600 }}>
@@ -308,7 +308,7 @@ export default function LCAAdmin() {
                     <td style={{ ...td, textAlign: "right" }}>
                       {mat.is_reference ? (
                         <span
-                          title="Fiche de référence — non supprimable."
+                          title="Fiche de référence - non supprimable."
                           style={{
                             fontSize: 11, fontWeight: 700, color: "#59169c",
                             background: "#f5f3ff", border: "1px solid #ddd6fe",

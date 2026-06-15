@@ -20,7 +20,7 @@ export function isCadreCategory(cat) {
   return (cat || "").toLowerCase() === "cadre";
 }
 
-// Convention (refonte Tâche 9) — Lambda de conductivité thermique (W/m·K).
+// Convention (refonte Tâche 9) - Lambda de conductivité thermique (W/m·K).
 // Priorité de lecture :
 //   1. m.valeur_lambda          → colonne dédiée (refonte Tâche 9)
 //   2. m.impacts.valeur_lambda  → clé JSONB (Phase 1, rétrocompat transition)
@@ -62,7 +62,7 @@ export function isParoiEligibleAjoutIsolant(paroi) {
   return !opaques.some(co => isIsolantCategory(co.category));
 }
 
-// ─── R of a composant opaque (m²·K/W) — post-refonte conceptuelle ────────────
+// ─── R of a composant opaque (m²·K/W) - post-refonte conceptuelle ────────────
 // r_local (override utilisateur) > r_cible (isolants) > lambda_lib (R direct non-isolants)
 export function getComposantR(comp) {
   const rLocal = parseFloat(comp.r_local);

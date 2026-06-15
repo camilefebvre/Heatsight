@@ -44,7 +44,7 @@ function renderReport() {
   );
 }
 
-describe("ProjectReport — gating modèle rapport", () => {
+describe("ProjectReport - gating modèle rapport", () => {
   beforeEach(() => { vi.clearAllMocks(); mockApi(); });
 
   it("modèle perso actif : prefill IA désactivé, download + import disponibles", async () => {

@@ -5,7 +5,7 @@ import { apiFetch } from "../api";
 const CFG = {
   audit: {
     title: "Modèles d'audit (Excel)", ext: ".xlsx", accept: ".xlsx",
-    help: "Partez du modèle officiel : ne déplacez ni les feuilles (AA1–AA9) ni les cellules, sinon l'import ne pourra pas relire vos données.",
+    help: "Ne déplacez pas les feuilles (AA1-AA9) ni les cellules du modèle officiel, sinon l'import échouera.",
   },
   report: {
     title: "Modèles de rapport (Word)", ext: ".docx", accept: ".docx",

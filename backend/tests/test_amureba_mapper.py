@@ -5,8 +5,8 @@ Tests for amureba_mapper.py
 Run with:  pytest backend/tests/test_amureba_mapper.py -v
 
 Covers:
-  - normalize_str()         — accents, special chars, whitespace
-  - fuzzy_score()           — identical / similar / unrelated strings
+  - normalize_str()         - accents, special chars, whitespace
+  - fuzzy_score()           - identical / similar / unrelated strings
   - AmurebaMappingService.map_headers()
       - exact match
       - fuzzy / renamed columns
@@ -500,9 +500,9 @@ class TestMapWorkbook:
         assert kv2.get("titre_action") == "PV 10kWp"
 
     def test_missing_sheet_does_not_crash(self):
-        """map_workbook only iterates wb.sheetnames — absent sheets never accessed."""
+        """map_workbook only iterates wb.sheetnames - absent sheets never accessed."""
         wb = make_workbook({"AA1": [["Titre"], ["Chaudière"]]})
-        # "AA5" does not exist — calling map_workbook should be safe
+        # "AA5" does not exist - calling map_workbook should be safe
         result = self.svc.map_workbook(wb)
         assert "AA5" not in result
 

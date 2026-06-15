@@ -1,6 +1,6 @@
 """
 ╔══════════════════════════════════════════════════════════════════════════════╗
-║  ⚠  DONNÉES DE TEST — VALEURS INVENTÉES, NON SCIENTIFIQUEMENT VALIDÉES  ⚠  ║
+║  ⚠  DONNÉES DE TEST - VALEURS INVENTÉES, NON SCIENTIFIQUEMENT VALIDÉES  ⚠  ║
 ╚══════════════════════════════════════════════════════════════════════════════╝
 
 Ces 9 matériaux servent EXCLUSIVEMENT à faire fonctionner le moteur ACV 2.0
@@ -42,15 +42,15 @@ from app.models import LcaMaterial
 # ─────────────────────────────────────────────────────────────────────────────
 
 # ── Données de test ────────────────────────────────────────────────────────────
-# Valeurs inventées — développement uniquement, NON validées scientifiquement.
+# Valeurs inventées - développement uniquement, NON validées scientifiquement.
 # Clés JSONB impacts alignées sur ce que reconnaît extractImpact() dans ProjectLCA2.jsx :
-#   gwp100               (kg CO₂eq)        — frontend cherche "gwp100" / "gwp_100"
-#   energy_nonrenewable_adp (MJ)            — frontend cherche "energy_nonrenewable_adp" / ...
-#   photochemical_oxidant_hh (kg NMVOC eq)  — frontend cherche "photochemical_oxidant_hh" / ...
+#   gwp100               (kg CO₂eq)        - frontend cherche "gwp100" / "gwp_100"
+#   energy_nonrenewable_adp (MJ)            - frontend cherche "energy_nonrenewable_adp" / ...
+#   photochemical_oxidant_hh (kg NMVOC eq)  - frontend cherche "photochemical_oxidant_hh" / ...
 # Note : les noms GWP100_TOTAL / ENERGY_NONRENEWABLE_ADP dans lca_v2_config.py désignent
-# des colonnes CSV d'import, pas les clés JSONB en base — les deux espaces sont distincts.
+# des colonnes CSV d'import, pas les clés JSONB en base - les deux espaces sont distincts.
 
-# ── Convention ACV 2.0 — isolants ──────────────────────────────────────────────
+# ── Convention ACV 2.0 - isolants ──────────────────────────────────────────────
 # Convention 1 (valeur_r) : valeur_r = 1.0 pour tous les isolants (R de référence).
 # Convention 2 (lambda)   : impacts["valeur_lambda"] = conductivité thermique (W/m·K).
 # getLambda(m) dans ProjectLCA2.jsx lit impacts.valeur_lambda en priorité,
@@ -67,7 +67,7 @@ MATERIALS = [
         "functional_unit": "1 m² de mur (brique creuse 19 cm)",
         "unit": "m²",
         "prix": 25.0,
-        "valeur_r": 0.54,          # R direct m²·K/W — brique creuse λ≈0.35 × 19 cm
+        "valeur_r": 0.54,          # R direct m²·K/W - brique creuse λ≈0.35 × 19 cm
         "dvr_materiau": 80,
         "flux_reference": None,
         "is_fixed": False,
@@ -85,7 +85,7 @@ MATERIALS = [
         "functional_unit": "1 m² de mur (béton banché 20 cm)",
         "unit": "m²",
         "prix": 80.0,
-        "valeur_r": 1.33,          # R direct m²·K/W — béton banché λ≈0.15 × 20 cm
+        "valeur_r": 1.33,          # R direct m²·K/W - béton banché λ≈0.15 × 20 cm
         "dvr_materiau": 80,
         "flux_reference": None,
         "is_fixed": False,
@@ -231,7 +231,7 @@ def seed():
     nb_create, nb_update = 0, 0
 
     try:
-        print("\n=== Seeding ACV 2.0 — matériaux de test (⚠ valeurs inventées) ===\n")
+        print("\n=== Seeding ACV 2.0 - matériaux de test (⚠ valeurs inventées) ===\n")
 
         for data in MATERIALS:
             imp = data["impacts"]
@@ -313,7 +313,7 @@ def seed():
                 print(f"  Champs Isolant : flux={data['flux_reference']}  λ_explicite={imp.get('valeur_lambda')} ✓")
 
         db.commit()
-        print(f"\n✓ Terminé — {nb_create} créé(s), {nb_update} mis à jour.\n")
+        print(f"\n✓ Terminé - {nb_create} créé(s), {nb_update} mis à jour.\n")
 
     except Exception as exc:
         db.rollback()

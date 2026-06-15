@@ -37,7 +37,7 @@ function renderProjects() {
   return render(<MemoryRouter><Projects /></MemoryRouter>);
 }
 
-describe("Projects — tri + filtres (P10)", () => {
+describe("Projects - tri + filtres (P10)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     apiFetch.mockImplementation((path) => (path === "/projects" ? ok(PROJECTS) : ok([])));

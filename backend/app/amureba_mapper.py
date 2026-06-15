@@ -4,9 +4,9 @@ AmurebaMappingService
 Maps raw openpyxl worksheet data to semantic improvement-action fields.
 
 Two complementary strategies are applied per sheet:
-  1. Fixed-cell extraction  — reads cells at known AMUREBA template positions
+  1. Fixed-cell extraction  - reads cells at known AMUREBA template positions
      (B9, G61, G77, G87, N15, …).  Reliable for well-formed AA1-AA9 sheets.
-  2. Tabular extraction     — auto-detects the header row, extracts data rows,
+  2. Tabular extraction     - auto-detects the header row, extracts data rows,
      then fuzzy-maps each header to a semantic field.  Works even when the
      auditor renames or moves columns.
 
@@ -72,7 +72,7 @@ AMUREBA_FORM_CELLS: Dict[str, str] = {
 }
 
 #: Semantic fields exposed to callers and their known column-name aliases.
-#: Edit freely — the fuzzy matcher handles partial or inexact matches.
+#: Edit freely - the fuzzy matcher handles partial or inexact matches.
 SEMANTIC_ALIASES: Dict[str, List[str]] = {
     "titre_action": [
         "titre", "intitulé", "intitule", "libellé", "libelle",
@@ -210,7 +210,7 @@ def safe_cell_value(cell) -> Any:
       - Excel error strings (#REF!, #VALUE!, #DIV/0! …)
       - Whitespace-only strings
 
-    Never raises — all exceptions are caught and logged.
+    Never raises - all exceptions are caught and logged.
     """
     try:
         v = cell.value
@@ -225,7 +225,7 @@ def safe_cell_value(cell) -> Any:
         if not stripped:
             return None
         if stripped.startswith("#") or stripped in EXCEL_ERROR_PREFIXES:
-            log.debug("Excel error at %s: %r — replaced with null",
+            log.debug("Excel error at %s: %r - replaced with null",
                       getattr(cell, "coordinate", "?"), stripped)
             return None
         return stripped
@@ -323,7 +323,7 @@ def extract_tabular_data(ws) -> Dict[str, Any]:
     # is_actual[i] = True  → header came from a real cell value
     # is_actual[i] = False → it is a column-letter placeholder (e.g. "A", "BC")
     if header_row_idx is None:
-        # No header detected — use column letters as internal keys only
+        # No header detected - use column letters as internal keys only
         headers = [get_column_letter(c) for c in range(1, max_col + 1)]
         is_actual: List[bool] = [False] * max_col
         data_start = 1
@@ -439,7 +439,7 @@ class AmurebaMappingService:
           - _deduction_raw     → deduction_fiscale  True/False/None
 
         Returns:
-            {semantic_field: value} — only fields with non-None values.
+            {semantic_field: value} - only fields with non-None values.
 
         Edge cases:
             - Cells missing from sheet → silently skipped
@@ -498,7 +498,7 @@ class AmurebaMappingService:
         Full mapping pipeline for one worksheet.
 
         Steps:
-          1. Emptiness check — returns None if sheet has no values
+          1. Emptiness check - returns None if sheet has no values
           2. Tabular extraction (header detection + data rows)
           3. Fixed-cell AMUREBA extraction
           4. Fuzzy header mapping
@@ -573,7 +573,7 @@ class AmurebaMappingService:
         Map all non-empty sheets of a workbook.
 
         Returns:
-            {sheet_name: map_sheet_result} — only sheets with content.
+            {sheet_name: map_sheet_result} - only sheets with content.
 
         Edge cases:
             - A sheet that raises an unexpected exception → warning logged,

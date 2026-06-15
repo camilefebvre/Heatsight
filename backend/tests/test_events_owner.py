@@ -1,4 +1,4 @@
-"""Tests — events par utilisateur (owner scoping)."""
+"""Tests - events par utilisateur (owner scoping)."""
 from uuid import uuid4
 from app import models
 

@@ -107,7 +107,7 @@ function UserSection({ collapsed }) {
 
   return (
     <div ref={ref} style={{ position: "relative" }}>
-      {/* Dropdown — s'ouvre vers le haut */}
+      {/* Dropdown - s'ouvre vers le haut */}
       {open && (
         <div
           style={{
@@ -325,13 +325,13 @@ export default function Sidebar({ collapsed, onToggle }) {
         <SidebarLink to="/lca/library" icon={Library} label="Bibliothèque ACV" collapsed={collapsed} />
       </nav>
 
-      {/* Collecte de données — global */}
+      {/* Collecte de données - global */}
       <SectionLabel label="Collecte de données" collapsed={collapsed} />
       <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <SidebarLink to="/client-requests" icon={MessageSquare} label="Requête client" collapsed={collapsed} />
       </nav>
 
-      {/* Section projet — affichée seulement si un projet est ouvert */}
+      {/* Section projet - affichée seulement si un projet est ouvert */}
       {selectedProjectId && (
         <>
           {!collapsed && (
@@ -374,10 +374,10 @@ export default function Sidebar({ collapsed, onToggle }) {
         </>
       )}
 
-      {/* Spacer — pousse l'avatar vers le bas */}
+      {/* Spacer - pousse l'avatar vers le bas */}
       <div style={{ flex: 1 }} />
 
-      {/* Avatar utilisateur — épinglé en bas */}
+      {/* Avatar utilisateur - épinglé en bas */}
       <div style={{ borderTop: "1px solid #1e2235", paddingTop: 12, paddingBottom: 16 }}>
         <UserSection collapsed={collapsed} />
       </div>

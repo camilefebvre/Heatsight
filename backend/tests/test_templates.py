@@ -1,5 +1,5 @@
 """
-Tests d'intégration — bibliothèque de modèles de livrable (templates), étape (i).
+Tests d'intégration - bibliothèque de modèles de livrable (templates), étape (i).
 
 Base : SQLite en mémoire (cf. conftest). Les FK SQLite sont activées ici pour
 vérifier ON DELETE SET NULL (Postgres prod : enforcement natif).

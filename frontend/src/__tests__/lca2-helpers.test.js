@@ -1,5 +1,5 @@
 /**
- * Tests unitaires — Helpers ACV 2.0
+ * Tests unitaires - Helpers ACV 2.0
  *
  * Périmètre : fonctions pures de calcul thermique et de génération de candidats
  * extraites de ProjectLCA2.jsx dans src/utils/lca2-helpers.js.
@@ -162,7 +162,7 @@ describe("isParoiEligibleAjoutIsolant", () => {
   });
 });
 
-// ─── getComposantR — post-refonte conceptuelle ───────────────────────────────
+// ─── getComposantR - post-refonte conceptuelle ───────────────────────────────
 describe("getComposantR", () => {
   test("r_local override → priorité absolue", () => {
     const co = { r_local: "2.5", r_cible: "1.0", lambda_lib: 0.35, category: "Mur" };

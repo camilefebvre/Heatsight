@@ -1,11 +1,11 @@
 """
-Tests d'intégration — Routes ACV versionnées (v1 / v2)
+Tests d'intégration - Routes ACV versionnées (v1 / v2)
 =======================================================
 
 Couvre :
-  POST /lca/materials/import         — Tests 1 à 5
-  GET  /lca/materials/{id}           — Tests 6 et 7
-  PATCH /projects/{id}/lca/batiments — Tests 8 à 10
+  POST /lca/materials/import         - Tests 1 à 5
+  GET  /lca/materials/{id}           - Tests 6 et 7
+  PATCH /projects/{id}/lca/batiments - Tests 8 à 10
 
 Lancement :
   cd backend
@@ -123,7 +123,7 @@ class TestGetLcaMaterial:
     def test_07_lecture_materiau_legacy_v2_reussit_dvr_null(self, client, seed_legacy_material):
         """
         Lecture d'un matériau ACV 1.0 avec ?version=v2 : la route GET n'est pas
-        encore versionnée — elle retourne 200 et dvr_materiau=null.
+        encore versionnée - elle retourne 200 et dvr_materiau=null.
         Le frontend interprète dvr_materiau=null comme un signal "donnée incomplète ACV 2.0".
         NOTE: validation_warnings n'est pas encore implémenté dans la réponse GET.
         """

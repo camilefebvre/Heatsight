@@ -35,9 +35,9 @@ export default function ProjectBreadcrumb() {
 
   return (
     <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 12, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
-      <span>{project.client_name || "—"}</span>
+      <span>{project.client_name || "-"}</span>
       {sep}
-      <span>{project.project_name || "—"}</span>
+      <span>{project.project_name || "-"}</span>
       {mod && (<>{sep}<span style={{ color: "#374151", fontWeight: 700 }}>{mod}</span></>)}
     </div>
   );

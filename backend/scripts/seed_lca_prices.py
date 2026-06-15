@@ -44,25 +44,25 @@ if not DATABASE_URL:
 #   Mur en brique
 #     λ_brique ≈ 0,80 W/mK (brique pleine standard, CSTC NIT 214)
 #     épaisseur typique = 20 cm  →  R = 0,20 / 0,80 = 0,25 m²K/W
-#     Prix marché belge (brique silico-calcaire + pose) : 70–110 €/m²  → 85 €/m²
+#     Prix marché belge (brique silico-calcaire + pose) : 70-110 €/m²  → 85 €/m²
 #
 #   Cadre de fenêtre en aluminium (à rupture de pont thermique)
 #     U_cadre ≈ 2,2 W/m²K selon NBN EN ISO 10077-2  →  R = 1/2,2 ≈ 0,45 m²K/W
-#     Prix cadre alu RPT hors vitrage (marché BE 2024) : 90–160 €/m²  → 120 €/m²
+#     Prix cadre alu RPT hors vitrage (marché BE 2024) : 90-160 €/m²  → 120 €/m²
 #
 #   Double fenêtre (4-16-4 mm argon + low-e)
 #     U_g ≈ 1,10 W/m²K selon NBN EN 673             →  R = 1/1,10 ≈ 0,90 m²K/W
 #     Valeur exigée en rénovation PEB Wallonie depuis 2017 pour les nouvelles poses
-#     Prix unité vitrée seule (BE 2024) : 85–145 €/m²  → 110 €/m²
+#     Prix unité vitrée seule (BE 2024) : 85-145 €/m²  → 110 €/m²
 #
 #   Simple vitrage (verre clair 4 mm)
 #     U_g ≈ 5,80 W/m²K (NBN EN 673, réf. PEB)       →  R = 1/5,80 ≈ 0,17 m²K/W
-#     Prix verre clair 4 mm : 35–55 €/m²              → 40 €/m²
+#     Prix verre clair 4 mm : 35-55 €/m²              → 40 €/m²
 #
 #   Triple vitrage (4-12-4-12-4 mm argon/krypton + double low-e)
 #     U_g ≈ 0,67 W/m²K (médiane gammes AGC / Velux)  →  R = 1/0,67 ≈ 1,50 m²K/W
 #     Standard construction passive en Belgique
-#     Prix unité vitrée seule (BE 2024) : 220–340 €/m²  → 260 €/m²
+#     Prix unité vitrée seule (BE 2024) : 220-340 €/m²  → 260 €/m²
 #
 UPDATES = [
     # (nom_exact,                             prix,    valeur_r)

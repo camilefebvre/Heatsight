@@ -468,7 +468,7 @@ export default function ProjectEnergy() {
             {/* Totals */}
             <div style={{ marginTop: 18 }}>
               <div style={{ fontWeight: 800, fontSize: 15, color: "#111827", marginBottom: 10 }}>
-                Consommations annuelles &mdash; {activeYear}
+                Consommations annuelles - {activeYear}
               </div>
 
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(260px, 1fr))", gap: 12 }}>
@@ -630,12 +630,12 @@ export default function ProjectEnergy() {
                 />
                 <SummaryKpi
                   label="Année la plus coûteuse"
-                  value={mostExpensiveYearKey ?? "—"}
+                  value={mostExpensiveYearKey ?? "-"}
                   sub={mostExpensiveYearKey ? formatEuro(Math.max(...totalCostPerYear)) : null}
                 />
                 <SummaryKpi
                   label="Énergie la plus coûteuse"
-                  value={mostExpensiveEnergyKey ? ENERGY_LABELS[mostExpensiveEnergyKey] : "—"}
+                  value={mostExpensiveEnergyKey ? ENERGY_LABELS[mostExpensiveEnergyKey] : "-"}
                   sub={mostExpensiveEnergyKey ? formatEuro(totalCostPerEnergy[mostExpensiveEnergyKey]) : null}
                   accentColor={mostExpensiveEnergyKey ? ENERGY_COLORS[mostExpensiveEnergyKey] : null}
                 />

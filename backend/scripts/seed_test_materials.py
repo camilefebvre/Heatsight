@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Seed script — insère des matériaux de test réalistes pour chaque catégorie LCA.
+Seed script - insère des matériaux de test réalistes pour chaque catégorie LCA.
 
 Usage (depuis backend/) :
     python scripts/seed_test_materials.py
@@ -114,7 +114,7 @@ _METAL = {
 }
 
 _BIO_BASED = {
-    # Bio-sourcés (bois massif, OSB, pin) — stockage carbone → climate_biogenic négatif
+    # Bio-sourcés (bois massif, OSB, pin) - stockage carbone → climate_biogenic négatif
     "eutrophication_fw":           1.3e-4,
     "eutrophication_marine":       1.0e-3,
     "eutrophication_terrestrial":  6.5e-3,
@@ -353,7 +353,7 @@ MATERIALS = [
     ),
 
     # ── Fenêtre ───────────────────────────────────────────────────────────────
-    # valeur_r = R global (m²K/W) — convention pour les baies vitrées
+    # valeur_r = R global (m²K/W) - convention pour les baies vitrées
     dict(
         name="Fenêtre PVC double vitrage",
         category="Fenêtre",
@@ -606,11 +606,11 @@ def main() -> None:
             inserted += 1
 
         db.commit()
-        print(f"\n✓ Terminé — {inserted} inséré(s), {skipped} ignoré(s) (déjà présents).")
+        print(f"\n✓ Terminé - {inserted} inséré(s), {skipped} ignoré(s) (déjà présents).")
 
     except Exception as exc:
         db.rollback()
-        print(f"\n✗ Erreur — rollback effectué.\n{exc}", file=sys.stderr)
+        print(f"\n✗ Erreur - rollback effectué.\n{exc}", file=sys.stderr)
         raise
     finally:
         db.close()

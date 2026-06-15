@@ -49,7 +49,7 @@ function renderAudit() {
   );
 }
 
-describe("ProjectPlanAmelioration — gating modèle audit", () => {
+describe("ProjectPlanAmelioration - gating modèle audit", () => {
   beforeEach(() => { vi.clearAllMocks(); mockApi(); });
 
   it("modèle perso actif : prefill IA désactivé, export + import disponibles", async () => {

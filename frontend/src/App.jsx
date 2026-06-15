@@ -36,7 +36,7 @@ export default function App() {
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/client-requests" element={<ClientRequests />} />
           <Route path="/share-access" element={<ShareAccess />} />
-          {/* routes "dans un projet" — enveloppées par ProjectLayout (fil d'Ariane) */}
+          {/* routes "dans un projet" - enveloppées par ProjectLayout (fil d'Ariane) */}
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Navigate to="audit" replace />} />
             <Route path="audit" element={<ProjectPlanAmelioration />} />

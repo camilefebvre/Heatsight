@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Download, Upload, Sparkles, RefreshCw,
+  Download, Upload, Sparkles, RefreshCw, FileText,
   Clock, X, CheckSquare, Square, AlertTriangle, FileCheck,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
@@ -39,10 +39,11 @@ const SECTION_META = {
   plan_amelioration:    { label: "Plan d'amélioration",     icon: "🔧" },
 };
 
-/* ── Source labels for history ───────────────────────────────── */
-const SOURCE_LABELS = {
-  ai_prefill:    "Pré-rempli par IA",
-  manual_upload: "Upload manuel",
+/* ── Métadonnées source (style bandeau Audit) ────────────────── */
+const REPORT_SOURCE_META = {
+  ai_prefill:    { label: "Pré-rempli par IA", color: "#59169c", bg: "#f5f3ff", Icon: FileCheck },
+  manual_upload: { label: "Upload manuel",      color: "#0369a1", bg: "#e0f2fe", Icon: Upload },
+  _none:         { label: "Aucun rapport Word", color: "#6b7280", bg: "#f9fafb", Icon: FileText },
 };
 
 /* ── Helpers ─────────────────────────────────────────────────── */
@@ -124,8 +125,8 @@ export default function ProjectReport() {
   const [applying,          setApplying]          = useState(false);
   const [uploading,         setUploading]         = useState(false);
   const [downloadingCurrent, setDownloadingCurrent] = useState(false);
-  const [uploadFile,     setUploadFile]     = useState(null);
   const [uploadMsg,      setUploadMsg]      = useState("");
+  const [uploadError,    setUploadError]    = useState("");
 
   const [historyOpen,    setHistoryOpen]    = useState(false);
   const [history,        setHistory]        = useState([]);
@@ -242,14 +243,16 @@ export default function ProjectReport() {
   }
 
   /* ── Upload ────────────────────────────────────────────────── */
-  async function handleUpload() {
-    if (!uploadFile) return;
+  async function handleUpload(e) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = "";
     setUploading(true);
     setUploadMsg("");
-    setPageError("");
+    setUploadError("");
     try {
       const fd = new FormData();
-      fd.append("file", uploadFile);
+      fd.append("file", file);
       const res = await apiFetch(`/projects/${projectId}/report/upload-docx`, {
         method: "POST",
         body: fd,
@@ -258,13 +261,11 @@ export default function ProjectReport() {
         const body = await res.json().catch(() => null);
         throw new Error(body?.detail || `Erreur serveur (${res.status})`);
       }
-      setUploadFile(null);
-      if (uploadRef.current) uploadRef.current.value = "";
       setUploadMsg("Fichier importé avec succès.");
       await loadAll();
       if (historyOpen) loadHistory();
-    } catch (e) {
-      setPageError(e.message || "Erreur lors de l'import");
+    } catch (err) {
+      setUploadError(err.message || "Erreur lors de l'import");
     } finally {
       setUploading(false);
     }
@@ -288,9 +289,6 @@ export default function ProjectReport() {
   if (loading) return <div style={{ color: "#6b7280" }}>Chargement…</div>;
   if (!project) return <div style={{ color: "#6b7280" }}>Projet introuvable.</div>;
 
-  const hasDocx    = reportStatus?.has_report_docx;
-  const docxSource = reportStatus?.report_docx_source;
-  const prefillAt  = reportStatus?.report_prefilled_at;
   const selectedCount = items.filter((i) => i.selected).length;
 
   return (
@@ -308,135 +306,63 @@ export default function ProjectReport() {
         </button>
       </div>
 
+      {pageError && <div style={{ ...s.errorBox, marginBottom: 16 }}>{pageError}</div>}
+
       {/* ── Deux zones : rapport courant (gauche) + modèles (droite) ── */}
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
-      {/* ── Docx status banner ─────────────────────────────────── */}
-      <div style={{
-        marginBottom: 12, padding: "12px 16px",
-        background: hasDocx ? "#f3f4f6" : "#f9fafb",
-        border: `1px solid ${hasDocx ? "#e5e7eb" : "#e5e7eb"}`,
-        borderRadius: 10, fontSize: 13,
-        color: hasDocx ? "#374151" : "#6b7280",
-        display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap",
-      }}>
-        {hasDocx ? (
-          <>
-            <span style={{ fontWeight: 700 }}>Rapport Word disponible</span>
-            <span style={{ opacity: 0.7 }}>—</span>
-            <span>{SOURCE_LABELS[docxSource] || docxSource}</span>
-            {prefillAt && (
-              <span style={{ opacity: 0.6, fontSize: 12 }}>
-                {new Date(prefillAt).toLocaleString("fr-BE", { dateStyle: "short", timeStyle: "short" })}
-              </span>
-            )}
-            <button
-              onClick={handleDownloadCurrent}
-              disabled={downloadingCurrent}
-              style={{
-                marginLeft: "auto", display: "flex", alignItems: "center", gap: 6,
-                padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
-                border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#374151",
-                cursor: downloadingCurrent ? "default" : "pointer",
-              }}
-            >
-              <Download size={13} />
-              {downloadingCurrent ? "Téléchargement…" : "Télécharger la version courante"}
-            </button>
-          </>
-        ) : (
-          <span>Aucun rapport Word disponible — lancez le pré-remplissage IA ou importez un fichier.</span>
-        )}
-      </div>
+      <SectionCard title="Rapport Word - Pré-remplissage IA & import">
 
-      {pageError && <div style={{ ...s.errorBox, marginBottom: 12 }}>{pageError}</div>}
+        {/* ── Bandeau version courante ──────────────────── */}
+        <CurrentVersionBanner
+          reportStatus={reportStatus}
+          downloading={downloadingCurrent}
+          onDownload={handleDownloadCurrent}
+        />
 
-      {/* ── AI Prefill card ─────────────────────────────────────── */}
-      <div style={s.card}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: items.length > 0 ? 16 : 0 }}>
+        {/* ── Zone action IA (masquée pendant la revue des propositions) ── */}
+        {items.length === 0 && (
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>Pré-remplissage IA</div>
-            <div style={{ fontSize: 12, color: "#6b7280", marginTop: 2 }}>
-              Claude analyse les données du projet (documents, compta énergie, actions AMUREBA) et propose des valeurs pour toutes les sections du rapport.
+            <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14, lineHeight: 1.7 }}>
+              Claude analyse les données du projet (documents, compta énergie, actions AMUREBA)
+              et propose des valeurs pour toutes les sections du rapport.
             </div>
-          </div>
-          <button
-            type="button"
-            onClick={handleAnalyze}
-            disabled={analyzing || applying || prefillDisabled}
-            style={{ ...s.primaryBtn, flexShrink: 0, opacity: (analyzing || applying || prefillDisabled) ? 0.7 : 1, cursor: prefillDisabled ? "not-allowed" : "pointer" }}
-          >
-            {analyzing
-              ? <><RefreshCw size={14} style={spin} /> Analyse…</>
-              : <><Sparkles size={14} /> Analyser avec l'IA</>}
-          </button>
-        </div>
-
-        {prefillDisabled && (
-          <div style={{ marginTop: 12, fontSize: 13, color: "#6b7280", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", lineHeight: 1.5 }}>
-            Pré-remplissage IA indisponible avec un modèle personnalisé — mode manuel
-            (télécharger l'officiel → compléter dans Word → réimporter).
+            {prefillDisabled && (
+              <div style={{ marginBottom: 14, fontSize: 13, color: "#6b7280", background: "#f8fafc", border: "1px solid #e5e7eb", borderRadius: 10, padding: "10px 14px", lineHeight: 1.5 }}>
+                Pré-remplissage IA indisponible avec un modèle personnalisé - mode manuel
+                (télécharger l'officiel → compléter dans Word → réimporter).
+              </div>
+            )}
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 10 }}>
+              <button
+                type="button"
+                onClick={handleAnalyze}
+                disabled={analyzing || applying || prefillDisabled}
+                style={{ ...s.primaryBtn, opacity: (analyzing || applying || prefillDisabled) ? 0.7 : 1, cursor: prefillDisabled ? "not-allowed" : "pointer" }}
+              >
+                {analyzing
+                  ? <><RefreshCw size={14} style={spin} /> Analyse…</>
+                  : <><Sparkles size={14} /> Analyser avec l'IA</>}
+              </button>
+            </div>
+            {analyzeError && <div style={{ ...s.errorBox, marginTop: 14 }}>{analyzeError}</div>}
           </div>
         )}
 
-        {analyzeError && <div style={{ ...s.errorBox, marginTop: 12 }}>{analyzeError}</div>}
-
-        {/* ── Checklist groupée par section ─────────────────────── */}
-        {items.length > 0 && (
-          <ChecklistPanel
-            items={items}
-            proposalData={proposalData}
-            applying={applying}
-            selectedCount={selectedCount}
-            onToggle={toggleItem}
-            onToggleAll={toggleAll}
-            onApply={handleApply}
-            onClose={() => { setItems([]); setProposalData(null); }}
-            error={applyError}
-          />
-        )}
-      </div>
-
-      {/* ── Upload section ─────────────────────────────────────── */}
-      <div style={{ ...s.infoCard, marginTop: 12 }}>
-        <div style={{ fontWeight: 700, fontSize: 14, color: "#374151", marginBottom: 6 }}>
-          Importer un rapport Word modifié
-        </div>
-        <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 10, lineHeight: 1.6 }}>
-          Le fichier importé deviendra la nouvelle base pour les prochains pré-remplissages IA. Une ligne d'historique sera créée.
-        </div>
-        <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-          <input
-            ref={uploadRef}
-            type="file"
-            accept=".docx"
-            onChange={(e) => { setUploadFile(e.target.files?.[0] || null); setUploadMsg(""); }}
-            style={{ fontSize: 13 }}
-          />
-          <button
-            type="button"
-            onClick={handleUpload}
-            disabled={!uploadFile || uploading}
-            style={{
-              background: uploadFile ? "#59169c" : "#e5e7eb",
-              color: uploadFile ? "white" : "#9ca3af",
-              border: "none", padding: "8px 14px", borderRadius: 10,
-              fontWeight: 700, cursor: uploadFile ? "pointer" : "default",
-              display: "inline-flex", alignItems: "center", gap: 6,
-            }}
-          >
-            {uploading
-              ? <><RefreshCw size={14} style={spin} /> Import…</>
-              : <><Upload size={14} /> Importer</>}
-          </button>
-          {uploadMsg && <span style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{uploadMsg}</span>}
-        </div>
-      </div>
+        {/* ── Section Upload ────────────────────────────── */}
+        <UploadSection
+          uploading={uploading}
+          uploadMsg={uploadMsg}
+          uploadError={uploadError}
+          fileRef={uploadRef}
+          onUpload={handleUpload}
+        />
+      </SectionCard>
 
         </div>{/* fin ZONE PRINCIPALE */}
 
-        {/* PANNEAU DROITE — bibliothèque de modèles */}
+        {/* PANNEAU DROITE - bibliothèque de modèles */}
         <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
           <TemplateLibraryPanel
             type="report"
@@ -449,6 +375,23 @@ export default function ProjectReport() {
 
       </div>{/* fin deux zones */}
 
+      {/* ══ Propositions IA — pleine largeur, sous les deux colonnes ══ */}
+      {items.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <ChecklistPanel
+            items={items}
+            proposalData={proposalData}
+            applying={applying}
+            selectedCount={selectedCount}
+            onToggle={toggleItem}
+            onToggleAll={toggleAll}
+            onApply={handleApply}
+            onClose={() => { setItems([]); setProposalData(null); }}
+            error={applyError}
+          />
+        </div>
+      )}
+
       {/* ── History drawer ──────────────────────────────────────── */}
       {historyOpen && (
         <HistoryDrawer
@@ -458,6 +401,99 @@ export default function ProjectReport() {
           projectId={projectId}
         />
       )}
+    </div>
+  );
+}
+
+/* ── SectionCard ────────────────────────────────────────────── */
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <div style={{ background: "white", borderRadius: 16, boxShadow: "0 4px 16px rgba(0,0,0,0.06)", padding: "20px 22px", marginBottom: 16 }}>
+      <div style={{ fontWeight: 800, fontSize: 16, color: "#111827", marginBottom: subtitle ? 4 : 16 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 14 }}>{subtitle}</div>}
+      {children}
+    </div>
+  );
+}
+
+/* ── Bandeau version courante (style Audit) ─────────────────── */
+function CurrentVersionBanner({ reportStatus, downloading, onDownload }) {
+  const source  = reportStatus?.report_docx_source || null;
+  const meta    = REPORT_SOURCE_META[source] || REPORT_SOURCE_META._none;
+  const hasDocx = reportStatus?.has_report_docx;
+  const dateStr = reportStatus?.report_prefilled_at
+    ? new Date(reportStatus.report_prefilled_at).toLocaleString("fr-BE", {
+        day: "2-digit", month: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit",
+      })
+    : null;
+
+  return (
+    <div style={{
+      display: "flex", alignItems: "center", justifyContent: "space-between",
+      flexWrap: "wrap", gap: 10,
+      background: meta.bg, border: `1px solid ${meta.color}33`,
+      borderRadius: 10, padding: "10px 14px", marginBottom: 16,
+    }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+        <meta.Icon size={18} style={{ color: meta.color, flexShrink: 0 }} />
+        <div>
+          <div style={{ fontWeight: 700, fontSize: 13, color: meta.color }}>
+            Version courante : {meta.label}
+          </div>
+          {hasDocx && dateStr && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              {source === "manual_upload" ? "Uploadé" : "Généré"} le {dateStr}
+            </div>
+          )}
+          {!hasDocx && (
+            <div style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
+              Aucun rapport Word enregistré. Lancez le pré-remplissage IA ou importez un fichier.
+            </div>
+          )}
+        </div>
+      </div>
+      {hasDocx && (
+        <button
+          onClick={onDownload}
+          disabled={downloading}
+          style={{
+            display: "flex", alignItems: "center", gap: 6,
+            padding: "6px 14px", fontSize: 12, fontWeight: 600, borderRadius: 8,
+            border: "1px solid #e5e7eb", background: "#f3f4f6", color: "#374151",
+            cursor: downloading ? "default" : "pointer",
+            opacity: downloading ? 0.7 : 1,
+          }}
+        >
+          <Download size={13} />
+          {downloading ? "Téléchargement…" : "Télécharger la version courante"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* ── Section Upload (style Audit, import 1 temps) ───────────── */
+function UploadSection({ uploading, uploadMsg, uploadError, fileRef, onUpload }) {
+  return (
+    <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 18, paddingTop: 14 }}>
+      <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, fontWeight: 600 }}>
+        Importer un rapport Word modifié
+      </div>
+      <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10, lineHeight: 1.6 }}>
+        Le fichier importé deviendra la nouvelle base pour les prochains pré-remplissages IA. Une ligne d'historique sera créée.
+      </div>
+      <button
+        onClick={() => fileRef.current?.click()}
+        disabled={uploading}
+        style={{ ...s.outlineBtn, fontSize: 12, padding: "8px 14px", opacity: uploading ? 0.7 : 1 }}
+      >
+        {uploading
+          ? <><RefreshCw size={14} style={spin} /> Import en cours…</>
+          : <><Upload size={14} /> Importer un rapport Word</>}
+      </button>
+      <input ref={fileRef} type="file" accept=".docx" style={{ display: "none" }} onChange={onUpload} />
+      {uploadMsg   && <div style={{ ...s.okBox,    marginTop: 10 }}>{uploadMsg}</div>}
+      {uploadError && <div style={{ ...s.errorBox, marginTop: 10 }}>{uploadError}</div>}
     </div>
   );
 }
@@ -900,19 +936,6 @@ function HistoryEntry({ entry, projectId }) {
 
 /* ── Styles ─────────────────────────────────────────────────── */
 const s = {
-  card: {
-    marginBottom: 0,
-    background: "white",
-    borderRadius: 16,
-    padding: 16,
-    boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
-  },
-  infoCard: {
-    background: "#f8fafc",
-    borderRadius: 16,
-    padding: 20,
-    border: "1px solid #e5e7eb",
-  },
   primaryBtn: {
     background: "#59169c", color: "white", border: "none",
     padding: "10px 16px", borderRadius: 12, fontWeight: 700,
@@ -924,6 +947,17 @@ const s = {
     padding: "10px 16px", borderRadius: 12, fontWeight: 600,
     cursor: "pointer", display: "inline-flex", alignItems: "center",
     gap: 7, fontSize: 13,
+  },
+  outlineBtn: {
+    background: "white", color: "#59169c", border: "2px solid #59169c",
+    padding: "10px 16px", borderRadius: 12, fontWeight: 700,
+    cursor: "pointer", display: "inline-flex", alignItems: "center",
+    gap: 7, fontSize: 13,
+  },
+  okBox: {
+    background: "#f3f4f6", color: "#374151",
+    padding: "10px 14px", borderRadius: 10,
+    fontWeight: 600, fontSize: 13,
   },
   errorBox: {
     background: "#fee2e2", color: "#8f1d2f",

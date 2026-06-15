@@ -27,8 +27,8 @@ const PRIX_KWH_BY_CHAUFFAGE = {
   electrique: 0.345,
 };
 
-// Facteur déconstruction — EN 15978 Module C. Source : ACV interne (procédé C1, par tonne).
-// Valeurs PAR KG (= valeur par tonne / 1000) — masses code en kg, produit direct sans facteur 1000.
+// Facteur déconstruction - EN 15978 Module C. Source : ACV interne (procédé C1, par tonne).
+// Valeurs PAR KG (= valeur par tonne / 1000) - masses code en kg, produit direct sans facteur 1000.
 // GWP = climate change total (EF v3.1 / IPCC AR6 2021) ; fiches matériaux en EF v3.0 / IPCC AR5 2013 (Δ < 2 %).
 const DECON_IMPACTS_PER_KG = {
   gwp100:    0.007209,   // kg CO₂eq/kg  (7,209 kg CO₂eq/tonne)
@@ -53,17 +53,17 @@ function newId() {
 }
 
 function fmt(v) {
-  if (v == null) return "—";
+  if (v == null) return "-";
   return Math.round(v).toLocaleString("fr-BE");
 }
 
 function fmtDec(v, dec = 2) {
-  if (v == null) return "—";
+  if (v == null) return "-";
   return v.toFixed(dec);
 }
 
 function fmtSmall(v) {
-  if (v == null) return "—";
+  if (v == null) return "-";
   if (v === 0) return "0";
   if (Math.abs(v) < 0.001) return v.toExponential(2);
   if (Math.abs(v) < 1) return v.toPrecision(3);
@@ -93,7 +93,7 @@ function extractImpact(impacts, ...keys) {
 
 // ─── Optimisation helpers ─────────────────────────────────────────────────────
 
-// Fix 2 — Hash djb2 (pas de dépendance externe)
+// Fix 2 - Hash djb2 (pas de dépendance externe)
 function djb2Hash(str) {
   let h = 5381;
   for (let i = 0; i < str.length; i++) {
@@ -137,7 +137,7 @@ function computeConfigHash(bat, materials) {
   return djb2Hash(JSON.stringify({ changeables, matLib, energy }));
 }
 
-// Génération des combinaisons — stratégie 3 listes (ACV 2.0)
+// Génération des combinaisons - stratégie 3 listes (ACV 2.0)
 function buildCombinations(bat, materials, epIsolantMaxRaw) {
   const PER_SLOT    = 5;      // max candidats par slot opaque/vitrage/cadre
   const SAFETY_CAP  = 50_000; // plafond de sécurité pour l'énumération
@@ -424,7 +424,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
           sOpaque:    sOpaqueParoi,
         });
         if (import.meta.env.DEV) {
-          console.log(`Paroi éligible ajout isolant : ${paroi.nom || paroi.id} — ${addedCandidates.length - 1} candidats`);
+          console.log(`Paroi éligible ajout isolant : ${paroi.nom || paroi.id} - ${addedCandidates.length - 1} candidats`);
         }
       }
     }
@@ -554,7 +554,7 @@ function buildCombinations(bat, materials, epIsolantMaxRaw) {
 
   enumerate(0, bat, [], 0);
 
-  // ── Stratégie 3 listes — évite le biais de sélection sur critère unique ──────
+  // ── Stratégie 3 listes - évite le biais de sélection sur critère unique ──────
   const makeKey = (combo) => makeComboKey(combo.choices);
 
   let finalCombos;
@@ -665,9 +665,9 @@ function computePhares(combos, bat, materials, prixKwhOverride) {
   const eucNorm = arr => Math.sqrt(arr.reduce((s, v) => s + v * v, 0));
   const normVec = (arr, w) => { const n = eucNorm(arr); return n === 0 ? arr.map(() => 0) : arr.map(v => (v / n) * w); };
 
-  // 5 critères TOPSIS (poids : coût=1, savings=1, GWP=1, énergie NR=0,5, santé=0,5) — sensibilité sans bonus :
-  // Coût différentiel — minimiser | Économies €/an — maximiser
-  // GWP amorti — minimiser | Énergie NR amortie — minimiser (0,5) | Santé amortie — minimiser (0,5)
+  // 5 critères TOPSIS (poids : coût=1, savings=1, GWP=1, énergie NR=0,5, santé=0,5) - sensibilité sans bonus :
+  // Coût différentiel - minimiser | Économies €/an - maximiser
+  // GWP amorti - minimiser | Énergie NR amortie - minimiser (0,5) | Santé amortie - minimiser (0,5)
   function buildTopsisVectors() {
     const rawCout  = valid.map(c => isRenovation ? (c.renovation_cost ?? 0) : (c.cost - sqCost));
     const rawSav   = valid.map(c => sqEnergy != null ? (sqEnergy - c.energy_kwh) * PRICE : 0);
@@ -701,7 +701,7 @@ function computePhares(combos, bat, materials, prixKwhOverride) {
     return (dI + dA) > 0 ? dA / (dI + dA) : 0;
   }
 
-  // TOPSIS 2.0 — bonus raffiné : Δcoût ≤ 0 → Infinity ; ΔGWP ≤ 0 → 0 ; P75 sur finies positives
+  // TOPSIS 2.0 - bonus raffiné : Δcoût ≤ 0 → Infinity ; ΔGWP ≤ 0 → 0 ; P75 sur finies positives
   let topsis2 = null;
   if (valid.length > 1) {
     const v = buildTopsisVectors();
@@ -739,7 +739,7 @@ function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
   const dvr_bat = parseFloat(dvr_batiment) || 60;
   const dvr_mat = parseFloat(co.dvr_materiau);
   if (!isFinite(dvr_mat) || dvr_mat <= 0)
-    return { valid: false, errorMsg: "DVR matériau manquante — calcul ACV impossible" };
+    return { valid: false, errorMsg: "DVR matériau manquante - calcul ACV impossible" };
   const nb_cycles = Math.ceil(dvr_bat / dvr_mat);
   const surface = s_opaque;
   let qty;
@@ -747,10 +747,10 @@ function calcComposantACV(co, dvr_batiment, s_opaque = 0) {
   if (isIsolantCategory(co.category)) {
     const r_cible = parseFloat(co.r_cible);
     if (!isFinite(r_cible) || r_cible <= 0)
-      return { valid: false, errorMsg: "R cible non défini — calcul ACV impossible" };
+      return { valid: false, errorMsg: "R cible non défini - calcul ACV impossible" };
     const flux_ref = parseFloat(co.flux_reference);
     if (!isFinite(flux_ref) || flux_ref <= 0)
-      return { valid: false, errorMsg: "Flux de référence manquant — calcul ACV impossible" };
+      return { valid: false, errorMsg: "Flux de référence manquant - calcul ACV impossible" };
     qty = r_cible * flux_ref * surface; // kg (flux_ref en kg/(m²·K/W))
     masse_kg = qty;
   } else {
@@ -826,7 +826,7 @@ function calcBVImpactACV(bv, dvr_batiment) {
       res.decon_valid = false;
     }
   }
-  if (!res.valid) res.errorMsg = res.errors.join(", ") + " — amortissement approx. (nc=1)";
+  if (!res.valid) res.errorMsg = res.errors.join(", ") + " - amortissement approx. (nc=1)";
   return res;
 }
 
@@ -1599,7 +1599,7 @@ export default function ProjectLCA2() {
             textAlign: "center", padding: "48px 0", color: "#9ca3af", fontSize: 14,
             border: "2px dashed #e5e7eb", borderRadius: 16, marginTop: 8,
           }}>
-            Aucun bâtiment — cliquez sur <strong>Nouveau bâtiment</strong> pour commencer
+            Aucun bâtiment - cliquez sur <strong>Nouveau bâtiment</strong> pour commencer
           </div>
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -1656,9 +1656,9 @@ export default function ProjectLCA2() {
                       </div>
                     </div>
                     <div style={{ display: "flex", gap: 16, alignItems: "center" }}>
-                      <SmallStat label="Dép." value={stats.dep_wk != null ? `${fmt(stats.dep_wk)} W/K` : "—"} />
-                      <SmallStat label="CO₂/an" value={stats.co2_exploitation != null ? `${fmt(stats.co2_exploitation)} kg` : "—"} />
-                      <SmallStat label="Coût" value={stats.total_cout != null ? `${fmt(stats.total_cout)} €` : "—"} />
+                      <SmallStat label="Dép." value={stats.dep_wk != null ? `${fmt(stats.dep_wk)} W/K` : "-"} />
+                      <SmallStat label="CO₂/an" value={stats.co2_exploitation != null ? `${fmt(stats.co2_exploitation)} kg` : "-"} />
+                      <SmallStat label="Coût" value={stats.total_cout != null ? `${fmt(stats.total_cout)} €` : "-"} />
                     </div>
                     <button type="button"
                       onClick={(e) => { e.stopPropagation(); removeBatiment(bat.id); }}
@@ -1790,7 +1790,7 @@ export default function ProjectLCA2() {
         </ModalOverlay>
       )}
 
-      {/* Migration ACV 1.0 → 2.0 — modal bloquant */}
+      {/* Migration ACV 1.0 → 2.0 - modal bloquant */}
       {migrationModal && (() => {
         const a = parseInt(migrationForm.age, 10);
         const d = parseInt(migrationForm.dvr, 10);
@@ -1816,7 +1816,7 @@ export default function ProjectLCA2() {
                     onChange={(e) => setMigrationForm((f) => ({ ...f, dvr: e.target.value }))}
                     style={inputStyle} placeholder="60" />
                   <span style={{ fontSize: 11, color: "#6b7280", marginTop: 2 }}>
-                    Durée de Vie de Référence — par défaut 60 ans
+                    Durée de Vie de Référence - par défaut 60 ans
                   </span>
                 </Field>
               </div>
@@ -1966,7 +1966,7 @@ function BuildingDetail({
 
       {bat.parois.length === 0 ? (
         <div style={{ textAlign: "center", padding: "20px 0", color: "#9ca3af", fontSize: 13, border: "1.5px dashed #e5e7eb", borderRadius: 10 }}>
-          Aucune paroi — cliquez sur <strong>Ajouter une paroi</strong>
+          Aucune paroi - cliquez sur <strong>Ajouter une paroi</strong>
         </div>
       ) : (
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -2059,14 +2059,14 @@ function ParoiCard({
               </span>
             )}
             <span style={{ fontSize: 12, color: "#9ca3af" }}>
-              {paroi.surface_totale ? `${paroi.surface_totale} m²` : "— m²"}
+              {paroi.surface_totale ? `${paroi.surface_totale} m²` : "- m²"}
             </span>
           </div>
           <div style={{ display: "flex", gap: 14, marginTop: 5, flexWrap: "wrap" }}>
-            <MiniStat label="R total" value={stats?.r_total != null ? `${fmtDec(stats.r_total)} m²K/W` : "—"} />
-            <MiniStat label="U moyen" value={stats?.u_moyen != null ? `${fmtDec(stats.u_moyen)} W/m²K` : "—"} />
-            <MiniStat label="Coût" value={stats?.cout != null ? `${fmt(stats.cout)} €` : "—"} />
-            <MiniStat label="GWP100" value={stats?.gwp != null ? `${fmt(stats.gwp)} kg CO₂eq` : "—"} />
+            <MiniStat label="R total" value={stats?.r_total != null ? `${fmtDec(stats.r_total)} m²K/W` : "-"} />
+            <MiniStat label="U moyen" value={stats?.u_moyen != null ? `${fmtDec(stats.u_moyen)} W/m²K` : "-"} />
+            <MiniStat label="Coût" value={stats?.cout != null ? `${fmt(stats.cout)} €` : "-"} />
+            <MiniStat label="GWP100" value={stats?.gwp != null ? `${fmt(stats.gwp)} kg CO₂eq` : "-"} />
           </div>
         </div>
         <button
@@ -2164,7 +2164,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
       </div>
 
       {paroi.composantsOpaques.length === 0 ? (
-        <div style={emptyMsg}>Aucun composant opaque — S opaque = {stats ? `${fmtDec(stats.s_opaque, 1)} m²` : "—"}</div>
+        <div style={emptyMsg}>Aucun composant opaque - S opaque = {stats ? `${fmtDec(stats.s_opaque, 1)} m²` : "-"}</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
@@ -2172,7 +2172,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
             <tr style={{ color: "#9ca3af", fontWeight: 600 }}>
               <th style={th}>Matériau</th>
               <th style={{ ...th, minWidth: 70 }}>Ép. (cm)</th>
-              <th style={{ ...th, minWidth: 70 }}>λ / R <span title="λ (W/m·K) pour Isolants — R direct (m²·K/W) pour non-isolants" style={{ color: "#9ca3af", cursor: "help", fontWeight: 400 }}>(?)</span></th>
+              <th style={{ ...th, minWidth: 70 }}>λ / R <span title="λ (W/m·K) pour Isolants - R direct (m²·K/W) pour non-isolants" style={{ color: "#9ca3af", cursor: "help", fontWeight: 400 }}>(?)</span></th>
               <th style={{ ...th, minWidth: 82 }}>R / R cible</th>
               <th style={{ ...th, minWidth: 70 }}>S (m²)</th>
               <th style={{ ...th, minWidth: 64 }}>Eff. %</th>
@@ -2191,7 +2191,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
               const isIsolant = isIsolantCategory(co.category);
               const lambdaEff = parseFloat(co.lambda_local) || parseFloat(co.lambda_lib);
               const lambdaMissing = !isFinite(lambdaEff) || lambdaEff <= 0;
-              const epDisplay = co.epaisseur_cm ? `${parseFloat(co.epaisseur_cm).toFixed(0)} cm` : "—";
+              const epDisplay = co.epaisseur_cm ? `${parseFloat(co.epaisseur_cm).toFixed(0)} cm` : "-";
               const matLib = materials.find(m => m.id === co.material_id);
               const trueLambda = isIsolant && matLib ? getLambda(matLib) : null;
               return (
@@ -2210,15 +2210,15 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                         return (
                           <>
                             {!r.valid && <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>}
-                            {r.valid && !r.decon_valid && <span title="Poids/unité manquant — Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
+                            {r.valid && !r.decon_valid && <span title="Poids/unité manquant - Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
                           </>
                         );
                       })()}
                     </div>
                     <div style={{ fontSize: 10, color: "#9ca3af", marginTop: 1 }}>
                       {isIsolant
-                        ? (r != null ? `R cible = ${fmtDec(r)} m²K/W (ép. ~${epDisplay})` : "R cible = —")
-                        : (r != null ? `R = ${fmtDec(r)} m²K/W` : "R = —")
+                        ? (r != null ? `R cible = ${fmtDec(r)} m²K/W (ép. ~${epDisplay})` : "R cible = -")
+                        : (r != null ? `R = ${fmtDec(r)} m²K/W` : "R = -")
                       }
                     </div>
                     {isIsolant && (() => {
@@ -2254,38 +2254,38 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                         }}
                         style={miniInput} placeholder="ép." />
                     ) : (
-                      <span style={{ color: "#d1d5db", fontSize: 11 }}>—</span>
+                      <span style={{ color: "#d1d5db", fontSize: 11 }}>-</span>
                     )}
                   </td>
                   <td style={td}>
                     {isIsolant ? (
-                      <span title="λ — Conductivité thermique (W/m·K), propriété du matériau (lecture seule)"
+                      <span title="λ - Conductivité thermique (W/m·K), propriété du matériau (lecture seule)"
                             style={{ fontSize: 11, color: "#6b7280" }}>
-                        {trueLambda != null ? `${trueLambda} (λ)` : "—"}
+                        {trueLambda != null ? `${trueLambda} (λ)` : "-"}
                       </span>
                     ) : (
-                      <span title="R — Résistance thermique (m²·K/W)" style={{ fontSize: 11, color: "#6b7280" }}>
-                        {co.lambda_lib != null ? `${fmtDec(co.lambda_lib)} (R)` : "—"}
+                      <span title="R - Résistance thermique (m²·K/W)" style={{ fontSize: 11, color: "#6b7280" }}>
+                        {co.lambda_lib != null ? `${fmtDec(co.lambda_lib)} (R)` : "-"}
                       </span>
                     )}
                   </td>
                   <td style={td}>
                     {isIsolant ? (
                       <span style={{ fontSize: 12, color: "#374151" }}>
-                        {co.r_cible != null && co.r_cible !== "" ? parseFloat(co.r_cible).toFixed(3) : "—"}
+                        {co.r_cible != null && co.r_cible !== "" ? parseFloat(co.r_cible).toFixed(3) : "-"}
                       </span>
                     ) : (
                       <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                         <input type="number" min="0" step="any" value={co.r_local}
                           onChange={(e) => updateComposant(co.id, "r_local", e.target.value)}
-                          style={miniInput} placeholder={r != null ? fmtDec(r) : "—"} />
+                          style={miniInput} placeholder={r != null ? fmtDec(r) : "-"} />
                         {rIsCustom && <Pencil size={10} color="#f59e0b" />}
                       </div>
                     )}
                   </td>
                   <td style={td}>
                     <span style={{ fontSize: 12, color: "#374151" }}>
-                      {stats?.s_opaque != null ? fmtDec(stats.s_opaque, 1) : "—"}
+                      {stats?.s_opaque != null ? fmtDec(stats.s_opaque, 1) : "-"}
                     </span>
                   </td>
                   <td style={td}>
@@ -2330,7 +2330,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
       )}
 
       {paroi.baiesVitrees.length === 0 ? (
-        <div style={emptyMsg}>Aucune baie vitrée — S vitrée = 0 m²</div>
+        <div style={emptyMsg}>Aucune baie vitrée - S vitrée = 0 m²</div>
       ) : (
         <div style={{ overflowX: "auto" }}>
         <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12, marginBottom: 12 }}>
@@ -2375,20 +2375,20 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                 <tr key={bv.id} style={{ borderTop: "1px solid #f3f4f6" }}>
                   <td style={td}>
                     {isLegacy
-                      ? <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{bv.material_name || "—"} <span style={{ fontSize: 10 }}>(legacy)</span></span>
+                      ? <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{bv.material_name || "-"} <span style={{ fontSize: 10 }}>(legacy)</span></span>
                       : <div>
                           <span style={{ display:"inline-flex", alignItems:"center", gap:4 }}>
                             <span style={{ cursor: "pointer", color: "#374151" }}
                               onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; e.currentTarget.style.textDecoration = "underline"; }}
                               onMouseLeave={(e) => { e.currentTarget.style.color = "#374151"; e.currentTarget.style.textDecoration = "none"; }}
                               onClick={() => openReplaceVitrage(bv.id)}
-                              title="Changer le vitrage">{bv.vitrage_name || "—"}</span>
+                              title="Changer le vitrage">{bv.vitrage_name || "-"}</span>
                             {(() => {
                               const r = calcBVImpactACV(bv, dvr_batiment);
                               return (
                                 <>
                                   {!r.valid && <span title={r.errorMsg} style={{ background:"#fee2e2", color:"#dc2626", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help" }}>⚠ ACV</span>}
-                                  {r.valid && !r.decon_valid && <span title="Poids/unité manquant sur vitrage ou cadre — Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
+                                  {r.valid && !r.decon_valid && <span title="Poids/unité manquant sur vitrage ou cadre - Module C déconstruction non calculé" style={{ background:"#fef3c7", color:"#d97706", fontSize:10, padding:"1px 5px", borderRadius:4, fontWeight:600, cursor:"help", marginLeft:2 }}>⚠ DÉCON</span>}
                                 </>
                               );
                             })()}
@@ -2400,7 +2400,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                   </td>
                   <td style={td}>
                     {isLegacy
-                      ? <span style={{ color: "#9ca3af" }}>—</span>
+                      ? <span style={{ color: "#9ca3af" }}>-</span>
                       : bv.cadre_name
                         ? <span style={{ cursor: "pointer", color: "#374151" }}
                             onMouseEnter={(e) => { e.currentTarget.style.color = "#59169c"; e.currentTarget.style.textDecoration = "underline"; }}
@@ -2429,14 +2429,14 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                   </td>
                   <td style={td}>
                     {isLegacy
-                      ? <span style={{ color: "#9ca3af" }}>—</span>
+                      ? <span style={{ color: "#9ca3af" }}>-</span>
                       : <input type="number" min="0" step="any" value={bv.s_cadre_unit ?? ""}
                           onChange={(e) => updateBaieVitree(bv.id, "s_cadre_unit", e.target.value)}
                           style={miniInput} placeholder="m²" />}
                   </td>
                   <td style={td}>
                     {isLegacy
-                      ? <span style={{ color: "#9ca3af" }}>—</span>
+                      ? <span style={{ color: "#9ca3af" }}>-</span>
                       : <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                           <input type="number" min="0" step="any"
                             value={rVLocal ? bv.r_vitrage_local : ""}
@@ -2449,13 +2449,13 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                               }
                             }}
                             style={{ ...miniInput, ...(rVLocal ? { color: "#2563eb" } : {}) }}
-                            placeholder={bv.valeur_r_vitrage != null ? fmtDec(parseFloat(bv.valeur_r_vitrage), 3) : "—"} />
+                            placeholder={bv.valeur_r_vitrage != null ? fmtDec(parseFloat(bv.valeur_r_vitrage), 3) : "-"} />
                           {rVLocal && <Pencil size={10} color="#2563eb" />}
                         </div>}
                   </td>
                   <td style={td}>
                     {isLegacy || !bv.cadre_id
-                      ? <span style={{ color: "#9ca3af" }}>—</span>
+                      ? <span style={{ color: "#9ca3af" }}>-</span>
                       : <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
                           <input type="number" min="0" step="any"
                             value={rCLocal ? bv.r_cadre_local : ""}
@@ -2468,7 +2468,7 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                               }
                             }}
                             style={{ ...miniInput, ...(rCLocal ? { color: "#2563eb" } : {}) }}
-                            placeholder={bv.valeur_r_cadre != null ? fmtDec(parseFloat(bv.valeur_r_cadre), 3) : "—"} />
+                            placeholder={bv.valeur_r_cadre != null ? fmtDec(parseFloat(bv.valeur_r_cadre), 3) : "-"} />
                           {rCLocal && <Pencil size={10} color="#2563eb" />}
                         </div>}
                   </td>
@@ -2479,12 +2479,12 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
                           value={bv.r_local !== "" && bv.r_local != null ? bv.r_local : (bv.valeur_r ?? "")}
                           onChange={(e) => updateBaieVitree(bv.id, "r_local", e.target.value)}
                           style={miniInput}
-                          placeholder={bv.valeur_r != null ? fmtDec(bv.valeur_r) : "—"} />
+                          placeholder={bv.valeur_r != null ? fmtDec(bv.valeur_r) : "-"} />
                         {bv.r_local !== "" && bv.r_local != null && <Pencil size={10} color="#f59e0b" />}
                       </div>
                     ) : (
                       <span style={{ color: rFen != null ? "#111827" : "#9ca3af" }}>
-                        {rFen != null ? fmtDec(rFen, 3) : "—"}
+                        {rFen != null ? fmtDec(rFen, 3) : "-"}
                       </span>
                     )}
                   </td>
@@ -2517,11 +2517,11 @@ function ConsommationTab({ paroi, stats, dvr_batiment = 60, dep_contrib, energy_
 
       {/* Summary */}
       <div style={{ background: "#f9fafb", borderRadius: 8, padding: "10px 12px", display: "flex", gap: 16, flexWrap: "wrap" }}>
-        <MiniStat label="Dép. paroi" value={dep_contrib != null ? `${fmt(dep_contrib)} W/K` : "—"} highlight />
-        <MiniStat label="Énergie/an" value={energy_contrib != null ? `${fmt(energy_contrib)} kWh` : "—"} />
-        <MiniStat label="CO₂/an" value={co2_contrib != null ? `${fmt(co2_contrib)} kg` : "—"} />
-        <MiniStat label="S vitrée" value={stats ? `${fmtDec(stats.s_vitree, 1)} m²` : "—"} />
-        <MiniStat label="S opaque" value={stats ? `${fmtDec(stats.s_opaque, 1)} m²` : "—"} />
+        <MiniStat label="Dép. paroi" value={dep_contrib != null ? `${fmt(dep_contrib)} W/K` : "-"} highlight />
+        <MiniStat label="Énergie/an" value={energy_contrib != null ? `${fmt(energy_contrib)} kWh` : "-"} />
+        <MiniStat label="CO₂/an" value={co2_contrib != null ? `${fmt(co2_contrib)} kg` : "-"} />
+        <MiniStat label="S vitrée" value={stats ? `${fmtDec(stats.s_vitree, 1)} m²` : "-"} />
+        <MiniStat label="S opaque" value={stats ? `${fmtDec(stats.s_opaque, 1)} m²` : "-"} />
       </div>
     </div>
   );
@@ -2578,13 +2578,13 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
               <div>
                 <div style={{ fontSize: 10, color: "#9ca3af" }}>Brut</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: totals[i].brut != null && isFinite(totals[i].brut) ? "#374151" : "#d1d5db" }}>
-                  {totals[i].brut != null && isFinite(totals[i].brut) ? row.fmtFn(totals[i].brut) : "—"}
+                  {totals[i].brut != null && isFinite(totals[i].brut) ? row.fmtFn(totals[i].brut) : "-"}
                 </div>
               </div>
               <div>
                 <div style={{ fontSize: 10, color: "#9ca3af" }}>Amorti</div>
                 <div style={{ fontSize: 13, fontWeight: 800, color: totals[i].amorti != null && isFinite(totals[i].amorti) ? "#d97706" : "#d1d5db" }}>
-                  {totals[i].amorti != null && isFinite(totals[i].amorti) ? row.fmtFn(totals[i].amorti) : "—"}
+                  {totals[i].amorti != null && isFinite(totals[i].amorti) ? row.fmtFn(totals[i].amorti) : "-"}
                 </div>
               </div>
             </div>
@@ -2614,10 +2614,10 @@ function ImpactsTab({ paroi, stats, dvr_batiment = 60 }) {
                   {co.material_name}
                   {!r.valid && <span title={r.errorMsg} style={{ color:"#dc2626", marginLeft:4, fontSize:10, cursor:"help" }}>⚠</span>}
                 </td>
-                <td style={td}>{r.valid ? fmtDec(r.gwp_brut, 1) : "—"}</td>
-                <td style={{ ...td, color: "#d97706" }}>{r.valid ? fmtDec(r.gwp_amorti, 1) : "—"}</td>
-                <td style={td}>{r.valid ? fmtDec(r.energy_brut, 1) : "—"}</td>
-                <td style={td}>{r.valid ? fmtDec(r.sante_brut, 4) : "—"}</td>
+                <td style={td}>{r.valid ? fmtDec(r.gwp_brut, 1) : "-"}</td>
+                <td style={{ ...td, color: "#d97706" }}>{r.valid ? fmtDec(r.gwp_amorti, 1) : "-"}</td>
+                <td style={td}>{r.valid ? fmtDec(r.energy_brut, 1) : "-"}</td>
+                <td style={td}>{r.valid ? fmtDec(r.sante_brut, 4) : "-"}</td>
               </tr>
             );
           })}
@@ -2676,7 +2676,7 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
       <div style={{ display: "flex", gap: 16, marginBottom: 16, padding: "7px 10px", background: "#f5f3ff", borderRadius: 8, fontSize: 12 }}>
         <span style={{ color: "#6b7280" }}>
           Âge bâtiment : <strong style={{ color: "#111827" }}>
-            {bat.age_batiment != null ? `${bat.age_batiment} an${bat.age_batiment !== 1 ? "s" : ""}` : "—"}
+            {bat.age_batiment != null ? `${bat.age_batiment} an${bat.age_batiment !== 1 ? "s" : ""}` : "-"}
           </strong>
         </span>
         <span style={{ color: "#6b7280" }}>
@@ -2686,26 +2686,26 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         </span>
       </div>
 
-      {/* Section 1 — 3 cartes métriques temps réel */}
+      {/* Section 1 - 3 cartes métriques temps réel */}
       <div style={{ display: "flex", gap: 8, marginBottom: 20 }}>
         <MetricCard
           label="Coût total construction"
-          value={stats.total_cout != null ? `${fmt(stats.total_cout)} €` : "—"}
+          value={stats.total_cout != null ? `${fmt(stats.total_cout)} €` : "-"}
           color="#059669"
         />
         <MetricCard
           label="Empreinte CO₂ construction"
-          value={stats.total_gwp != null ? `${fmt(stats.total_gwp)} kg CO₂eq` : "—"}
+          value={stats.total_gwp != null ? `${fmt(stats.total_gwp)} kg CO₂eq` : "-"}
           color="#d97706"
         />
         <MetricCard
           label="CO₂ exploitation"
-          value={stats.co2_exploitation != null ? `${fmt(stats.co2_exploitation)} kg/an` : "—"}
+          value={stats.co2_exploitation != null ? `${fmt(stats.co2_exploitation)} kg/an` : "-"}
           color="#59169c"
         />
       </div>
 
-      {/* Section 2 — Tableau récapitulatif par paroi */}
+      {/* Section 2 - Tableau récapitulatif par paroi */}
       {paroisStats.length > 0 && (
         <>
           <div style={{ ...sectionLabel, marginBottom: 8 }}>Récapitulatif par paroi</div>
@@ -2729,16 +2729,16 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
                       <div style={{ fontSize: 10, color: "#9ca3af" }}>{PAROI_TYPE_LABELS[paroi.type]}</div>
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      {s?.u_moyen != null ? fmtDec(s.u_moyen) : "—"}
+                      {s?.u_moyen != null ? fmtDec(s.u_moyen) : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      {s?.dep_wk != null ? fmt(s.dep_wk) : "—"}
+                      {s?.dep_wk != null ? fmt(s.dep_wk) : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      {conso != null ? fmt(conso) : "—"}
+                      {conso != null ? fmt(conso) : "-"}
                     </td>
                     <td style={{ ...td, textAlign: "right" }}>
-                      {s?.gwp != null ? fmt(s.gwp) : "—"}
+                      {s?.gwp != null ? fmt(s.gwp) : "-"}
                     </td>
                   </tr>
                 );
@@ -2748,11 +2748,11 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         </>
       )}
 
-      {/* Section ACV — Brut vs Amorti */}
+      {/* Section ACV - Brut vs Amorti */}
       <div style={{ ...sectionLabel, marginBottom: 8 }}>Indicateurs ACV</div>
       {stats.acv_errors_count > 0 && (
         <div style={{ background:"#fee2e2", borderRadius:8, padding:"6px 10px", fontSize:11, color:"#dc2626", marginBottom:8 }}>
-          ⚠ {stats.acv_errors_count} composant{stats.acv_errors_count > 1 ? "s" : ""} exclu{stats.acv_errors_count > 1 ? "s" : ""} du calcul ACV (données manquantes — DVR ou flux de référence)
+          ⚠ {stats.acv_errors_count} composant{stats.acv_errors_count > 1 ? "s" : ""} exclu{stats.acv_errors_count > 1 ? "s" : ""} du calcul ACV (données manquantes - DVR ou flux de référence)
         </div>
       )}
       <table style={{ width:"100%", borderCollapse:"collapse", fontSize:12, marginBottom:16 }}>
@@ -2772,9 +2772,9 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
           ].map(({ label, brut, amorti, unit, fmtFn }) => (
             <tr key={label} style={{ borderTop:"1px solid #f3f4f6" }}>
               <td style={{ ...td, fontWeight:600 }}>{label}</td>
-              <td style={{ ...td, textAlign:"right" }}>{brut != null && isFinite(brut) ? fmtFn(brut) : "—"}</td>
+              <td style={{ ...td, textAlign:"right" }}>{brut != null && isFinite(brut) ? fmtFn(brut) : "-"}</td>
               <td style={{ ...td, textAlign:"right", color: amorti != null && isFinite(amorti) ? "#d97706" : undefined, fontWeight: amorti != null && isFinite(amorti) ? 700 : 400 }}>
-                {amorti != null && isFinite(amorti) ? fmtFn(amorti) : "—"}
+                {amorti != null && isFinite(amorti) ? fmtFn(amorti) : "-"}
               </td>
               <td style={{ ...td, textAlign:"right", color:"#9ca3af" }}>{unit}</td>
             </tr>
@@ -2785,24 +2785,24 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         L'impact amorti intègre les remplacements futurs (Module A, DVR) et la déconstruction (Module C, EN 15978) si le poids/unité est renseigné.
       </div>
 
-      {/* Section 3 — 3 cartes consommation globale avec tooltip */}
+      {/* Section 3 - 3 cartes consommation globale avec tooltip */}
       <div style={{ ...sectionLabel, marginBottom: 8 }}>Consommation globale</div>
       <div style={{ display: "flex", gap: 8 }}>
         <TooltipCard
           label="Déperditions totales (W/K)"
-          value={stats.dep_wk != null ? fmt(stats.dep_wk) : "—"}
+          value={stats.dep_wk != null ? fmt(stats.dep_wk) : "-"}
           unit="W/K"
           tooltip="Σ(U_paroi × surface) pour toutes les parois et baies vitrées"
         />
         <TooltipCard
           label="Conso. annuelle estimée"
-          value={stats.energy_kwh != null ? fmt(stats.energy_kwh) : "—"}
+          value={stats.energy_kwh != null ? fmt(stats.energy_kwh) : "-"}
           unit="kWh/an"
           tooltip="Déperditions (W/K) × Degrés-jours × 24h / Rendement système"
         />
         <TooltipCard
           label="CO₂ exploitation estimé"
-          value={stats.co2_exploitation != null ? fmt(stats.co2_exploitation) : "—"}
+          value={stats.co2_exploitation != null ? fmt(stats.co2_exploitation) : "-"}
           unit="kg CO₂/an"
           tooltip="Consommation annuelle (kWh) × Facteur émission du moyen de chauffage (kg CO₂/kWh)"
         />
@@ -2952,7 +2952,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   }
 
   function renderROICell(roi) {
-    if (roi === null) return <span style={{ color: "#9ca3af" }}>—</span>;
+    if (roi === null) return <span style={{ color: "#9ca3af" }}>-</span>;
     if (roi.type === "years") {
       const v = roi.value;
       const c = v < 15 ? "#059669" : v <= 25 ? "#d97706" : "#dc2626";
@@ -3184,7 +3184,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
       }}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #f3f4f6", display: "flex", alignItems: "flex-start", justifyContent: "space-between", flexShrink: 0 }}>
           <div>
-            <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>Optimisation — {bat.nom}</div>
+            <div style={{ fontWeight: 800, fontSize: 15, color: "#111827" }}>Optimisation - {bat.nom}</div>
             <div style={{ fontSize: 11, color: "#9ca3af", marginTop: 2 }}>Config #{configHash}</div>
           </div>
           <button type="button" onClick={onClose} style={{ ...tinyIconBtn, color: "#6b7280", padding: "5px" }}>
@@ -3304,7 +3304,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
               {filteredPhares != null && filteredPhares.filtered.length === 0 && (
                 <div style={{ background: "#fef2f2", border: "1.5px solid #fca5a5", borderRadius: 10, padding: "12px 14px", marginBottom: 14 }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#8f1d2f", marginBottom: filteredPhares.mostRestrictive ? 4 : 0 }}>
-                    Aucune solution ne satisfait ces contraintes — essayez d'assouplir vos critères
+                    Aucune solution ne satisfait ces contraintes - essayez d'assouplir vos critères
                   </div>
                   {filteredPhares.mostRestrictive && (
                     <div style={{ fontSize: 12, color: "#b91c1c" }}>
@@ -3351,7 +3351,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                       <th style={{ ...th, textAlign: "right" }} title="Économies annuelles sur la facture énergétique">Économies (€/an)</th>
                       <th style={{ ...th, textAlign: "right" }} title="Réduction des émissions CO₂ liées à l'exploitation annuelle">Économies CO₂/an (kg)</th>
                       <th style={{ ...th, textAlign: "right" }}>ROI (ans)</th>
-                      <th style={{ ...th, textAlign: "right" }} title="Santé humaine — photochemical_oxidant_hh amorti (kg NMVOC eq)">Santé humaine (kg NMVOC eq)</th>
+                      <th style={{ ...th, textAlign: "right" }} title="Santé humaine - photochemical_oxidant_hh amorti (kg NMVOC eq)">Santé humaine (kg NMVOC eq)</th>
                       <th style={th}></th>
                     </tr>
                   </thead>
@@ -3402,15 +3402,15 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                               })()}
                             </td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.gwp, sq.gwp) }}>{fmt(sol.gwp)}</td>
-                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.energy_kwh, sq.energy_kwh) }}>{sol.energy_kwh != null ? fmt(sol.energy_kwh) : "—"}</td>
+                            <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(sol.energy_kwh, sq.energy_kwh) }}>{sol.energy_kwh != null ? fmt(sol.energy_kwh) : "-"}</td>
                             <td style={{ ...td, textAlign: "right", color: key === "statuQuo" ? "#374151" : cmpColor(co2Total(sol), co2Total(sq)) }}>
-                              {co2Total(sol) != null ? fmt(co2Total(sol)) : "—"}
+                              {co2Total(sol) != null ? fmt(co2Total(sol)) : "-"}
                             </td>
                             {(() => {
                               const econEur = econKwh != null ? econKwh * prixKwh : null;
                               return (
                                 <td style={{ ...td, textAlign: "right", fontWeight: 600, color: econEur != null && econEur > 0 ? "#059669" : (econEur != null && econEur < 0 ? "#dc2626" : "#9ca3af") }}>
-                                  {econEur != null ? (econEur >= 0 ? "+" : "") + fmtDec(econEur, 1) : "—"}
+                                  {econEur != null ? (econEur >= 0 ? "+" : "") + fmtDec(econEur, 1) : "-"}
                                 </td>
                               );
                             })()}
@@ -3420,7 +3420,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                               const c = econCo2 != null && econCo2 > 0 ? "#059669" : (econCo2 != null && econCo2 < 0 ? "#dc2626" : "#9ca3af");
                               return (
                                 <td style={{ ...td, textAlign: "right", fontWeight: 600, color: key === "statuQuo" ? "#9ca3af" : c }}>
-                                  {econCo2 != null ? (key === "statuQuo" ? "—" : (econCo2 >= 0 ? "+" : "") + fmtDec(econCo2, 1)) : "—"}
+                                  {econCo2 != null ? (key === "statuQuo" ? "-" : (econCo2 >= 0 ? "+" : "") + fmtDec(econCo2, 1)) : "-"}
                                 </td>
                               );
                             })()}
@@ -3481,7 +3481,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                                                     [+ Ajout] {row.chosen}
                                                     {row.chosenEp != null && row.chosenR != null && (
                                                       <span style={{ fontWeight: 500, marginLeft: 6 }}>
-                                                        — {row.chosenEp} cm — R = {row.chosenR.toFixed(2)} m²·K/W
+                                                        - {row.chosenEp} cm - R = {row.chosenR.toFixed(2)} m²·K/W
                                                       </span>
                                                     )}
                                                   </span>
@@ -3497,23 +3497,23 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                                                         <span style={{ color: "#6b7280" }}>→</span>
                                                         <span style={{ fontWeight: 700, color, background: color + "18", padding: "1px 6px", borderRadius: 4 }}>
                                                           {row.sameMatDiffR
-                                                            ? `${row.original} — épaisseur augmentée`
+                                                            ? `${row.original} - épaisseur augmentée`
                                                             : `${row.chosen ?? row.original}${row.chosenCadre ? ` + ${row.chosenCadre}` : (row.originalCadre ? ` + ${row.originalCadre}` : "")}`
                                                           }
                                                           {row.isIsolant && row.chosenEp != null && row.chosenR != null && (
                                                             <span style={{ fontWeight: 500, marginLeft: 6 }}>
-                                                              — {row.chosenEp} cm — R = {row.chosenR.toFixed(2)} m²·K/W
+                                                              - {row.chosenEp} cm - R = {row.chosenR.toFixed(2)} m²·K/W
                                                             </span>
                                                           )}
                                                         </span>
                                                       </>
                                                     ) : (
-                                                      <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{row.original} — inchangé</span>
+                                                      <span style={{ color: "#9ca3af", fontStyle: "italic" }}>{row.original} - inchangé</span>
                                                     )}
                                                   </div>
                                                   <div style={{ fontSize: 10, color: row.changed ? "#059669" : (row.originalEfficacite < 100 ? "#dc2626" : "#9ca3af"), paddingLeft: 2 }}>
                                                     {row.changed
-                                                      ? <>Remplacement — efficacité 100% (neuf){row.originalEfficacite < 100 && <span style={{ color: "#d97706", marginLeft: 4 }}>était {row.originalEfficacite}%</span>}</>
+                                                      ? <>Remplacement - efficacité 100% (neuf){row.originalEfficacite < 100 && <span style={{ color: "#d97706", marginLeft: 4 }}>était {row.originalEfficacite}%</span>}</>
                                                       : (row.originalEfficacite < 100 ? `Efficacité actuelle : ${row.originalEfficacite}%` : "Efficacité : 100%")
                                                     }
                                                   </div>
@@ -3537,12 +3537,12 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
               </div>
               {noSanteData && (
                 <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
-                  ℹ️ Données photochemical_oxidant_hh insuffisantes dans la bibliothèque — indicateur Santé humaine non disponible.
+                  ℹ️ Données photochemical_oxidant_hh insuffisantes dans la bibliothèque - indicateur Santé humaine non disponible.
                 </div>
               )}
               {santeMissingDVR && (
                 <div style={{ marginTop: 8, fontSize: 11, color: "#d97706", fontStyle: "italic" }}>
-                  ℹ️ Données santé présentes — vérifier les DVR matériaux (sante_amorti = 0 pour tous les profils).
+                  ℹ️ Données santé présentes - vérifier les DVR matériaux (sante_amorti = 0 pour tous les profils).
                 </div>
               )}
               <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
@@ -3601,7 +3601,7 @@ function AuditVsModele({ auditKwh, modelKwh }) {
               <tr style={{ borderBottom: "1px solid #f3f4f6" }}>
                 <td style={{ padding: "6px 0", fontWeight: 600, color: "#374151" }}>Consommation estimée</td>
                 <td style={{ textAlign: "right", fontWeight: 700, color: "#111827" }}>
-                  {hasModel ? `${fmt(modelKwh)} kWh/an` : "—"}
+                  {hasModel ? `${fmt(modelKwh)} kWh/an` : "-"}
                 </td>
                 <td style={{ textAlign: "right", paddingLeft: 10, fontSize: 11, color: "#9ca3af", whiteSpace: "nowrap" }}>Modèle ACV</td>
               </tr>
@@ -3628,7 +3628,7 @@ function AuditVsModele({ auditKwh, modelKwh }) {
 // ─── MetricCard ───────────────────────────────────────────────────────────────
 
 function MetricCard({ label, value, color }) {
-  const missing = value === "—";
+  const missing = value === "-";
   return (
     <div style={{ flex: 1, background: "#f9fafb", borderRadius: 10, padding: "12px 10px" }}>
       <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 600, marginBottom: 6, lineHeight: 1.4 }}>{label}</div>
@@ -3641,7 +3641,7 @@ function MetricCard({ label, value, color }) {
 
 function TooltipCard({ label, value, unit, tooltip }) {
   const [hovered, setHovered] = useState(false);
-  const missing = value === "—";
+  const missing = value === "-";
   return (
     <div
       style={{ position: "relative", flex: 1, background: "#f9fafb", borderRadius: 10, padding: "12px 10px", cursor: "default" }}
@@ -3709,25 +3709,25 @@ function BaieVitreeModal({ materials, form, setForm, onConfirm, onClose }) {
 
         <Field label="Vitrage *">
           <select value={form.vitrage_id} onChange={(e) => setForm((f) => ({ ...f, vitrage_id: e.target.value }))} style={inputStyle}>
-            <option value="">— choisir —</option>
+            <option value="">- choisir -</option>
             {vitrages.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </Field>
         {vitMat && (
           <div style={{ fontSize: 11, color: "#6b7280", margin: "4px 0 10px" }}>
-            R vitrage lib. : {vitMat.valeur_r != null ? fmtDec(vitMat.valeur_r, 3) : "—"} m²K/W
+            R vitrage lib. : {vitMat.valeur_r != null ? fmtDec(vitMat.valeur_r, 3) : "-"} m²K/W
           </div>
         )}
 
         <Field label="Cadre (optionnel)">
           <select value={form.cadre_id} onChange={(e) => setForm((f) => ({ ...f, cadre_id: e.target.value, s_cadre_unit: "", r_cadre_local: "" }))} style={inputStyle}>
-            <option value="">— aucun —</option>
+            <option value="">- aucun -</option>
             {cadres.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
           </select>
         </Field>
         {cadreMat && (
           <div style={{ fontSize: 11, color: "#6b7280", margin: "4px 0 10px" }}>
-            R cadre lib. : {cadreMat.valeur_r != null ? fmtDec(cadreMat.valeur_r, 3) : "—"} m²K/W
+            R cadre lib. : {cadreMat.valeur_r != null ? fmtDec(cadreMat.valeur_r, 3) : "-"} m²K/W
           </div>
         )}
 
@@ -3758,7 +3758,7 @@ function BaieVitreeModal({ materials, form, setForm, onConfirm, onClose }) {
                 value={form.r_vitrage_local ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, r_vitrage_local: e.target.value }))}
                 style={{ ...inputStyle, ...(parseFloat(form.r_vitrage_local) > 0 ? { color: "#2563eb" } : {}) }}
-                placeholder={vitMat.valeur_r != null ? fmtDec(vitMat.valeur_r, 3) : "—"} />
+                placeholder={vitMat.valeur_r != null ? fmtDec(vitMat.valeur_r, 3) : "-"} />
             </Field>
           )}
           {cadreMat && (
@@ -3767,7 +3767,7 @@ function BaieVitreeModal({ materials, form, setForm, onConfirm, onClose }) {
                 value={form.r_cadre_local ?? ""}
                 onChange={(e) => setForm((f) => ({ ...f, r_cadre_local: e.target.value }))}
                 style={{ ...inputStyle, ...(parseFloat(form.r_cadre_local) > 0 ? { color: "#2563eb" } : {}) }}
-                placeholder={cadreMat.valeur_r != null ? fmtDec(cadreMat.valeur_r, 3) : "—"} />
+                placeholder={cadreMat.valeur_r != null ? fmtDec(cadreMat.valeur_r, 3) : "-"} />
             </Field>
           )}
         </div>
@@ -3986,7 +3986,7 @@ function MaterialSidePanel({ modal, form, setForm, materials, onConfirm, onClose
           })}
         </div>
 
-        {/* Inline form — visible only in add_opaque mode when a material is selected */}
+        {/* Inline form - visible only in add_opaque mode when a material is selected */}
         {mode === "add_opaque" && selectedMat && (
           <InlineCompForm
             selectedMat={selectedMat}
@@ -4032,7 +4032,7 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
               padding: "6px 10px", marginBottom: 10, fontSize: 12,
               color: "#dc2626", fontWeight: 600,
             }}>
-              λ manquant — bascule impossible. Renseignez λ pour activer le lien épaisseur ↔ R cible.
+              λ manquant - bascule impossible. Renseignez λ pour activer le lien épaisseur ↔ R cible.
             </div>
           )}
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
@@ -4047,17 +4047,17 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
                 })}
                 style={inputStyle} placeholder="ex : 20" autoFocus />
             </Field>
-            <Field label="R cible (m²K/W) — calculé">
+            <Field label="R cible (m²K/W) - calculé">
               <span style={{ fontSize: 13, color: "#374151" }}>
-                {rCalc != null ? rCalc.toFixed(3) : "—"}
+                {rCalc != null ? rCalc.toFixed(3) : "-"}
               </span>
             </Field>
             <Field label="λ (W/m·K)">
               <span style={{ fontSize: 13, color: "#6b7280" }}>
-                {getLambda(selectedMat) != null ? `${getLambda(selectedMat)} (λ)` : "—"}
+                {getLambda(selectedMat) != null ? `${getLambda(selectedMat)} (λ)` : "-"}
               </span>
             </Field>
-            <Field label="Surface (m²) — optionnel">
+            <Field label="Surface (m²) - optionnel">
               <input type="number" min="0" step="any" value={form.surface_m2}
                 onChange={(e) => setForm((f) => ({ ...f, surface_m2: e.target.value }))}
                 style={inputStyle} placeholder="= S paroi" />
@@ -4068,24 +4068,24 @@ function InlineCompForm({ selectedMat, form, setForm, onConfirm }) {
 
       {isOpaque && !isIsolantCategory(cat) && (
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-          <Field label="R — Résistance thermique (m²·K/W)">
+          <Field label="R - Résistance thermique (m²·K/W)">
             <div style={{
               padding: "7px 10px", background: "#f9fafb", border: "1px solid #e5e7eb",
               borderRadius: 8, fontSize: 13, color: "#374151", fontWeight: 600,
             }}>
-              {selectedMat.valeur_r != null ? `${fmtDec(parseFloat(selectedMat.valeur_r))} m²·K/W` : "—"}
+              {selectedMat.valeur_r != null ? `${fmtDec(parseFloat(selectedMat.valeur_r))} m²·K/W` : "-"}
             </div>
           </Field>
           <Field label={
             <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
-              R local — override (m²K/W) {form.r_custom !== "" && <Pencil size={10} color="#f59e0b" />}
+              R local - override (m²K/W) {form.r_custom !== "" && <Pencil size={10} color="#f59e0b" />}
             </span>
           }>
             <input type="number" min="0" step="any" value={form.r_custom}
               onChange={(e) => setForm((f) => ({ ...f, r_custom: e.target.value }))}
-              style={inputStyle} placeholder="— (optionnel)" />
+              style={inputStyle} placeholder="- (optionnel)" />
           </Field>
-          <Field label="Surface (m²) — optionnel">
+          <Field label="Surface (m²) - optionnel">
             <input type="number" min="0" step="any" value={form.surface_m2}
               onChange={(e) => setForm((f) => ({ ...f, surface_m2: e.target.value }))}
               style={inputStyle} placeholder="= S paroi" />
@@ -4142,7 +4142,7 @@ function Field({ label, children }) {
 }
 
 function SmallStat({ label, value }) {
-  const missing = value === "—";
+  const missing = value === "-";
   return (
     <div style={{ textAlign: "right" }}>
       <div style={{ fontSize: 10, color: "#9ca3af" }}>{label}</div>
@@ -4152,7 +4152,7 @@ function SmallStat({ label, value }) {
 }
 
 function MiniStat({ label, value, highlight }) {
-  const missing = value === "—";
+  const missing = value === "-";
   return (
     <div>
       <div style={{ fontSize: 10, color: "#9ca3af", fontWeight: 500 }}>{label}</div>

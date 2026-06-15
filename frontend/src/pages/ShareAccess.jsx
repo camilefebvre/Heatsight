@@ -224,7 +224,7 @@ export default function ShareAccess() {
   const [inviteOpen, setInviteOpen] = useState(false);
   const [clientOpen, setClientOpen] = useState(false);
 
-  // Édition (P13) — collaborateur (rôle) / client (statut)
+  // Édition (P13) - collaborateur (rôle) / client (statut)
   const [editCollab, setEditCollab] = useState(null); // { id, name, role } ou null
   const [editClient, setEditClient] = useState(null); // { id, email, status } ou null
 

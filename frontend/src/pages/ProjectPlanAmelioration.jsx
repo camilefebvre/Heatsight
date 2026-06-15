@@ -1,23 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Download, Upload, Sparkles, RefreshCw, Trash2,
+  Download, Upload, Sparkles, RefreshCw,
   Clock, X, CheckSquare, Square,
   AlertTriangle, Info, FileText, FileCheck,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 import TemplateLibraryPanel from "../ui/TemplateLibraryPanel";
-
-/* ── Type labels ────────────────────────────────────────────── */
-const TYPE_LABEL = {
-  SER_PV: "SER / PV",
-  ELECTRIFICATION: "Électrification",
-  EFFICACITE_ENERGETIQUE: "Efficacité énergétique",
-  CCU: "CCU",
-  PPA: "PPA",
-  FLUIDE_FRIGORIGENE: "Fluide frigorigène",
-};
 
 /* ── Source display helpers ──────────────────────────────────── */
 const DB_SOURCE_LABELS = {
@@ -110,7 +100,7 @@ function truncateMid(name, maxLen = 26) {
 }
 
 function fmtValue(field, value) {
-  if (value == null) return "—";
+  if (value == null) return "-";
   if (typeof value === "number") {
     const n = Number(value).toLocaleString("fr-BE");
     if (field === "investissement_k_eur")    return `${n} k€`;
@@ -133,21 +123,20 @@ export default function ProjectPlanAmelioration() {
   useEffect(() => { setSelectedProjectId(projectId); }, [projectId]);
 
   const [project,      setProject]      = useState(null);
-  const [actions,      setActions]      = useState([]);
   const [loading,      setLoading]      = useState(true);
   const [pageError,    setPageError]    = useState("");
 
   /* Prefill status (persisté en base) */
   const [prefillStatus, setPrefillStatus] = useState(null);
 
-  /* Étape 1 — Analyse IA → checklist */
+  /* Étape 1 - Analyse IA → checklist */
   const [analyzing,      setAnalyzing]      = useState(false);
   const [checklistItems, setChecklistItems] = useState([]);
   const [analyzeError,   setAnalyzeError]   = useState("");
   /* Context info about the preview (has_existing_excel, current_excel_source) */
   const [previewContext, setPreviewContext] = useState(null);
 
-  /* Étape 2 — Appliquer */
+  /* Étape 2 - Appliquer */
   const [applying,    setApplying]    = useState(false);
   const [applyError,  setApplyError]  = useState("");
 
@@ -158,9 +147,6 @@ export default function ProjectPlanAmelioration() {
 
   /* Download */
   const [downloading, setDownloading] = useState(false);
-
-  /* Delete */
-  const [deletingId, setDeletingId] = useState(null);
 
   /* Historique */
   const [historyOpen,    setHistoryOpen]    = useState(false);
@@ -175,15 +161,13 @@ export default function ProjectPlanAmelioration() {
     setLoading(true);
     setPageError("");
     try {
-      const [resP, resA, resS] = await Promise.all([
+      const [resP, resS] = await Promise.all([
         apiFetch("/projects"),
-        apiFetch(`/projects/${projectId}/improvement-actions`),
         apiFetch(`/projects/${projectId}/improvement-actions/prefill-status`),
       ]);
       if (!resP.ok) throw new Error("Impossible de charger le projet");
       const list = await resP.json();
       setProject(list.find((x) => x.id === projectId) || null);
-      setActions(resA.ok ? await resA.json() : []);
       setPrefillStatus(resS.ok ? await resS.json() : null);
     } catch (e) {
       setPageError(e.message || "Erreur de chargement");
@@ -338,20 +322,6 @@ export default function ProjectPlanAmelioration() {
     }
   }
 
-  /* ── Supprimer une action ───────────────────────────────── */
-  async function handleDelete(actionId) {
-    if (!window.confirm("Supprimer cette action ?")) return;
-    setDeletingId(actionId);
-    try {
-      await apiFetch(`/projects/${projectId}/improvement-actions/${actionId}`, { method: "DELETE" });
-      setActions((prev) => prev.filter((a) => a.id !== actionId));
-    } catch (e) {
-      setPageError(e.message || "Erreur lors de la suppression");
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
   const currentSource = prefillStatus?.current_excel_source || "template";
   const hasExcel = prefillStatus?.has_prefilled_excel;
 
@@ -379,7 +349,7 @@ export default function ProjectPlanAmelioration() {
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
         <div style={{ flex: "1 1 420px", minWidth: 0 }}>
 
-      <SectionCard title="AMUREBA — Pré-remplissage IA & Excel">
+      <SectionCard title="AMUREBA - Pré-remplissage IA & Excel">
 
         {/* ── Bandeau version courante ──────────────────── */}
         <CurrentVersionBanner
@@ -388,21 +358,8 @@ export default function ProjectPlanAmelioration() {
           onDownload={handleDownload}
         />
 
-        {/* ── État A : checklist en cours ───────────────── */}
-        {checklistItems.length > 0 ? (
-          <ChecklistPanel
-            items={checklistItems}
-            applying={applying}
-            selectedCount={selectedCount}
-            previewContext={previewContext}
-            onToggle={toggleItem}
-            onToggleAll={toggleAll}
-            onApply={handleApply}
-            onClose={() => { setChecklistItems([]); setPreviewContext(null); }}
-            error={applyError}
-          />
-        ) : (
-          /* ── Actions disponibles ─────────────────────── */
+        {/* ── Actions disponibles (masquées pendant la revue des propositions) ── */}
+        {checklistItems.length === 0 && (
           <WorkflowActions
             hasExcel={hasExcel}
             currentSource={currentSource}
@@ -423,91 +380,9 @@ export default function ProjectPlanAmelioration() {
         />
       </SectionCard>
 
-      {/* ══ Section Données importées ═══════════════════════ */}
-      <SectionCard
-        title={
-          <span>
-            Données importées
-            {actions.length > 0 && (
-              <span style={{
-                marginLeft: 8, background: "#ede9fe", color: "#59169c",
-                fontSize: 12, fontWeight: 700, padding: "2px 8px", borderRadius: 20,
-              }}>
-                {actions.length}
-              </span>
-            )}
-          </span>
-        }
-        subtitle={actions.length > 0 ? "Ces données sont disponibles dans tous les modules du projet." : undefined}
-      >
-        {actions.length === 0 ? (
-              <div style={{ textAlign: "center", color: "#9ca3af", fontSize: 14, padding: "24px 0" }}>
-                Aucune action n'a été importée. Veuillez importer un fichier Excel AMUREBA complété.
-              </div>
-            ) : (
-              <>
-                <SummaryBanner actions={actions} />
-                <div style={{ overflowX: "auto", marginTop: 16 }}>
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ background: "#f9fafb", borderBottom: "1px solid #e5e7eb" }}>
-                        {["Réf.", "Intitulé", "Type", "Classif.", "Invest. (k€)", "Éco énergie (MWh/an)", "Éco CO₂ (kg/an)", "PBT av. imp.", "IRR av. imp.", ""].map((h, i) => (
-                          <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontWeight: 700, color: "#374151", whiteSpace: "nowrap", fontSize: 12 }}>
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {actions.map((a) => (
-                        <tr
-                          key={a.id}
-                          style={{ borderBottom: "1px solid #f3f4f6" }}
-                          onMouseEnter={(e) => (e.currentTarget.style.background = "#faf5ff")}
-                          onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
-                        >
-                          <td style={{ padding: "10px 12px" }}><span style={s.refBadge}>{a.reference || "—"}</span></td>
-                          <td style={{ padding: "10px 12px", fontWeight: 600, color: "#111827", maxWidth: 200 }}>{a.intitule}</td>
-                          <td style={{ padding: "10px 12px", color: "#6b7280", whiteSpace: "nowrap" }}>
-                            {TYPE_LABEL[a.type_amelioration] || a.type_amelioration || "—"}
-                          </td>
-                          <td style={{ padding: "10px 12px" }}>
-                            {a.classification ? (
-                              <span style={{
-                                background: a.classification === "A" ? "#dcfce7" : "#fef9c3",
-                                color:      a.classification === "A" ? "#166534" : "#854d0e",
-                                fontWeight: 700, fontSize: 11, padding: "2px 8px", borderRadius: 6,
-                              }}>{a.classification}</span>
-                            ) : "—"}
-                          </td>
-                          <td style={{ padding: "10px 12px", color: "#374151" }}>{a.investissement != null ? Number(a.investissement).toLocaleString("fr-BE") : "—"}</td>
-                          <td style={{ padding: "10px 12px", color: "#374151" }}>{a.economie_energie != null ? Number(a.economie_energie).toLocaleString("fr-BE") : "—"}</td>
-                          <td style={{ padding: "10px 12px", color: "#374151" }}>{a.economie_co2 != null ? Number(a.economie_co2).toLocaleString("fr-BE") : "—"}</td>
-                          <td style={{ padding: "10px 12px", color: "#374151" }}>{a.pbt_avant_impot != null ? a.pbt_avant_impot : "—"}</td>
-                          <td style={{ padding: "10px 12px", color: "#374151" }}>{a.irr_avant_impot != null ? `${a.irr_avant_impot} %` : "—"}</td>
-                          <td style={{ padding: "10px 12px" }}>
-                            <button
-                              onClick={() => handleDelete(a.id)}
-                              disabled={deletingId === a.id}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: "#d1d5db", padding: 4, borderRadius: 6, display: "flex", alignItems: "center", opacity: deletingId === a.id ? 0.5 : 1 }}
-                              onMouseEnter={(e) => (e.currentTarget.style.color = "#ef4444")}
-                              onMouseLeave={(e) => (e.currentTarget.style.color = "#d1d5db")}
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </>
-            )}
-      </SectionCard>
-
         </div>{/* fin ZONE PRINCIPALE */}
 
-        {/* PANNEAU DROITE — bibliothèque de modèles */}
+        {/* PANNEAU DROITE - bibliothèque de modèles */}
         <div style={{ flex: "1 1 320px", maxWidth: 380 }}>
           <TemplateLibraryPanel
             type="audit"
@@ -519,6 +394,23 @@ export default function ProjectPlanAmelioration() {
         </div>
 
       </div>{/* fin deux zones */}
+
+      {/* ══ Propositions IA — pleine largeur, sous les deux colonnes ══ */}
+      {checklistItems.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <ChecklistPanel
+            items={checklistItems}
+            applying={applying}
+            selectedCount={selectedCount}
+            previewContext={previewContext}
+            onToggle={toggleItem}
+            onToggleAll={toggleAll}
+            onApply={handleApply}
+            onClose={() => { setChecklistItems([]); setPreviewContext(null); }}
+            error={applyError}
+          />
+        </div>
+      )}
 
       {/* ── Historique drawer ────────────────────────────────── */}
       {historyOpen && (
@@ -622,7 +514,7 @@ function WorkflowActions({ hasExcel, currentSource, analyzing, onAnalyze, analyz
       {prefillDisabled && (
         <div style={{ ...s.infoBanner, marginBottom: 14 }}>
           <Info size={14} style={{ flexShrink: 0, color: "#374151" }} />
-          Pré-remplissage IA indisponible avec un modèle personnalisé — mode manuel
+          Pré-remplissage IA indisponible avec un modèle personnalisé - mode manuel
           (télécharger → remplir → réimporter).
         </div>
       )}
@@ -656,7 +548,7 @@ function UploadSection({ uploading, uploadMsg, uploadError, fileRef, onUpload })
   return (
     <div style={{ borderTop: "1px solid #f3f4f6", marginTop: 18, paddingTop: 14 }}>
       <div style={{ fontSize: 12, color: "#6b7280", marginBottom: 8, fontWeight: 600 }}>
-        📤 Uploader un Excel AMUREBA complété
+        Uploader un Excel AMUREBA complété
       </div>
       <div style={{ fontSize: 12, color: "#9ca3af", marginBottom: 10, lineHeight: 1.6 }}>
         Le fichier uploadé devient la version courante. Les prochains exports et les futures
@@ -688,7 +580,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
   const visibleItems = filterItems(items, activeFilter);
   const sheets = [...new Set(visibleItems.map((i) => i.sheet))];
 
-  // Expand/collapse state per sheet — first sheet open by default
+  // Expand/collapse state per sheet - first sheet open by default
   const [expanded, setExpanded] = useState(() =>
     Object.fromEntries([...new Set(items.map((i) => i.sheet))].map((sh, idx) => [sh, idx === 0]))
   );
@@ -766,7 +658,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
         )}
       </div>
 
-      {/* ── Corps — cartes par action ─────────────────────── */}
+      {/* ── Corps - cartes par action ─────────────────────── */}
       <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
         {sheets.map((sheet) => {
           const allSheetItems = items.filter((i) => i.sheet === sheet);
@@ -796,7 +688,7 @@ function ChecklistPanel({ items, applying, selectedCount, previewContext, onTogg
                   {sheet}
                 </span>
                 <span style={{ fontWeight: 700, fontSize: 13, color: "#111827", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                  {intitule || "—"}
+                  {intitule || "-"}
                 </span>
                 {type && <span style={{ fontSize: 11, color: "#6b7280", flexShrink: 0 }}>{type}</span>}
                 {classif && (
@@ -1177,30 +1069,6 @@ function HistoryEntry({ entry, projectId }) {
   );
 }
 
-/* ── Résumé chiffré ─────────────────────────────────────────── */
-function SummaryBanner({ actions }) {
-  const invest = actions.reduce((s, a) => s + (a.investissement || 0), 0);
-  const energie = actions.reduce((s, a) => s + (a.economie_energie || 0), 0);
-  const co2 = actions.reduce((s, a) => s + (a.economie_co2 || 0), 0);
-  const nbA = actions.filter((a) => a.classification === "A").length;
-
-  return (
-    <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
-      {[
-        { label: "Investissement total",  value: `${invest.toLocaleString("fr-BE")} k€` },
-        { label: "Éco énergie totale",    value: `${energie.toLocaleString("fr-BE")} MWh/an` },
-        { label: "Réductions CO₂",        value: `${co2.toLocaleString("fr-BE")} kg/an` },
-        { label: "Actions classe A",      value: `${nbA} / ${actions.length}` },
-      ].map((stat) => (
-        <div key={stat.label} style={{ flex: "1 1 160px", background: "#f5f3ff", border: "1px solid #ede9fe", borderRadius: 12, padding: "12px 16px" }}>
-          <div style={{ fontSize: 11, color: "#59169c", fontWeight: 700, marginBottom: 4 }}>{stat.label}</div>
-          <div style={{ fontSize: 20, fontWeight: 800, color: "#111827" }}>{stat.value}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /* ── SectionCard ────────────────────────────────────────────── */
 function SectionCard({ title, subtitle, children }) {
   return (
@@ -1241,11 +1109,6 @@ const s = {
     background: "#f3f4f6", color: "#374151",
     padding: "10px 14px", borderRadius: 10,
     fontWeight: 600, fontSize: 13,
-  },
-  refBadge: {
-    background: "#ede9fe", color: "#59169c",
-    fontWeight: 700, fontSize: 11,
-    padding: "2px 8px", borderRadius: 6, whiteSpace: "nowrap",
   },
   infoBanner: {
     background: "#f3f4f6", color: "#374151",

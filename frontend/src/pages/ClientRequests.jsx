@@ -143,7 +143,7 @@ export default function ClientRequests() {
   }
 
   function projectName(project_id) {
-    return projects.find((p) => p.id === project_id)?.project_name || project_id || "—";
+    return projects.find((p) => p.id === project_id)?.project_name || project_id || "-";
   }
 
   // ── Créer une demande ──────────────────────────────────────────────────────
@@ -334,7 +334,7 @@ export default function ClientRequests() {
                       ? new Date(req.sent_at).toLocaleDateString("fr-BE", {
                           day: "2-digit", month: "2-digit", year: "numeric",
                         })
-                      : "—"}
+                      : "-"}
                   </td>
                   <td style={{ padding: "12px 12px" }}>
                     <div style={{ display: "flex", gap: 8 }}>
@@ -452,7 +452,7 @@ export default function ClientRequests() {
 
       {/* ── Modal : Détails ───────────────────────────────────────────────────── */}
       <Modal open={!!detailId} onClose={() => setDetailId(null)}
-        title={detailReq ? `Demande — ${projectName(detailReq.project_id)}` : "Détails"}
+        title={detailReq ? `Demande - ${projectName(detailReq.project_id)}` : "Détails"}
         width={660}>
         {detailReq && (
           <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>

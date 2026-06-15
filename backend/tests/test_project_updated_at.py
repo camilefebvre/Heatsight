@@ -1,5 +1,5 @@
 """
-Tests P9 — projects.updated_at (dernière activité).
+Tests P9 - projects.updated_at (dernière activité).
 
 - À la création : updated_at == created_at.
 - Après une modif de CONTENU (ajout d'une improvement-action) : updated_at AVANCE
