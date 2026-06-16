@@ -3287,6 +3287,16 @@ Réseau chaleur | SER biomasse, biogaz, e-fuel | SER PV, éolien, géothermie, s
 4. Mutualiser : CER, réseau chaleur, stockage
 5. Fossile résiduel efficace : cogénération gaz, pompe à chaleur
 
+## Ordres de grandeur investissements réalistes (HTVA, Belgique) :
+- Quick-win (régulation, monitoring, courroie, éclairage LED) : 1 – 30 k€
+- Remplacement équipement (chaudière, moteur, pompe, compresseur) : 10 – 150 k€
+- Installation PV (<150 kWc sur toiture) : 50 – 200 k€
+- Cogénération 100-400 kWe (remplacement unité existante) : 250 – 700 k€
+- Infrastructure lourde (géothermie, réseau chaleur urbain) : 500 – 5 000 k€
+ATTENTION CRITIQUE : investissement_k_eur est exprimé en MILLIERS d'euros (k€).
+Exemple : une installation PV à 80 000 € → investissement_k_eur = 80, PAS 80000.
+Ne jamais dépasser 5 000 sauf infrastructure exceptionnelle justifiée.
+
 Sois précis sur les chiffres. Si une donnée manque, estime-la avec une hypothèse raisonnable et marque estimated=true.
 """
 
@@ -3303,6 +3313,19 @@ Utilise UNIQUEMENT les valeurs exactes de type_amelioration listées dans le pro
 Pour duree_amortissement : 3 ans (consommables/régulation), 8 ans (éléments techniques), 15 ans (infrastructure lourde).
 Pour jalon : "2030" si faisable à court terme, "2040" si travaux importants, "2050" si rupture technologique.
 Propose toujours {max_actions} actions si les données le permettent, même si certaines valeurs sont des estimations raisonnables (estimated: true).
+
+RÈGLES STRICTES pour les champs texte :
+- situation_existante : 2-3 phrases décrivant CE QUI EXISTE ACTUELLEMENT sur le site en lien avec cette action.
+  Exemple : "Le site exploite un cogénérateur MWM TCG 2020 V16 de 350 kWe alimenté au gaz naturel. La chaleur fatale produite par l'unité n'est actuellement pas récupérée pour les besoins thermiques du bâtiment."
+  INTERDIT : ne jamais écrire "Situation existante" ou tout autre nom de champ comme valeur.
+- description : 2-3 phrases décrivant CONCRÈTEMENT L'ACTION À RÉALISER avec les équipements ou mesures concernés.
+  Exemple : "Installer un échangeur à plaques sur le circuit de refroidissement du cogénérateur pour récupérer la chaleur fatale vers le réseau ECS du bâtiment. Cette mesure permettrait de valoriser environ 30 MWh/an actuellement dissipés."
+  INTERDIT : ne jamais écrire "Description de l'amélioration" ou tout autre nom de champ comme valeur.
+
+RÈGLE pour economie_energie_mwh_an :
+- Doit être > 0 sauf si l'action est UNIQUEMENT de gestion tarifaire (décalage HP/HC, réduction puissance souscrite) : dans ce cas mettre 0 ET l'expliquer dans description.
+- Les économies doivent être cohérentes avec l'investissement : un quick-win à 5 k€ ne peut pas économiser 500 MWh/an.
+
 Réponds UNIQUEMENT avec un tableau JSON de la forme :
 [
   {{
