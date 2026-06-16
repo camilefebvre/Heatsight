@@ -161,6 +161,7 @@ export default function Agenda() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modalOpen, setModalOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  const [now, setNow] = useState(() => new Date());
 
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
   const toLocalInput = (iso) => (iso || "").slice(0, 16);
@@ -191,6 +192,12 @@ export default function Agenda() {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [modalOpen, subOpen]);
+
+  // Ligne "maintenant" : rafraîchit l'heure chaque minute (cleanup au démontage)
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 60000);
+    return () => clearInterval(id);
+  }, []);
 
   async function copySubUrl() {
     try { await navigator.clipboard.writeText(sub.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
@@ -388,6 +395,11 @@ export default function Agenda() {
   const editingEvent = editingId ? events.find((x) => x.id === editingId) : null;
   const editClientEmail = editingEvent ? projects.find((p) => p.id === editingEvent.project_id)?.client_email : null;
 
+  // Ligne "maintenant" (heure locale)
+  const nowMin = now.getHours() * 60 + now.getMinutes();
+  const showNowLine = nowMin >= HOUR_START * 60 && nowMin <= HOUR_END * 60;
+  const nowTop = (nowMin - HOUR_START * 60) * PX_PER_MIN;
+
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
@@ -429,6 +441,10 @@ export default function Agenda() {
             </button>
           </div>
         </div>
+
+        {/* Repli responsive : scroll horizontal partagé en-têtes + bande + corps */}
+        <div style={{ overflowX: "auto" }}>
+          <div style={{ minWidth: 700 }}>
 
         {/* En-têtes des jours */}
         <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid #ede9fe" }}>
@@ -481,6 +497,8 @@ export default function Agenda() {
           </div>
         )}
 
+        {/* Conteneur scroll vertical */}
+        <div style={{ maxHeight: 560, overflowY: "auto", scrollbarGutter: "stable" }}>
         {/* Corps : colonne heures + 7 colonnes jours */}
         <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)" }}>
           {/* Colonne des heures */}
@@ -523,10 +541,18 @@ export default function Agenda() {
                     </div>
                   );
                 })}
+                {today && showNowLine && (
+                  <div style={{ position: "absolute", left: 0, right: 0, top: nowTop, height: 2, background: "#dc2626", zIndex: 5, pointerEvents: "none" }}>
+                    <div style={{ position: "absolute", left: -3, top: -3, width: 8, height: 8, borderRadius: "50%", background: "#dc2626" }} />
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
+        </div>{/* fin scroll vertical */}
+          </div>{/* fin largeur min 700 */}
+        </div>{/* fin scroll horizontal */}
       </Card>
 
       {/* ── MODALE FORMULAIRE ─────────────────────────────────────── */}
