@@ -130,6 +130,7 @@ export default function LCALibrary() {
 
   // Fiche matériau (lecture seule, double-clic)
   const [ficheModal,   setFicheModal]   = useState(null); // null ou matériau
+  const [helpOpen,     setHelpOpen]     = useState(false);
 
   // ── Chargement ─────────────────────────────────────────────────────────────
   async function loadMaterials() {
@@ -302,9 +303,15 @@ export default function LCALibrary() {
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion & Administration</div>
-      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
-        Bibliothèque ACV
-      </h1>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 6px" }}>
+        <h1 style={{ fontSize: 34, margin: 0, color: "#111827" }}>Bibliothèque ACV</h1>
+        <button type="button" onClick={() => setHelpOpen(true)} title="Méthodologie ACV"
+          style={{ width: 26, height: 26, borderRadius: "50%", border: "1.5px solid #c4b5fd",
+            background: "#faf5ff", color: "#59169c", fontWeight: 900, fontSize: 14, cursor: "pointer",
+            display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }}>
+          ?
+        </button>
+      </div>
       <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 20 }}>
         Gérez les matériaux de la bibliothèque partagée : importez, modifiez, dupliquez ou supprimez.
       </div>
@@ -846,6 +853,26 @@ export default function LCALibrary() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Modale : Méthodologie ACV ────────────────────────────────────────── */}
+      {helpOpen && (
+        <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) setHelpOpen(false); }}>
+          <div style={{ ...modal, width: 640 }}>
+            <ModalHeader title="Méthodologie ACV" onClose={() => setHelpOpen(false)} />
+            <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.65, display: "grid", gap: 10 }}>
+              <div><b>Cadre</b> — ACV multicritère ISO 14040/44, déclinée bâtiment par EN 15804+A2 (composants) et EN 15978 (bâtiment).</div>
+              <div><b>Objectif</b> — comparer des variantes constructives de l'enveloppe sur tout le cycle de vie pour éclairer la décision en audit/rénovation.</div>
+              <div><b>Périmètre</b> — modules A1–A3 (production), A4–A5 (transport/pose), B (usage), C (fin de vie), D (hors-système, non intégré en cut-off). DVR bâtiment : 60 ans par défaut.</div>
+              <div><b>Données</b> — LCIA calculés dans Activity Browser (ecoinvent v3.11, cut-off), méthode EN 15804+A2 Core (10 indicateurs). Impacts figés à l'import ; seuls prix, R et λ restent éditables.</div>
+              <div><b>Unité fonctionnelle</b> — par fonction : isolants ramenés à R = 1 m²·K/W via le flux de référence φ (masse = R_cible × φ × surface).</div>
+              <div><b>Déconstruction (module C1)</b> — facteur unique par tonne déconstruite (ACV interne de démolition) : impact = facteur × masse. Requiert le « poids par unité » ; à défaut, non calculé.</div>
+              <div><b>Remplacements</b> — si DVR matériau &lt; DVR bâtiment, impact compté n = ⌈DVR_bât / DVR_mat⌉ fois (min. 1). Affichage brut et amorti.</div>
+              <div><b>Optimisation</b> — génération des variantes → filtrage par contraintes → classement TOPSIS (coût, économies, GWP100 amorti + santé/énergie pondérés) → 5 profils.</div>
+              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>Résumé indicatif — voir le mémoire (chapitre ACV) pour les hypothèses et formules complètes.</div>
+            </div>
           </div>
         </div>
       )}
