@@ -82,6 +82,36 @@ function isBandEvent(ev) {
   return h < HOUR_START || h >= HOUR_END;
 }
 
+// Répartit en sous-colonnes les events grille qui se chevauchent (packing par colonnes).
+// Mute chaque item (qui porte startMin/endMin) en lui ajoutant col, cols, leftPct, widthPct.
+function layoutOverlaps(items) {
+  items.sort((a, b) => a.startMin - b.startMin || a.endMin - b.endMin);
+  let cluster = [];   // items du cluster (chevauchement transitif) courant
+  let colEnds = [];   // endMin du dernier event de chaque colonne active
+  const flush = () => {
+    const cols = colEnds.length;
+    for (const it of cluster) it.cols = cols;
+    cluster = [];
+    colEnds = [];
+  };
+  for (const it of items) {
+    // Nouveau cluster si l'event commence après la fin de TOUTES les colonnes actives
+    if (colEnds.length && it.startMin >= Math.max(...colEnds)) flush();
+    // Première colonne libre (dernier event terminé), sinon nouvelle colonne
+    let col = colEnds.findIndex((end) => end <= it.startMin);
+    if (col === -1) { col = colEnds.length; colEnds.push(it.endMin); }
+    else colEnds[col] = it.endMin;
+    it.col = col;
+    cluster.push(it);
+  }
+  flush();
+  for (const it of items) {
+    const cols = it.cols || 1;
+    it.leftPct = (it.col / cols) * 100;
+    it.widthPct = (1 / cols) * 100;
+  }
+}
+
 // Date locale → "YYYY-MM-DDTHH:mm" (construit manuellement, jamais toISOString/UTC)
 function fmtLocalInput(date) {
   const p = (n) => String(n).padStart(2, "0");
@@ -203,9 +233,16 @@ export default function Agenda() {
         if (di !== -1) byDay[di].band.push(ev);
       } else {
         const pos = placeEvent(ev, days);
-        if (pos) byDay[pos.dayIndex].grid.push({ ev, top: pos.top, height: pos.height });
+        if (pos) {
+          const d = new Date(ev.start);
+          const startMin = d.getHours() * 60 + d.getMinutes();
+          const endMin = startMin + (ev.duration_min || 0);
+          byDay[pos.dayIndex].grid.push({ ev, top: pos.top, height: pos.height, startMin, endMin });
+        }
       }
     }
+    // Répartition des chevauchements en sous-colonnes, par jour
+    for (const day of byDay) layoutOverlaps(day.grid);
     return byDay;
   }, [sorted, days]);
 
@@ -465,14 +502,15 @@ export default function Agenda() {
                   <div key={h} onClick={() => openCreateAt(days[i], h)}
                     style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6", cursor: "pointer" }} />
                 ))}
-                {weekEvents[i].grid.map(({ ev, top, height }) => {
+                {weekEvents[i].grid.map(({ ev, top, height, leftPct, widthPct }) => {
                   const type = ev.type || detectType(ev.title);
                   const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
                   return (
                     <div key={ev.id}
                       onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
                       title={ev.title}
-                      style={{ position: "absolute", top, height, left: 2, right: 2,
+                      style={{ position: "absolute", top, height,
+                        left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
                         background: cfg.bg, borderLeft: `3px solid ${cfg.color}`, borderRadius: 6,
                         padding: "2px 6px", fontSize: 11, overflow: "hidden", cursor: "pointer",
                         boxSizing: "border-box", display: "flex", gap: 4, alignItems: "baseline" }}>
