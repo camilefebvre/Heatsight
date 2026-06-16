@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, Fragment } from "react";
 import { useParams } from "react-router-dom";
 import { useProject } from "../state/ProjectContext";
-import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X, Info, Lock, LockOpen } from "lucide-react";
+import { Plus, Trash2, ChevronDown, ChevronUp, Pencil, X, Info, Lock, LockOpen, Sparkles, AlertTriangle, Check } from "lucide-react";
 import { apiFetch } from "../api";
 import {
   normStr, isFenetreCategory, isIsolantCategory, isCadreCategory,
@@ -2667,7 +2667,7 @@ function ResultsWidget({ bat, stats, auditKwh, onOptimize }) {
         {onOptimize && (
           <button type="button" onClick={onOptimize}
             style={{ ...smallBtn, fontSize: 12, padding: "6px 12px" }}>
-            ⚡ Optimiser
+            <Sparkles size={13} /> Optimiser
           </button>
         )}
       </div>
@@ -3134,11 +3134,11 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
   }
 
   const PHARE_DEFS = [
-    { key: "statuQuo",   label: "Statu quo",    color: "#6b7280", icon: "○" },
-    { key: "economique", label: "Maximum économique", color: "#059669", icon: "💰" },
-    { key: "ecologique", label: "Écologique",   color: "#16a34a", icon: "🌿" },
-    { key: "roi",        label: "Meilleur ROI", color: "#2563eb", icon: "↩" },
-    { key: "topsis2",    label: "TOPSIS",                        color: "#7c3aed", icon: "✨" },
+    { key: "statuQuo",   label: "Statu quo",          color: "#6b7280" },
+    { key: "economique", label: "Maximum économique", color: "#059669" },
+    { key: "ecologique", label: "Écologique",         color: "#16a34a" },
+    { key: "roi",        label: "Meilleur ROI",       color: "#2563eb" },
+    { key: "topsis2",    label: "TOPSIS",             color: "#7c3aed" },
   ];
 
   const ALL_PHARE_KEYS = ["statuQuo", "economique", "ecologique", "roi", "topsis2"];
@@ -3275,8 +3275,8 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
             <>
               {isStale && (
                 <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 10, padding: "12px 14px", marginBottom: 16 }}>
-                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", marginBottom: 4 }}>
-                    ⚠️ La configuration a changé depuis la dernière optimisation
+                  <div style={{ fontWeight: 700, fontSize: 13, color: "#92400e", marginBottom: 4, display: "flex", alignItems: "center", gap: 6 }}>
+                    <AlertTriangle size={14} style={{ flexShrink: 0 }} /> La configuration a changé depuis la dernière optimisation
                   </div>
                   {computedAt && (
                     <div style={{ fontSize: 12, color: "#b45309", marginBottom: 10 }}>
@@ -3316,7 +3316,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
 
               {allDominatedOrEqual && (
                 <div style={{ textAlign: "center", padding: "16px 20px", marginBottom: 14, background: "#f0fdf4", border: "1.5px solid #86efac", borderRadius: 10 }}>
-                  <div style={{ fontSize: 16, marginBottom: 6 }}>✓</div>
+                  <div style={{ marginBottom: 6, color: "#166534", display: "flex", justifyContent: "center" }}><Check size={20} /></div>
                   <div style={{ fontSize: 13, fontWeight: 700, color: "#166534", marginBottom: 4 }}>
                     Votre configuration actuelle est déjà optimale
                   </div>
@@ -3356,14 +3356,14 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                     </tr>
                   </thead>
                   <tbody>
-                    {PHARE_DEFS.map(({ key, label, color, icon }) => {
+                    {PHARE_DEFS.map(({ key, label, color }) => {
                       if (allDominatedOrEqual && key !== "statuQuo") return null;
                       const sol = displayPhares[key];
                       const isExpanded = expandedProfile === key;
                       if (!sol) return (
                         <tr key={key} style={{ borderTop: "1px solid #f3f4f6", opacity: 0.4 }}>
                           <td style={td} colSpan={10}>
-                            <span style={{ fontWeight: 600, color: "#9ca3af" }}>{icon} {label}</span>
+                            <span style={{ fontWeight: 600, color: "#9ca3af" }}>{label}</span>
                             <span style={{ color: "#d1d5db", marginLeft: 8, fontSize: 11 }}>Non disponible</span>
                           </td>
                         </tr>
@@ -3389,7 +3389,7 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                               <span style={{ marginRight: 4, fontSize: 10, verticalAlign: "middle" }}>
                                 {isExpanded ? "▼" : "▶"}
                               </span>
-                              {icon} {label}
+                              {label}
                             </td>
                             <td style={{ ...td, textAlign: "right", fontWeight: 600 }}>
                               {(() => {
@@ -3455,8 +3455,8 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                                   return (
                                     <div style={{ background: "#fffbeb", border: "1.5px solid #fcd34d", borderRadius: 8, padding: "8px 12px", marginBottom: 10 }}>
                                       {warnings.map((w, i) => (
-                                        <div key={i} style={{ fontSize: 12, color: "#92400e", fontWeight: 600, marginBottom: i < warnings.length - 1 ? 4 : 0 }}>
-                                          ⚠️ {w} : cet indicateur est moins bon que la configuration actuelle
+                                        <div key={i} style={{ fontSize: 12, color: "#92400e", fontWeight: 600, marginBottom: i < warnings.length - 1 ? 4 : 0, display: "flex", alignItems: "center", gap: 6 }}>
+                                          <AlertTriangle size={13} style={{ flexShrink: 0 }} /> {w} : cet indicateur est moins bon que la configuration actuelle
                                         </div>
                                       ))}
                                     </div>
@@ -3536,13 +3536,13 @@ function OptimisationPanel({ bat, materials, projectId, onClose, cachedHash, cac
                 </table>
               </div>
               {noSanteData && (
-                <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
-                  ℹ️ Données photochemical_oxidant_hh insuffisantes dans la bibliothèque - indicateur Santé humaine non disponible.
+                <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Info size={13} style={{ flexShrink: 0 }} /> Données photochemical_oxidant_hh insuffisantes dans la bibliothèque - indicateur Santé humaine non disponible.
                 </div>
               )}
               {santeMissingDVR && (
-                <div style={{ marginTop: 8, fontSize: 11, color: "#d97706", fontStyle: "italic" }}>
-                  ℹ️ Données santé présentes - vérifier les DVR matériaux (sante_amorti = 0 pour tous les profils).
+                <div style={{ marginTop: 8, fontSize: 11, color: "#d97706", fontStyle: "italic", display: "flex", alignItems: "center", gap: 6 }}>
+                  <Info size={13} style={{ flexShrink: 0 }} /> Données santé présentes - vérifier les DVR matériaux (sante_amorti = 0 pour tous les profils).
                 </div>
               )}
               <div style={{ marginTop: 8, fontSize: 11, color: "#9ca3af", fontStyle: "italic" }}>
