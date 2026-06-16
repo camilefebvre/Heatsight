@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Query, Response
+from fastapi import FastAPI, HTTPException, Depends, status, UploadFile, File, Form, Query, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.security import OAuth2PasswordBearer
@@ -34,6 +34,9 @@ import asyncio
 import unicodedata
 import anthropic
 import pdfplumber
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 from docxtpl import DocxTemplate
 
 from dotenv import load_dotenv
@@ -728,6 +731,9 @@ def get_current_user(
 # FASTAPI APP
 # ==============================
 app = FastAPI()
+limiter = Limiter(key_func=get_remote_address)
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
     CORSMiddleware,
@@ -861,7 +867,8 @@ def register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
 
 
 @app.post("/auth/login")
-def login(payload: schemas.UserLogin, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(get_db)):
     user = db.query(models.User).filter(models.User.email == payload.email).first()
     if not user or not _verify_password(payload.password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
@@ -2627,6 +2634,8 @@ async def import_client_file(
         raise HTTPException(status_code=400, detail="Type non supporté. Utilisez PDF, JPEG ou PNG.")
 
     file_bytes = await file.read()
+    if not _check_file_magic(file_bytes, content_type):
+        raise HTTPException(status_code=400, detail="Contenu du fichier invalide.")
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     now = datetime.now(timezone.utc).isoformat()
 
@@ -2857,6 +2866,16 @@ def _analyze_one(doc: models.ProjectDocument, db_session=None) -> None:
         doc.status = "error"
 
 
+_FILE_MAGIC = {
+    "application/pdf": b"%PDF",
+    "image/jpeg":      b"\xff\xd8\xff",
+    "image/png":       b"\x89PNG",
+}
+def _check_file_magic(data: bytes, content_type: str) -> bool:
+    sig = _FILE_MAGIC.get(content_type)
+    return sig is not None and data[:4].startswith(sig)
+
+
 @app.post("/projects/{project_id}/documents")
 async def upload_document(
     project_id: str,
@@ -2877,6 +2896,8 @@ async def upload_document(
         raise HTTPException(status_code=400, detail="Type non supporté. Utilisez PDF, JPEG ou PNG.")
 
     file_bytes = await file.read()
+    if not _check_file_magic(file_bytes, content_type):
+        raise HTTPException(status_code=400, detail="Contenu du fichier invalide.")
     file_hash = hashlib.sha256(file_bytes).hexdigest()
     doc = models.ProjectDocument(
         id=str(uuid4()),
