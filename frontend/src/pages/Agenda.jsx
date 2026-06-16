@@ -47,22 +47,39 @@ function startOfWeek(date) {
   return d;
 }
 
-// Placement d'un event dans la grille (heure locale uniquement, jamais d'UTC).
-// Retourne { dayIndex, top, height } ou null si hors semaine visible.
-function placeEvent(ev, days) {
+// Index du jour (0-6) de l'event dans `days`, ou -1 (comparaison locale y/m/j).
+function dayIndexOf(ev, days) {
   const d = new Date(ev.start);
-  if (isNaN(d.getTime())) return null;
-  const dayIndex = days.findIndex((day) =>
+  if (isNaN(d.getTime())) return -1;
+  return days.findIndex((day) =>
     day.getFullYear() === d.getFullYear() &&
     day.getMonth() === d.getMonth() &&
     day.getDate() === d.getDate()
   );
+}
+
+// Placement d'un event dans la grille (heure locale uniquement, jamais d'UTC).
+// Retourne { dayIndex, top, height } ou null si hors semaine visible.
+function placeEvent(ev, days) {
+  const dayIndex = dayIndexOf(ev, days);
   if (dayIndex === -1) return null;
+  const d = new Date(ev.start);
   const minutesFromStart = (d.getHours() * 60 + d.getMinutes()) - HOUR_START * 60;
   const top = Math.max(0, Math.min(minutesFromStart * PX_PER_MIN, GRID_HEIGHT));
   let height = Math.max((ev.duration_min || 0) * PX_PER_MIN, 22); // min cliquable
   if (top + height > GRID_HEIGHT) height = GRID_HEIGHT - top;      // borne le bas
   return { dayIndex, top, height };
+}
+
+// Event à reléguer dans la bande "hors horaire" (heure locale uniquement) :
+// échéance, ou début hors [HOUR_START, HOUR_END), ou durée nulle/absente.
+function isBandEvent(ev) {
+  if (ev.type === "deadline") return true;
+  if (!ev.duration_min) return true;
+  const d = new Date(ev.start);
+  if (isNaN(d.getTime())) return false;
+  const h = d.getHours();
+  return h < HOUR_START || h >= HOUR_END;
 }
 
 // Date locale → "YYYY-MM-DDTHH:mm" (construit manuellement, jamais toISOString/UTC)
@@ -177,12 +194,17 @@ export default function Agenda() {
       : `${a.toLocaleDateString("fr-BE", { day: "numeric", month: "short" })} - ${b.toLocaleDateString("fr-BE", { day: "numeric", month: "short", year: "numeric" })}`;
   }, [days]);
 
-  // Events de la semaine visible, placés et groupés par jour (0=lun … 6=dim)
+  // Events de la semaine visible, par jour (0=lun … 6=dim) : { grid, band }
   const weekEvents = useMemo(() => {
-    const byDay = Array.from({ length: 7 }, () => []);
+    const byDay = Array.from({ length: 7 }, () => ({ grid: [], band: [] }));
     for (const ev of sorted) {
-      const pos = placeEvent(ev, days);
-      if (pos) byDay[pos.dayIndex].push({ ev, top: pos.top, height: pos.height });
+      if (isBandEvent(ev)) {
+        const di = dayIndexOf(ev, days);
+        if (di !== -1) byDay[di].band.push(ev);
+      } else {
+        const pos = placeEvent(ev, days);
+        if (pos) byDay[pos.dayIndex].grid.push({ ev, top: pos.top, height: pos.height });
+      }
     }
     return byDay;
   }, [sorted, days]);
@@ -386,6 +408,42 @@ export default function Agenda() {
           })}
         </div>
 
+        {/* Bande "hors horaire / échéances" — affichée seulement si nécessaire */}
+        {weekEvents.some((d) => d.band.length > 0) && (
+          <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)", borderBottom: "1px solid #ede9fe", background: "#fafafa" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "flex-end", padding: "4px 6px", fontSize: 10, color: "#9ca3af", textAlign: "right", lineHeight: 1.2 }}>
+              Hors horaire
+            </div>
+            {days.map((d, i) => {
+              const today = isToday(d);
+              return (
+                <div key={i} style={{ borderLeft: "1px solid #f3f4f6", background: today ? "#faf5ff" : "transparent",
+                  padding: 3, display: "flex", flexWrap: "wrap", gap: 3, alignContent: "flex-start" }}>
+                  {weekEvents[i].band.map((ev) => {
+                    const type = ev.type || detectType(ev.title);
+                    const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
+                    return (
+                      <div key={ev.id}
+                        onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
+                        title={ev.title}
+                        style={{ width: "100%", background: cfg.bg, borderLeft: `3px solid ${cfg.color}`, borderRadius: 6,
+                          padding: "2px 6px", fontSize: 11, cursor: "pointer", boxSizing: "border-box",
+                          display: "flex", gap: 4, alignItems: "baseline" }}>
+                        <span style={{ fontWeight: 700, color: cfg.color, flexShrink: 0 }}>
+                          {ev.start.slice(11, 16)}
+                        </span>
+                        <span style={{ color: "#111827", flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {ev.title}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
         {/* Corps : colonne heures + 7 colonnes jours */}
         <div style={{ display: "grid", gridTemplateColumns: "56px repeat(7, 1fr)" }}>
           {/* Colonne des heures */}
@@ -407,7 +465,7 @@ export default function Agenda() {
                   <div key={h} onClick={() => openCreateAt(days[i], h)}
                     style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6", cursor: "pointer" }} />
                 ))}
-                {weekEvents[i].map(({ ev, top, height }) => {
+                {weekEvents[i].grid.map(({ ev, top, height }) => {
                   const type = ev.type || detectType(ev.title);
                   const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
                   return (
