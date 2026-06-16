@@ -6,9 +6,13 @@ import Agenda from "../Agenda";
 vi.mock("../../api", () => ({ apiFetch: vi.fn() }));
 import { apiFetch } from "../../api";
 
+const _now = new Date();
+const _pad = (n) => String(n).padStart(2, "0");
+// Aujourd'hui à 10:00, en local naïf → garanti dans la semaine visible et la plage 7-21h
+const TODAY_10H = `${_now.getFullYear()}-${_pad(_now.getMonth() + 1)}-${_pad(_now.getDate())}T10:00`;
 const EVENT = {
-  id: "ev1", title: "Visite bâtiment", start: "2026-03-01T09:00",
-  duration_min: 60, location: "Bruxelles", project_id: "", notes: "",
+  id: "ev1", title: "Visite bâtiment", start: TODAY_10H,
+  duration_min: 60, location: "Bruxelles", project_id: "", notes: "", type: "rdv",
 };
 const ok = (data) => Promise.resolve({ ok: true, json: () => Promise.resolve(data) });
 
@@ -28,11 +32,11 @@ describe("Agenda - édition d'un événement (P20)", () => {
 
   it("Modifier pré-remplit le formulaire et PATCH met à jour l'événement", async () => {
     render(<Agenda />);
+    // Le bloc apparaît dans la grille semaine
     await screen.findByText("Visite bâtiment");
 
-    // Entrée en mode édition
-    await userEvent.click(screen.getByTitle("Modifier"));
-    // Le formulaire s'ouvre désormais dans une modale
+    // Clic sur le bloc → ouverture de la modale en édition
+    await userEvent.click(screen.getByTitle("Visite bâtiment"));
     expect(screen.getByDisplayValue("Visite bâtiment")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Enregistrer les modifications/i })).toBeInTheDocument();
 
@@ -45,7 +49,7 @@ describe("Agenda - édition d'un événement (P20)", () => {
     await waitFor(() =>
       expect(apiFetch).toHaveBeenCalledWith("/events/ev1", expect.objectContaining({ method: "PATCH" }))
     );
-    // La liste reflète le nouveau titre, et la modale s'est refermée (sortie du mode édition)
+    // Le bloc reflète le nouveau titre, et la modale s'est refermée (sortie du mode édition)
     await screen.findByText("Visite bâtiment (reportée)");
     await waitFor(() =>
       expect(screen.queryByRole("button", { name: /Enregistrer les modifications/i })).not.toBeInTheDocument()

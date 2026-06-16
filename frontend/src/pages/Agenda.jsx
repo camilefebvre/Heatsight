@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Pencil, Copy, RefreshCw, CalendarClock, Video, Mail, X } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Copy, RefreshCw, CalendarClock, Mail, X } from "lucide-react";
 import { apiFetch } from "../api";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
@@ -81,17 +81,6 @@ function Card({ children, style }) {
   );
 }
 
-function TypeBadge({ type }) {
-  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
-  return (
-    <span style={{ display: "inline-flex", alignItems: "center", padding: "3px 9px",
-      borderRadius: 999, fontSize: 11, fontWeight: 700, background: cfg.color,
-      color: "white", letterSpacing: "0.03em", flexShrink: 0 }}>
-      {cfg.label}
-    </span>
-  );
-}
-
 function Field({ label, children }) {
   return (
     <label style={{ display: "grid", gap: 5 }}>
@@ -111,7 +100,6 @@ const inputStyle = {
 export default function Agenda() {
   const [events, setEvents] = useState([]);
   const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [focused, setFocused] = useState(null);
 
   const empty = { title: "", start: "", duration_min: 60, location: "", project_id: "", notes: "", type: "rdv", link: "" };
@@ -125,6 +113,7 @@ export default function Agenda() {
   // Vue semaine
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modalOpen, setModalOpen] = useState(false);
+  const [subOpen, setSubOpen] = useState(false);
 
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
   const toLocalInput = (iso) => (iso || "").slice(0, 16);
@@ -137,7 +126,6 @@ export default function Agenda() {
     ]).then(([evts, projs]) => {
       setEvents(Array.isArray(evts) ? evts : []);
       setProjects(Array.isArray(projs) ? projs : []);
-      setLoading(false);
     });
   }, []);
 
@@ -145,13 +133,17 @@ export default function Agenda() {
     apiFetch("/calendar/subscription").then((r) => (r.ok ? r.json() : null)).then(setSub).catch(() => {});
   }, []);
 
-  // Fermeture de la modale sur Échap
+  // Fermeture de la modale ouverte sur Échap
   useEffect(() => {
-    if (!modalOpen) return;
-    const onKey = (e) => { if (e.key === "Escape") cancelEdit(); };
+    if (!modalOpen && !subOpen) return;
+    const onKey = (e) => {
+      if (e.key !== "Escape") return;
+      if (subOpen) setSubOpen(false);
+      else if (modalOpen) cancelEdit();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [modalOpen]);
+  }, [modalOpen, subOpen]);
 
   async function copySubUrl() {
     try { await navigator.clipboard.writeText(sub.url); setCopied(true); setTimeout(() => setCopied(false), 2000); } catch {}
@@ -316,12 +308,14 @@ export default function Agenda() {
 
   // ── Supprimer un événement ────────────────────────────────────────────────
   async function removeEvent(id) {
-    if (!confirm("Supprimer cet événement ?")) return;
+    if (!confirm("Supprimer cet événement ?")) return false;
     try {
       await apiFetch(`/events/${id}`, { method: "DELETE" });
       setEvents((prev) => prev.filter((x) => x.id !== id));
+      return true;
     } catch {
       alert("Erreur lors de la suppression.");
+      return false;
     }
   }
 
@@ -330,6 +324,10 @@ export default function Agenda() {
       ? { ...inputStyle, borderColor: "#59169c", boxShadow: "0 0 0 3px rgba(89,22,156,0.12)" }
       : inputStyle;
   }
+
+  // Event en cours d'édition (pour les actions email/suppr de la modale)
+  const editingEvent = editingId ? events.find((x) => x.id === editingId) : null;
+  const editClientEmail = editingEvent ? projects.find((p) => p.id === editingEvent.project_id)?.client_email : null;
 
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
@@ -359,10 +357,18 @@ export default function Agenda() {
           <div style={{ marginLeft: 6, fontWeight: 800, fontSize: 16, color: "#111827", textTransform: "capitalize" }}>
             {weekLabel}
           </div>
-          <button type="button" onClick={openCreate}
-            style={{ marginLeft: "auto", height: 34, padding: "0 14px", borderRadius: 10, border: "none", background: "#59169c", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-            + Nouvel événement
-          </button>
+          <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+            {sub && (
+              <button type="button" onClick={() => setSubOpen(true)}
+                style={{ height: 34, padding: "0 14px", borderRadius: 10, border: "1px solid #c4b5fd", background: "white", color: "#59169c", fontWeight: 700, fontSize: 13, cursor: "pointer", display: "inline-flex", alignItems: "center", gap: 6 }}>
+                <CalendarDays size={14} /> S'abonner
+              </button>
+            )}
+            <button type="button" onClick={openCreate}
+              style={{ height: 34, padding: "0 14px", borderRadius: 10, border: "none", background: "#59169c", color: "white", fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+              + Nouvel événement
+            </button>
+          </div>
         </div>
 
         {/* En-têtes des jours */}
@@ -426,120 +432,6 @@ export default function Agenda() {
           })}
         </div>
       </Card>
-
-      <div style={{ marginTop: 22, display: "grid",
-        gridTemplateColumns: "1fr", gap: 20, alignItems: "start" }}>
-
-        {/* ── LISTE DES ÉVÉNEMENTS ─────────────────────────────────── */}
-        <Card>
-          <div style={{ fontWeight: 800, fontSize: 17, color: "#111827" }}>
-            Événements à venir
-          </div>
-          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            Visites, appels et deadlines.
-          </div>
-
-          <div style={{ marginTop: 16, display: "grid", gap: 10 }}>
-            {loading ? (
-              <div style={{ color: "#9ca3af", fontSize: 14, padding: "12px 0" }}>
-                Chargement…
-              </div>
-            ) : sorted.length === 0 ? (
-              <div style={{ color: "#9ca3af", fontSize: 14, padding: "12px 0" }}>
-                Aucun événement pour l'instant.
-              </div>
-            ) : (
-              sorted.map((ev) => {
-                const type = ev.type || detectType(ev.title);
-                const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
-                const { Icon } = cfg;
-                const clientEmail = projects.find((p) => p.id === ev.project_id)?.client_email;
-
-                return (
-                  <div key={ev.id} style={{ border: "1px solid #f3f4f6",
-                    borderLeft: `4px solid ${cfg.color}`, borderRadius: 12,
-                    padding: "14px 16px", display: "grid", gap: 8, background: cfg.bg }}>
-
-                    <div style={{ display: "flex", alignItems: "flex-start",
-                      justifyContent: "space-between", gap: 10 }}>
-                      <div style={{ display: "flex", alignItems: "center",
-                        gap: 8, flex: 1, minWidth: 0 }}>
-                        <Icon size={16} color={cfg.color} strokeWidth={2.2}
-                          style={{ flexShrink: 0 }} />
-                        <span style={{ fontWeight: 700, color: "#111827",
-                          fontSize: 14, lineHeight: 1.3 }}>{ev.title}</span>
-                      </div>
-                      <div style={{ display: "flex", alignItems: "center",
-                        gap: 8, flexShrink: 0 }}>
-                        <TypeBadge type={type} />
-                        <button
-                          type="button"
-                          onClick={() => openClientEmail(ev)}
-                          disabled={!clientEmail}
-                          title={clientEmail ? "Envoyer un email au client" : "Aucun email client - associez un projet"}
-                          style={{
-                            border: "none", background: "transparent",
-                            cursor: clientEmail ? "pointer" : "not-allowed",
-                            padding: 4, borderRadius: 8,
-                            display: "flex", alignItems: "center",
-                            color: clientEmail ? "#59169c" : "#cbd5e1",
-                          }}
-                        >
-                          <Mail size={14} strokeWidth={2} />
-                        </button>
-                        <button onClick={() => startEdit(ev)}
-                          style={{ border: "none", background: "transparent",
-                            cursor: "pointer", padding: "4px", borderRadius: 8,
-                            display: "flex", alignItems: "center", color: "#59169c" }}
-                          title="Modifier">
-                          <Pencil size={14} strokeWidth={2} />
-                        </button>
-                        <button onClick={() => removeEvent(ev.id)}
-                          style={{ border: "none", background: "transparent",
-                            cursor: "pointer", padding: "4px", borderRadius: 8,
-                            display: "flex", alignItems: "center", color: "#9ca3af" }}
-                          title="Supprimer">
-                          <Trash2 size={14} strokeWidth={2} />
-                        </button>
-                      </div>
-                    </div>
-
-                    <div style={{ color: "#6b7280", fontSize: 12 }}>
-                      {formatDate(ev.start)}
-                      {ev.duration_min ? ` • ${ev.duration_min} min` : ""}
-                      {ev.location ? ` • ${ev.location}` : ""}
-                    </div>
-
-                    {ev.link && (
-                      <div style={{ fontSize: 12 }}>
-                        <a href={/^https?:\/\//i.test(ev.link) ? ev.link : `https://${ev.link}`}
-                          target="_blank" rel="noopener noreferrer"
-                          style={{ color: "#59169c", fontWeight: 600, textDecoration: "none",
-                            display: "inline-flex", alignItems: "center", gap: 4 }}>
-                          <Video size={13} strokeWidth={2} /> Lien visio
-                        </a>
-                      </div>
-                    )}
-
-                    {ev.project_id && (
-                      <div style={{ fontSize: 12, color: "#374151" }}>
-                        <span style={{ fontWeight: 600 }}>Projet :</span>{" "}
-                        {projectName(ev.project_id) || ev.project_id}
-                      </div>
-                    )}
-
-                    {ev.notes && (
-                      <div style={{ fontSize: 12, color: "#6b7280", fontStyle: "italic" }}>
-                        {ev.notes}
-                      </div>
-                    )}
-                  </div>
-                );
-              })
-            )}
-          </div>
-        </Card>
-      </div>
 
       {/* ── MODALE FORMULAIRE ─────────────────────────────────────── */}
       {modalOpen && (
@@ -630,9 +522,29 @@ export default function Agenda() {
                   placeholder="Check-list, documents à apporter…" />
               </Field>
 
-              <div style={{ display: "flex", gap: 10, marginTop: 4 }}>
-                <button type="submit" style={{ flex: 1, background: "#59169c", color: "white",
-                  border: "none", padding: "11px 14px", borderRadius: 12, fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
+              <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
+                {editingId && (
+                  <>
+                    <button type="button" onClick={() => openClientEmail(editingEvent)} disabled={!editClientEmail}
+                      title={editClientEmail ? "Envoyer un email au client" : "Aucun email client - associez un projet"}
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white",
+                        color: editClientEmail ? "#59169c" : "#cbd5e1", border: "1px solid #e5e7eb",
+                        padding: "11px 14px", borderRadius: 12, fontWeight: 600, fontSize: 14,
+                        cursor: editClientEmail ? "pointer" : "not-allowed" }}>
+                      <Mail size={15} /> Email client
+                    </button>
+                    <button type="button" onClick={async () => { if (await removeEvent(editingId)) cancelEdit(); }}
+                      title="Supprimer"
+                      style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white",
+                        color: "#dc2626", border: "1px solid #fecaca", padding: "11px 14px", borderRadius: 12,
+                        fontWeight: 600, fontSize: 14, cursor: "pointer" }}>
+                      <Trash2 size={15} /> Supprimer
+                    </button>
+                  </>
+                )}
+                <button type="submit" style={{ marginLeft: editingId ? "auto" : 0, flex: editingId ? "0 0 auto" : 1,
+                  background: "#59169c", color: "white", border: "none", padding: "11px 14px", borderRadius: 12,
+                  fontWeight: 700, fontSize: 14, cursor: "pointer" }}>
                   {editingId ? "Enregistrer les modifications" : "+ Ajouter l'événement"}
                 </button>
                 <button type="button" onClick={cancelEdit} style={{ background: "white",
@@ -645,36 +557,51 @@ export default function Agenda() {
         </div>
       )}
 
-      {sub && (
-        <Card style={{ marginTop: 20 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 17, color: "#111827" }}>
-            <CalendarDays size={18} color="#59169c" /> Ajouter à mon calendrier
+      {/* ── MODALE ABONNEMENT .ics ─────────────────────────────────── */}
+      {subOpen && sub && (
+        <div onClick={() => setSubOpen(false)}
+          style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", zIndex: 1000,
+            display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }}>
+          <div onClick={(e) => e.stopPropagation()}
+            style={{ background: "white", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+              width: "100%", maxWidth: 560, maxHeight: "90vh", overflow: "auto", padding: 22, boxSizing: "border-box" }}>
+
+            <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, fontWeight: 800, fontSize: 17, color: "#111827" }}>
+                <CalendarDays size={18} color="#59169c" /> Ajouter à mon calendrier
+              </div>
+              <button type="button" onClick={() => setSubOpen(false)} title="Fermer"
+                style={{ border: "none", background: "transparent", cursor: "pointer", color: "#9ca3af", padding: 4, borderRadius: 8, display: "flex", alignItems: "center", flexShrink: 0 }}>
+                <X size={18} />
+              </button>
+            </div>
+
+            <div style={{ color: "#6b7280", fontSize: 13, marginTop: 8 }}>
+              Abonnez Google Agenda, Outlook ou Apple Calendrier à ce lien - lecture seule, mise à jour automatique.
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
+              <input readOnly value={sub.url} onFocus={(e) => e.target.select()}
+                style={{ flex: "1 1 320px", minWidth: 0, padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#374151", background: "#f9fafb" }} />
+              <button type="button" onClick={copySubUrl}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#59169c", color: "white", border: "none", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
+                <Copy size={14} /> {copied ? "Copié !" : "Copier"}
+              </button>
+              <a href={sub.webcal_url}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#59169c", border: "1px solid #c4b5fd", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
+                Ouvrir (webcal)
+              </a>
+              <button type="button" onClick={regenerateSub}
+                style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#6b7280", border: "1px solid #e5e7eb", padding: "9px 14px", borderRadius: 10, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
+                <RefreshCw size={14} /> Régénérer
+              </button>
+            </div>
+            <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280", lineHeight: 1.7 }}>
+              <b>Google Agenda</b> : Autres agendas → À partir de l'URL → coller le lien.<br />
+              <b>Outlook</b> : Ajouter un calendrier → S'abonner à partir du web → coller le lien.<br />
+              <b>Apple Calendrier</b> : Fichier → Nouvel abonnement → coller le lien.
+            </div>
           </div>
-          <div style={{ color: "#6b7280", fontSize: 13, marginTop: 4 }}>
-            Abonnez Google Agenda, Outlook ou Apple Calendrier à ce lien - lecture seule, mise à jour automatique.
-          </div>
-          <div style={{ display: "flex", gap: 8, marginTop: 14, flexWrap: "wrap", alignItems: "center" }}>
-            <input readOnly value={sub.url} onFocus={(e) => e.target.select()}
-              style={{ flex: "1 1 320px", minWidth: 0, padding: "9px 12px", border: "1px solid #e5e7eb", borderRadius: 10, fontSize: 13, color: "#374151", background: "#f9fafb" }} />
-            <button type="button" onClick={copySubUrl}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "#59169c", color: "white", border: "none", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>
-              <Copy size={14} /> {copied ? "Copié !" : "Copier"}
-            </button>
-            <a href={sub.webcal_url}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#59169c", border: "1px solid #c4b5fd", padding: "9px 14px", borderRadius: 10, fontWeight: 700, fontSize: 13, textDecoration: "none" }}>
-              Ouvrir (webcal)
-            </a>
-            <button type="button" onClick={regenerateSub}
-              style={{ display: "inline-flex", alignItems: "center", gap: 6, background: "white", color: "#6b7280", border: "1px solid #e5e7eb", padding: "9px 14px", borderRadius: 10, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>
-              <RefreshCw size={14} /> Régénérer
-            </button>
-          </div>
-          <div style={{ marginTop: 12, fontSize: 12, color: "#6b7280", lineHeight: 1.7 }}>
-            <b>Google Agenda</b> : Autres agendas → À partir de l'URL → coller le lien.<br />
-            <b>Outlook</b> : Ajouter un calendrier → S'abonner à partir du web → coller le lien.<br />
-            <b>Apple Calendrier</b> : Fichier → Nouvel abonnement → coller le lien.
-          </div>
-        </Card>
+        </div>
       )}
     </div>
   );
