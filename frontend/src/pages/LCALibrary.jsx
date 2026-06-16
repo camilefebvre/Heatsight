@@ -863,15 +863,14 @@ export default function LCALibrary() {
           <div style={{ ...modal, width: 640 }}>
             <ModalHeader title="Méthodologie ACV" onClose={() => setHelpOpen(false)} />
             <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.65, display: "grid", gap: 10 }}>
-              <div><b>Cadre</b> — ACV multicritère ISO 14040/44, déclinée bâtiment par EN 15804+A2 (composants) et EN 15978 (bâtiment).</div>
-              <div><b>Objectif</b> — comparer des variantes constructives de l'enveloppe sur tout le cycle de vie pour éclairer la décision en audit/rénovation.</div>
-              <div><b>Périmètre</b> — modules A1–A3 (production), A4–A5 (transport/pose), B (usage), C (fin de vie), D (hors-système, non intégré en cut-off). DVR bâtiment : 60 ans par défaut.</div>
-              <div><b>Données</b> — LCIA calculés dans Activity Browser (ecoinvent v3.11, cut-off), méthode EN 15804+A2 Core (10 indicateurs). Impacts figés à l'import ; seuls prix, R et λ restent éditables.</div>
-              <div><b>Unité fonctionnelle</b> — par fonction : isolants ramenés à R = 1 m²·K/W via le flux de référence φ (masse = R_cible × φ × surface).</div>
-              <div><b>Déconstruction (module C1)</b> — facteur unique par tonne déconstruite (ACV interne de démolition) : impact = facteur × masse. Requiert le « poids par unité » ; à défaut, non calculé.</div>
-              <div><b>Remplacements</b> — si DVR matériau &lt; DVR bâtiment, impact compté n = ⌈DVR_bât / DVR_mat⌉ fois (min. 1). Affichage brut et amorti.</div>
-              <div><b>Optimisation</b> — génération des variantes → filtrage par contraintes → classement TOPSIS (coût, économies, GWP100 amorti + santé/énergie pondérés) → 5 profils.</div>
-              <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 4 }}>Résumé indicatif — voir le mémoire (chapitre ACV) pour les hypothèses et formules complètes.</div>
+              <div><b>Cadre</b> - ACV multicritère ISO 14040/44, déclinée bâtiment par EN 15804+A2 (composants) et EN 15978 (bâtiment).</div>
+              <div><b>Objectif</b> - comparer des variantes constructives de l'enveloppe sur tout le cycle de vie pour éclairer la décision en audit/rénovation.</div>
+              <div><b>Périmètre</b> - modules A1-A3 (production), A4-A5 (transport/pose), B (usage), C (fin de vie), D (hors-système, non intégré en cut-off). DVR bâtiment : 60 ans par défaut.</div>
+              <div><b>Données</b> - LCIA calculés dans Activity Browser (ecoinvent v3.11, cut-off), méthode EN 15804+A2 Core (10 indicateurs). Impacts figés à l'import ; seuls prix, R et λ restent éditables.</div>
+              <div><b>Unité fonctionnelle</b> - par fonction : isolants ramenés à R = 1 m²·K/W via le flux de référence φ (masse = R_cible × φ × surface).</div>
+              <div><b>Déconstruction (module C1)</b> - facteur unique par tonne déconstruite (ACV interne de démolition) : impact = facteur × masse. Requiert le « poids par unité » ; à défaut, non calculé.</div>
+              <div><b>Remplacements</b> - si DVR matériau &lt; DVR bâtiment, impact compté n = ⌈DVR_bât / DVR_mat⌉ fois (min. 1). Affichage brut et amorti.</div>
+              <div><b>Optimisation</b> - génération des variantes → filtrage par contraintes → classement TOPSIS (coût, économies, GWP100 amorti + santé/énergie pondérés) → 5 profils.</div>
             </div>
           </div>
         </div>
