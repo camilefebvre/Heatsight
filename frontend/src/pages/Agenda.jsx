@@ -558,7 +558,7 @@ export default function Agenda() {
           style={{ position: "fixed", inset: 0, background: "rgba(17,24,39,0.45)", zIndex: 1000,
             display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }}>
           <div onClick={(e) => e.stopPropagation()}
-            style={{ background: "white", borderRadius: "0 16px 16px 0", boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
+            style={{ background: "white", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
               width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", overflowX: "hidden", padding: 22, boxSizing: "border-box" }}>
 
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>

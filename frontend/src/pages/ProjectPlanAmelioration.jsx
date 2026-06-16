@@ -808,15 +808,14 @@ function ChecklistRow({ item, onToggle }) {
       </span>
 
       {/* Champ */}
-      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0, marginTop: 2 }}>
+      <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, width: 140, flexShrink: 0, marginTop: 2 }}>
         {label}
       </span>
 
       {/* Valeur proposée + actuel */}
-      <div style={{ flexShrink: 0, maxWidth: 150 }}>
-        {item.conflict_type === "replace" && (
-          <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginBottom: 2 }}>Proposé</div>
-        )}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginBottom: 2,
+          visibility: item.conflict_type === "replace" ? "visible" : "hidden" }}>Proposé</div>
         <div style={{ fontSize: 13 }}>
           <TruncatableValue value={item.is_numeric ? fmtValue(item.field, item.value) : item.value} />
         </div>

@@ -647,10 +647,16 @@ def _build_prefill_sheet_changes(
         _s(sh, "K22", action.get("ets") or "NON")
         _s(sh, "K23", action.get("deduction_fiscale") or "OUI")
 
-        for cell, key in [("B16", "situation_existante"), ("B20", "description")]:
-            value = action.get(key)
-            if value is not None:
-                _s(sh, cell, str(value))
+        sit = str(action.get("situation_existante") or "").strip()
+        desc = str(action.get("description") or "").strip()
+        if not sit:
+            sit = (f"Site — action de type {action.get('type_amelioration', '')} "
+                   f"(classification {action.get('classification', 'A')}) : "
+                   f"{action.get('intitule', '')}.")
+        if not desc:
+            desc = action.get("intitule") or ""
+        _s(sh, "B16", sit)
+        _s(sh, "B20", desc)
 
         # Numeric fields
         for cell, key in [
