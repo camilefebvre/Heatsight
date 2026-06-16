@@ -697,11 +697,13 @@ function ChecklistRow({ item, onToggle }) {
         {isApplied ? <Square size={15} /> : item.selected ? <CheckSquare size={15} /> : <Square size={15} />}
       </span>
 
+      <div style={{ width: 140, flexShrink: 0 }}>
+        <div style={{ fontSize: 12, color: "#374151", fontWeight: 600 }}>{item.label}</div>
+      </div>
+
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, color: "#9ca3af", marginBottom: 1 }}>{item.label}</div>
-        {item.conflict_type === "replace" && (
-          <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginBottom: 2 }}>Proposé</div>
-        )}
+        <div style={{ fontSize: 10, color: "#b45309", fontWeight: 700, marginBottom: 2,
+          visibility: item.conflict_type === "replace" ? "visible" : "hidden" }}>Proposé</div>
         <div style={{ fontSize: 13, fontWeight: 600 }}>
           <TruncatableValue value={item.proposed_value} />
         </div>
