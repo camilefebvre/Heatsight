@@ -13,10 +13,10 @@ function detectType(title = "") {
 
 const TYPE_CONFIG = {
   rdv:      { label: "Rendez-vous", color: "#59169c", bg: "#faf5ff", Icon: CalendarClock },
-  visite:   { label: "Visite",      color: "#2563eb", bg: "#eff6ff", Icon: MapPin        },
-  call:     { label: "Appel",       color: "#16a34a", bg: "#f0fdf4", Icon: Phone         },
-  deadline: { label: "Échéance",    color: "#dc2626", bg: "#fef2f2", Icon: AlertCircle   },
-  autre:    { label: "Autre",       color: "#64748b", bg: "#f8fafc", Icon: CalendarDays  },
+  visite:   { label: "Visite",      color: "#fe9300", bg: "#fff4e6", Icon: MapPin        },
+  call:     { label: "Appel",       color: "#82137e", bg: "#fbeaf6", Icon: Phone         },
+  deadline: { label: "Échéance",    color: "#ca2946", bg: "#fdecef", Icon: AlertCircle   },
+  autre:    { label: "Autre",       color: "#6b7280", bg: "#f3f4f6", Icon: CalendarDays  },
 };
 
 function formatDate(d) {
