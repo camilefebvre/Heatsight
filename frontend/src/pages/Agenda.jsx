@@ -1,6 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarDays, Trash2, Copy, RefreshCw, Mail, X } from "lucide-react";
+import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Copy, RefreshCw, CalendarClock, Mail, X } from "lucide-react";
 import { apiFetch } from "../api";
+
+// ─── Détection du type depuis le titre ────────────────────────────────────────
+function detectType(title = "") {
+  const t = title.toLowerCase();
+  if (t.includes("visite") || t.includes("terrain") || t.includes("inspection")) return "visite";
+  if (t.includes("call") || t.includes("appel") || t.includes("reunion") || t.includes("meeting")) return "call";
+  if (t.includes("deadline") || t.includes("limite") || t.includes("rendu") || t.includes("delai")) return "deadline";
+  return "autre";
+}
+
+// Couleur par type — fond translucide (~15 %, hex 8 chiffres) + accent/texte = couleur pleine.
+const TYPE_CONFIG = {
+  rdv:      { label: "Rendez-vous", color: "#59169c", bg: "#59169c26", Icon: CalendarClock },
+  visite:   { label: "Visite",      color: "#0f766e", bg: "#0f766e26", Icon: MapPin        },
+  call:     { label: "Appel",       color: "#1d4ed8", bg: "#1d4ed826", Icon: Phone         },
+  deadline: { label: "Échéance",    color: "#ca2946", bg: "#ca294626", Icon: AlertCircle   },
+  autre:    { label: "Autre",       color: "#475569", bg: "#47556926", Icon: CalendarDays  },
+};
 
 function formatDate(d) {
   try {
@@ -451,22 +469,26 @@ export default function Agenda() {
               return (
                 <div key={i} style={{ borderLeft: "1px solid #f3f4f6", background: today ? "#faf5ff" : "transparent",
                   padding: 3, display: "flex", flexWrap: "wrap", gap: 3, alignContent: "flex-start" }}>
-                  {weekEvents[i].band.map((ev) => (
-                    <div key={ev.id}
-                      onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
-                      title={ev.title}
-                      style={{ width: "100%", background: "#59169c", color: "white", borderRadius: 6,
-                        padding: "2px 6px", fontSize: 11, cursor: "pointer", boxSizing: "border-box",
-                        boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
-                        display: "flex", gap: 4, alignItems: "baseline" }}>
-                      <span style={{ fontWeight: 700, flexShrink: 0 }}>
-                        {ev.start.slice(11, 16)}
-                      </span>
-                      <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                        {ev.title}
-                      </span>
-                    </div>
-                  ))}
+                  {weekEvents[i].band.map((ev) => {
+                    const type = ev.type || detectType(ev.title);
+                    const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
+                    return (
+                      <div key={ev.id}
+                        onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
+                        title={ev.title}
+                        style={{ width: "100%", background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: 3,
+                          padding: "2px 6px", fontSize: 11, cursor: "pointer", boxSizing: "border-box",
+                          boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+                          display: "flex", gap: 4, alignItems: "baseline" }}>
+                        <span style={{ fontWeight: 700, flexShrink: 0 }}>
+                          {ev.start.slice(11, 16)}
+                        </span>
+                        <span style={{ flex: 1, minWidth: 0, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {ev.title}
+                        </span>
+                      </div>
+                    );
+                  })}
                 </div>
               );
             })}
@@ -496,24 +518,28 @@ export default function Agenda() {
                   <div key={h} onClick={() => openCreateAt(days[i], h)}
                     style={{ height: HOUR_PX, borderTop: "1px solid #f3f4f6", cursor: "pointer" }} />
                 ))}
-                {weekEvents[i].grid.map(({ ev, top, height, leftPct, widthPct }) => (
-                  <div key={ev.id}
-                    onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
-                    title={ev.title}
-                    style={{ position: "absolute", top, height,
-                      left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
-                      background: "#59169c", color: "white", borderRadius: 6,
-                      padding: "2px 6px", fontSize: 11, overflow: "hidden", cursor: "pointer",
-                      boxSizing: "border-box", boxShadow: "0 1px 3px rgba(0,0,0,0.12)",
-                      display: "flex", gap: 4, alignItems: "baseline" }}>
-                    <span style={{ fontWeight: 700, flexShrink: 0 }}>
-                      {ev.start.slice(11, 16)}
-                    </span>
-                    <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
-                      {ev.title}
-                    </span>
-                  </div>
-                ))}
+                {weekEvents[i].grid.map(({ ev, top, height, leftPct, widthPct }) => {
+                  const type = ev.type || detectType(ev.title);
+                  const cfg = TYPE_CONFIG[type] || TYPE_CONFIG.autre;
+                  return (
+                    <div key={ev.id}
+                      onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
+                      title={ev.title}
+                      style={{ position: "absolute", top, height,
+                        left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
+                        background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: 3,
+                        padding: "2px 6px", fontSize: 11, overflow: "hidden", cursor: "pointer",
+                        boxSizing: "border-box", boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
+                        display: "flex", gap: 4, alignItems: "baseline" }}>
+                      <span style={{ fontWeight: 700, flexShrink: 0 }}>
+                        {ev.start.slice(11, 16)}
+                      </span>
+                      <span style={{ whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                        {ev.title}
+                      </span>
+                    </div>
+                  );
+                })}
                 {today && showNowLine && (
                   <div style={{ position: "absolute", left: 0, right: 0, top: nowTop, height: 2, background: "#dc2626", zIndex: 5, pointerEvents: "none" }}>
                     <div style={{ position: "absolute", left: -3, top: -3, width: 8, height: 8, borderRadius: "50%", background: "#dc2626" }} />
@@ -533,7 +559,7 @@ export default function Agenda() {
             display: "flex", alignItems: "flex-start", justifyContent: "center", padding: "40px 16px", overflow: "auto" }}>
           <div onClick={(e) => e.stopPropagation()}
             style={{ background: "white", borderRadius: 16, boxShadow: "0 12px 40px rgba(0,0,0,0.18)",
-              width: "100%", maxWidth: 460, maxHeight: "90vh", overflow: "auto", padding: 22, boxSizing: "border-box" }}>
+              width: "100%", maxWidth: 460, maxHeight: "90vh", overflowY: "auto", overflowX: "hidden", padding: 22, boxSizing: "border-box" }}>
 
             <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 10 }}>
               <div>
@@ -615,7 +641,7 @@ export default function Agenda() {
                   placeholder="Check-list, documents à apporter…" />
               </Field>
 
-              <div style={{ display: "flex", gap: 10, marginTop: 4, alignItems: "center" }}>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 10, marginTop: 4, alignItems: "center" }}>
                 {editingId && (
                   <>
                     <button type="button" onClick={() => openClientEmail(editingEvent)} disabled={!editClientEmail}
