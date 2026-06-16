@@ -476,7 +476,7 @@ export default function Agenda() {
                       <div key={ev.id}
                         onClick={(e) => { e.stopPropagation(); startEdit(ev); }}
                         title={ev.title}
-                        style={{ width: "100%", background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: 3,
+                        style={{ width: "100%", background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: "0 4px 4px 0",
                           padding: "2px 6px", fontSize: 11, cursor: "pointer", boxSizing: "border-box",
                           boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
                           display: "flex", gap: 4, alignItems: "baseline" }}>
@@ -527,7 +527,7 @@ export default function Agenda() {
                       title={ev.title}
                       style={{ position: "absolute", top, height,
                         left: `calc(${leftPct}% + 2px)`, width: `calc(${widthPct}% - 4px)`,
-                        background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: 3,
+                        background: cfg.bg, color: cfg.color, borderLeft: `2px solid ${cfg.color}`, borderRadius: "0 4px 4px 0",
                         padding: "2px 6px", fontSize: 11, overflow: "hidden", cursor: "pointer",
                         boxSizing: "border-box", boxShadow: "0 1px 2px rgba(0,0,0,0.08)",
                         display: "flex", gap: 4, alignItems: "baseline" }}>
