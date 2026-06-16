@@ -16,3 +16,4 @@ pandas
 pytest
 httpx
 pdfplumber
+slowapi
