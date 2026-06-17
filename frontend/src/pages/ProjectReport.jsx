@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import {
-  Download, Upload, Sparkles, RefreshCw, FileText,
+  Download, Upload, Sparkles, RefreshCw, FileText, Building2, Zap, ClipboardList,
   Clock, X, CheckSquare, Square, AlertTriangle, FileCheck,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
@@ -33,10 +33,10 @@ function filterItems(items, filterId) {
 
 /* ── Section metadata ────────────────────────────────────────── */
 const SECTION_META = {
-  page_de_garde:        { label: "Page de garde",          icon: "📋" },
-  description_batiment: { label: "Description du bâtiment", icon: "🏢" },
-  synthese_energetique: { label: "Situation énergétique",   icon: "⚡" },
-  plan_amelioration:    { label: "Plan d'amélioration",     icon: "🔧" },
+  page_de_garde:        { label: "Page de garde",           Icon: FileText },
+  description_batiment: { label: "Description du bâtiment", Icon: Building2 },
+  synthese_energetique: { label: "Situation énergétique",   Icon: Zap },
+  plan_amelioration:    { label: "Plan d'amélioration",     Icon: ClipboardList },
 };
 
 /* ── Métadonnées source (style bandeau Audit) ────────────────── */
@@ -59,9 +59,9 @@ function truncateMid(name, maxLen = 26) {
 }
 
 const DB_SOURCE_LABELS = {
-  energy_accounting_db:    { icon: "📊", label: "Comptabilité énergétique" },
-  improvement_actions_db:  { icon: "📋", label: "Plan d'amélioration" },
-  audit_data_db:           { icon: "📝", label: "Audit" },
+  energy_accounting_db:    { Icon: Zap,          label: "Comptabilité énergétique" },
+  improvement_actions_db:  { Icon: ClipboardList, label: "Plan d'amélioration" },
+  audit_data_db:           { Icon: ClipboardList, label: "Audit" },
 };
 
 const spin = { animation: "spin 1s linear infinite" };
@@ -591,7 +591,7 @@ function ChecklistPanel({ items, proposalData, applying, selectedCount, onToggle
       {/* Groups by section */}
       <div style={{ padding: "10px 14px", display: "flex", flexDirection: "column", gap: 8 }}>
         {sectionIds.map((secId) => {
-          const secMeta = SECTION_META[secId] || { label: secId, icon: "📄" };
+          const secMeta = SECTION_META[secId] || { label: secId, Icon: FileText };
           const secItems  = visibleItems.filter((i) => i.section === secId);
           const allSecItems = items.filter((i) => i.section === secId);
           const selFields = allSecItems.filter((i) => i.selected).length;
@@ -610,7 +610,7 @@ function ChecklistPanel({ items, proposalData, applying, selectedCount, onToggle
                   borderBottom: isOpen ? "1px solid #ede9fe" : "none",
                 }}
               >
-                <span style={{ fontSize: 16 }}>{secMeta.icon}</span>
+                <secMeta.Icon size={16} style={{ color: "#59169c" }} />
                 <span style={{ fontWeight: 700, fontSize: 13, color: "#111827", flex: 1 }}>
                   {secMeta.label}
                 </span>
@@ -737,18 +737,19 @@ function SourceTag({ source }) {
   const doc = source.document;
   if (doc && DB_SOURCE_LABELS[doc]) {
     const meta = DB_SOURCE_LABELS[doc];
-    return <SourceChip color="#0369a1" label={`${meta.icon} ${meta.label}`} title={source.field ? `${meta.label} → ${source.field}` : meta.label} />;
+    return <SourceChip color="#0369a1" Icon={meta.Icon} label={meta.label} title={source.field ? `${meta.label} → ${source.field}` : meta.label} />;
   }
   if (doc && !DB_SOURCE_LABELS[doc]) {
     const short = truncateMid(doc, 22);
-    return <SourceChip color="#059669" label={`📄 ${short}`} title={source.field ? `${doc} → ${source.field}` : doc} />;
+    return <SourceChip color="#059669" Icon={FileText} label={short} title={source.field ? `${doc} → ${source.field}` : doc} />;
   }
   return <SourceChip color="#9ca3af" label="Estimation IA" />;
 }
 
-function SourceChip({ color, label, title }) {
+function SourceChip({ color, label, title, Icon: IconComp }) {
   return (
-    <span title={title} style={{ fontSize: 10, color, whiteSpace: "nowrap", cursor: title ? "help" : "default" }}>
+    <span title={title} style={{ fontSize: 10, color, whiteSpace: "nowrap", cursor: title ? "help" : "default", display: "inline-flex", alignItems: "center", gap: 3 }}>
+      {IconComp && <IconComp size={10} />}
       {label}
     </span>
   );
@@ -771,8 +772,8 @@ function HistoryDrawer({ history, loading, onClose, projectId }) {
           padding: "18px 20px", borderBottom: "1px solid #e5e7eb",
           display: "flex", justifyContent: "space-between", alignItems: "center", flexShrink: 0,
         }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
-            🕐 Historique des modifications
+          <div style={{ fontWeight: 800, fontSize: 16, color: "#111827", display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={16} style={{ color: "#6b7280" }} /> Historique des modifications
           </div>
           <button
             onClick={onClose}
@@ -850,12 +851,12 @@ function HistoryEntry({ entry, projectId }) {
         {isAI
           ? <FileCheck size={16} style={{ color: "#59169c", flexShrink: 0 }} />
           : <Upload size={16} style={{ color: "#6b7280", flexShrink: 0 }} />}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
           </div>
           {isAI && sectionsApplied.length > 0 && (
-            <div style={{ fontSize: 11, color: "#59169c", marginTop: 1 }}>
+            <div style={{ fontSize: 11, color: "#59169c", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               {sectionsApplied.map((s) => SECTION_META[s]?.label || s).join(", ")}
             </div>
           )}
@@ -876,9 +877,10 @@ function HistoryEntry({ entry, projectId }) {
               border: "1px solid #d8b4fe", background: "#faf5ff",
               color: "#59169c", cursor: downloading ? "default" : "pointer",
               whiteSpace: "nowrap", flexShrink: 0,
+              display: "inline-flex", alignItems: "center", gap: 4,
             }}
           >
-            {downloading ? "…" : "⬇ Télécharger"}
+            {downloading ? "…" : <><Download size={12}/> Télécharger</>}
           </button>
         ) : null}
         <span style={{ fontSize: 12, color: "#9ca3af" }}>{open ? "▲" : "▼"}</span>
@@ -887,37 +889,36 @@ function HistoryEntry({ entry, projectId }) {
       {open && isAI && items.length > 0 && (
         <div style={{ padding: "8px 20px 14px", background: "#faf5ff" }}>
           {sectionIds.map((secId) => {
-            const secMeta = SECTION_META[secId] || { label: secId, icon: "📄" };
+            const secMeta = SECTION_META[secId] || { label: secId, Icon: FileText };
             const secItems = items.filter((i) => i.section === secId);
             return (
               <div key={secId} style={{ marginBottom: 10 }}>
-                <div style={{ fontWeight: 700, fontSize: 11, color: "#59169c", marginBottom: 4 }}>
-                  {secMeta.icon} {secMeta.label}
+                <div style={{ fontWeight: 700, fontSize: 11, color: "#59169c", marginBottom: 4, display: "flex", alignItems: "center", gap: 4 }}>
+                  <secMeta.Icon size={11} /> {secMeta.label}
                 </div>
                 {secItems.map((item, idx) => {
                   const cm = CONFLICT_META[item.conflict_type] || CONFLICT_META.new;
                   return (
-                    <div key={idx} style={{ display: "flex", alignItems: "flex-start", gap: 6, fontSize: 12, marginBottom: 4 }}>
-                      <span style={{ flexShrink: 0, marginTop: 1 }}>
-                        {item.selected
-                          ? <span style={{ color: "#82137e" }}>✅</span>
-                          : <span style={{ color: "#9ca3af" }}>⬜</span>}
-                      </span>
-                      <span style={{ color: "#374151", flex: 1, minWidth: 0 }}>{item.field}</span>
-                      <span style={{
-                        color: "#59169c", fontWeight: 700, maxWidth: 140,
-                        overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap",
-                      }}>
-                        {item.value}
-                      </span>
-                      <SourceTag source={item.source} />
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, flexShrink: 0,
-                        color: cm.color, background: cm.bg,
-                        padding: "1px 6px", borderRadius: 999,
-                      }}>
-                        {cm.label}
-                      </span>
+                    <div key={idx} style={{ marginBottom: 6 }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+                        <span style={{ flexShrink: 0 }}>
+                          {item.selected
+                            ? <CheckSquare size={12} style={{ color: "#82137e" }} />
+                            : <Square size={12} style={{ color: "#9ca3af" }} />}
+                        </span>
+                        <span style={{ fontSize: 12, color: "#374151", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.field}
+                        </span>
+                        <span style={{ fontSize: 10, fontWeight: 700, flexShrink: 0, color: cm.color, background: cm.bg, padding: "1px 6px", borderRadius: 999, whiteSpace: "nowrap" }}>
+                          {cm.label}
+                        </span>
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 6, paddingLeft: 17, marginTop: 2 }}>
+                        <span style={{ fontSize: 11, color: "#59169c", fontWeight: 600, flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {item.value}
+                        </span>
+                        <SourceTag source={item.source} />
+                      </div>
                     </div>
                   );
                 })}

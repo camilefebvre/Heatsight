@@ -3,7 +3,7 @@ import { useParams } from "react-router-dom";
 import {
   Download, Upload, Sparkles, RefreshCw,
   Clock, X, CheckSquare, Square,
-  AlertTriangle, Info, FileText, FileCheck,
+  AlertTriangle, Info, FileText, FileCheck, Zap, ClipboardList,
 } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
@@ -11,8 +11,8 @@ import TemplateLibraryPanel from "../ui/TemplateLibraryPanel";
 
 /* ── Source display helpers ──────────────────────────────────── */
 const DB_SOURCE_LABELS = {
-  energy_accounting_db: { icon: "📊", label: "Comptabilité énergétique" },
-  audit_data_db:        { icon: "📝", label: "Audit" },
+  energy_accounting_db: { Icon: Zap,          label: "Comptabilité énergétique" },
+  audit_data_db:        { Icon: ClipboardList, label: "Audit" },
 };
 
 /* ── Mapping champ → cellule AMUREBA ─────────────────────────── */
@@ -845,37 +845,32 @@ function ChecklistRow({ item, onToggle }) {
 
 /* ── Tag source ─────────────────────────────────────────────── */
 function SourceTag({ source }) {
-  // No source object at all → estimation
-  if (!source) {
-    return <SourceChip color="#9ca3af" label="Estimation IA" />;
-  }
+  if (!source) return <SourceChip color="#9ca3af" label="Estimation IA" />;
 
   const doc = source.document;
 
-  // Priority 1: real uploaded document (not a known DB key, not null, not estimated)
   if (doc && !DB_SOURCE_LABELS[doc]) {
     const short = truncateMid(doc, 26);
     const tooltip = source.field ? `${doc} → ${source.field}` : doc;
-    return <SourceChip color="#059669" label={`📄 ${short}`} title={tooltip} />;
+    return <SourceChip color="#059669" Icon={FileText} label={short} title={tooltip} />;
   }
 
-  // Priority 2: known DB source
   if (doc && DB_SOURCE_LABELS[doc]) {
     const meta = DB_SOURCE_LABELS[doc];
     const tooltip = source.field ? `${meta.label} → ${source.field}` : meta.label;
-    return <SourceChip color="#0369a1" label={`${meta.icon} ${meta.label}`} title={tooltip} />;
+    return <SourceChip color="#0369a1" Icon={meta.Icon} label={meta.label} title={tooltip} />;
   }
 
-  // Fallback: IA estimate
   return <SourceChip color="#9ca3af" label="Estimation IA" />;
 }
 
-function SourceChip({ color, label, title }) {
+function SourceChip({ color, label, title, Icon: IconComp }) {
   return (
     <span
       title={title}
-      style={{ fontSize: 11, color, flexShrink: 0, whiteSpace: "nowrap", cursor: title ? "help" : "default" }}
+      style={{ fontSize: 10, color, flexShrink: 0, whiteSpace: "nowrap", cursor: title ? "help" : "default", display: "inline-flex", alignItems: "center", gap: 3 }}
     >
+      {IconComp && <IconComp size={10} />}
       {label}
     </span>
   );
@@ -901,8 +896,8 @@ function HistoryDrawer({ history, loading, onClose, projectId }) {
           display: "flex", justifyContent: "space-between", alignItems: "center",
           flexShrink: 0,
         }}>
-          <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
-            🕐 Historique des modifications
+          <div style={{ fontWeight: 800, fontSize: 16, color: "#111827", display: "flex", alignItems: "center", gap: 8 }}>
+            <Clock size={16} style={{ color: "#6b7280" }} /> Historique des modifications
           </div>
           <button
             onClick={onClose}
@@ -977,12 +972,12 @@ function HistoryEntry({ entry, projectId }) {
         {isAI
           ? <FileCheck size={16} style={{ color: "#59169c", flexShrink: 0 }} />
           : <Upload size={16} style={{ color: "#6b7280", flexShrink: 0 }} />}
-        <div style={{ flex: 1 }}>
+        <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontWeight: 700, fontSize: 13, color: "#111827" }}>
             {isAI ? "Pré-remplissage IA" : "Upload manuel"}
           </div>
           {isAI && baseSource && baseSource !== "template" && (
-            <div style={{ fontSize: 11, color: "#374151" }}>
+            <div style={{ fontSize: 11, color: "#374151", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
               Patché sur : {SOURCE_META[baseSource]?.label || baseSource}
             </div>
           )}
@@ -997,9 +992,10 @@ function HistoryEntry({ entry, projectId }) {
               border: "1px solid #d8b4fe", background: "#faf5ff",
               color: "#59169c", cursor: downloading ? "default" : "pointer",
               whiteSpace: "nowrap", flexShrink: 0,
+              display: "inline-flex", alignItems: "center", gap: 4,
             }}
           >
-            {downloading ? "…" : "⬇ Télécharger"}
+            {downloading ? "…" : <><Download size={12}/> Télécharger</>}
           </button>
         ) : null}
         <span style={{ fontSize: 12, color: "#9ca3af" }}>{open ? "▲" : "▼"}</span>
@@ -1018,13 +1014,13 @@ function HistoryEntry({ entry, projectId }) {
                       <div key={idx} style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 12, marginBottom: 3 }}>
                         <span style={{ flexShrink: 0 }}>
                           {item.selected
-                            ? <span style={{ color: "#82137e" }}>✅</span>
-                            : <span style={{ color: "#9ca3af" }}>⬜</span>}
+                            ? <CheckSquare size={12} style={{ color: "#82137e" }} />
+                            : <Square size={12} style={{ color: "#9ca3af" }} />}
                         </span>
-                        <span style={{ color: "#374151", flex: 1 }}>
+                        <span style={{ color: "#374151", flex: 1, minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {(item.label || "").split(" → ")[1] || item.label}
                         </span>
-                        <span style={{ color: "#59169c", fontWeight: 700 }}>
+                        <span style={{ color: "#59169c", fontWeight: 700, maxWidth: 110, flexShrink: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                           {fmtValue(item.field, item.value)}
                         </span>
                         <SourceTag source={item.source} />
@@ -1033,7 +1029,7 @@ function HistoryEntry({ entry, projectId }) {
                             fontSize: 10, fontWeight: 700,
                             color: CONFLICT_META[item.conflict_type].color,
                             background: CONFLICT_META[item.conflict_type].bg,
-                            padding: "1px 6px", borderRadius: 999,
+                            padding: "1px 6px", borderRadius: 999, flexShrink: 0,
                           }}>
                             {CONFLICT_META[item.conflict_type].label}
                           </span>
