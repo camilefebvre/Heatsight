@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Upload, Pencil, Copy, Trash2 } from "lucide-react";
+import { Upload, Pencil, Copy, Trash2, Info } from "lucide-react";
 import { apiFetch } from "../api";
 import { isIsolantCategory } from "../utils/lca2-helpers.js";
 
@@ -303,14 +303,8 @@ export default function LCALibrary() {
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion & Administration</div>
-      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "6px 0 6px" }}>
+      <div style={{ margin: "6px 0 6px" }}>
         <h1 style={{ fontSize: 34, margin: 0, color: "#111827" }}>Bibliothèque ACV</h1>
-        <button type="button" onClick={() => setHelpOpen(true)} title="Méthodologie ACV"
-          style={{ width: 26, height: 26, borderRadius: "50%", border: "1.5px solid #c4b5fd",
-            background: "#faf5ff", color: "#59169c", fontWeight: 900, fontSize: 14, cursor: "pointer",
-            display: "inline-flex", alignItems: "center", justifyContent: "center", lineHeight: 1, flexShrink: 0 }}>
-          ?
-        </button>
       </div>
       <div style={{ color: "#6b7280", fontSize: 13, marginBottom: 20 }}>
         Gérez les matériaux de la bibliothèque partagée : importez, modifiez, dupliquez ou supprimez.
@@ -324,6 +318,18 @@ export default function LCALibrary() {
           style={{ ...primaryBtn, display: "inline-flex", alignItems: "center", gap: 8 }}
         >
           <Upload size={15} /> Importer un matériau
+        </button>
+        <button
+          type="button"
+          onClick={() => setHelpOpen(true)}
+          style={{
+            display: "inline-flex", alignItems: "center", gap: 6,
+            padding: "8px 14px", borderRadius: 12, border: "1.5px solid #e5e7eb",
+            background: "white", color: "#6b7280", cursor: "pointer",
+            fontSize: 13, fontWeight: 600,
+          }}
+        >
+          <Info size={14} /> Méthodologie
         </button>
       </div>
 
@@ -469,30 +475,6 @@ export default function LCALibrary() {
             </table>
           </div>
         )}
-      </div>
-
-      {/* ── Encart Module C - lecture seule ─────────────────────────────────── */}
-      <div style={{ marginTop: 20, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 14, padding: "14px 18px" }}>
-        <div style={{ fontWeight: 700, fontSize: 13, color: "#8c5100", marginBottom: 6 }}>
-          Procédé système - Déconstruction (Module C, EN 15978)
-        </div>
-        <div style={{ fontSize: 12, color: "#78350f", marginBottom: 8 }}>
-          Appliqué à tous les matériaux ayant un poids/unité renseigné. Source : ACV interne, procédé C1.
-        </div>
-        <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>GWP100</span>
-            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>7,209 kg CO₂eq/t</span>
-          </div>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>Énergie NR</span>
-            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>93,856 MJ/t</span>
-          </div>
-          <div style={{ fontSize: 12 }}>
-            <span style={{ color: "#6b7280" }}>Santé (NMVOC)</span>
-            <span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>0,0982 kg/t</span>
-          </div>
-        </div>
       </div>
 
       {/* ── Modale : Import XLSX ─────────────────────────────────────────────── */}
@@ -862,15 +844,35 @@ export default function LCALibrary() {
         <div style={overlay} onClick={(e) => { if (e.target === e.currentTarget) setHelpOpen(false); }}>
           <div style={{ ...modal, width: 640 }}>
             <ModalHeader title="Méthodologie ACV" onClose={() => setHelpOpen(false)} />
-            <div style={{ fontSize: 13.5, color: "#374151", lineHeight: 1.65, display: "grid", gap: 10 }}>
-              <div><b>Cadre</b> - ACV multicritère ISO 14040/44, déclinée bâtiment par EN 15804+A2 (composants) et EN 15978 (bâtiment).</div>
-              <div><b>Objectif</b> - comparer des variantes constructives de l'enveloppe sur tout le cycle de vie pour éclairer la décision en audit/rénovation.</div>
-              <div><b>Périmètre</b> - modules A1-A3 (production), A4-A5 (transport/pose), B (usage), C (fin de vie), D (hors-système, non intégré en cut-off). DVR bâtiment : 60 ans par défaut.</div>
-              <div><b>Données</b> - LCIA calculés dans Activity Browser (ecoinvent v3.11, cut-off), méthode EN 15804+A2 Core (10 indicateurs). Impacts figés à l'import ; seuls prix, R et λ restent éditables.</div>
-              <div><b>Unité fonctionnelle</b> - par fonction : isolants ramenés à R = 1 m²·K/W via le flux de référence φ (masse = R_cible × φ × surface).</div>
-              <div><b>Déconstruction (module C1)</b> - facteur unique par tonne déconstruite (ACV interne de démolition) : impact = facteur × masse. Requiert le « poids par unité » ; à défaut, non calculé.</div>
-              <div><b>Remplacements</b> - si DVR matériau &lt; DVR bâtiment, impact compté n = ⌈DVR_bât / DVR_mat⌉ fois (min. 1). Affichage brut et amorti.</div>
-              <div><b>Optimisation</b> - génération des variantes → filtrage par contraintes → classement TOPSIS (coût, économies, GWP100 amorti + santé/énergie pondérés) → 5 profils.</div>
+            <div style={{ display: "flex", flexDirection: "column" }}>
+              {[
+                { key: "Cadre",               desc: "ACV multicritère ISO 14040/44, déclinée bâtiment par EN 15804+A2 (composants) et EN 15978 (bâtiment)." },
+                { key: "Objectif",            desc: "Comparer des variantes constructives de l'enveloppe sur tout le cycle de vie pour éclairer la décision en audit/rénovation." },
+                { key: "Périmètre",           desc: "Modules A1-A3 (production), A4-A5 (transport/pose), B (usage), C (fin de vie), D (hors-système, non intégré en cut-off). DVR bâtiment : 60 ans par défaut." },
+                { key: "Données",             desc: "LCIA calculés dans Activity Browser (ecoinvent v3.11, cut-off), méthode EN 15804+A2 Core (10 indicateurs). Impacts figés à l'import ; seuls prix, R et λ restent éditables." },
+                { key: "Unité fonctionnelle", desc: "Par fonction : isolants ramenés à R = 1 m²·K/W via le flux de référence φ (masse = R_cible × φ × surface)." },
+                { key: "Déconstruction",      desc: "Facteur unique par tonne déconstruite (ACV interne de démolition) : impact = facteur × masse. Requiert le « poids par unité » ; à défaut, non calculé." },
+                { key: "Remplacements",       desc: "Si DVR matériau < DVR bâtiment, impact compté n = ⌈DVR_bât / DVR_mat⌉ fois (min. 1). Affichage brut et amorti." },
+                { key: "Optimisation",        desc: "Génération des variantes → filtrage par contraintes → classement TOPSIS (coût, économies, GWP100 amorti + santé/énergie pondérés) → 5 profils." },
+              ].map(({ key, desc }, i, arr) => (
+                <div key={key} style={{ display: "flex", alignItems: "flex-start", gap: 12, padding: "10px 0", borderBottom: i < arr.length - 1 ? "1px solid #f3f4f6" : "none" }}>
+                  <span style={{ background: "#f5f3ff", color: "#59169c", fontSize: 10, fontWeight: 700, borderRadius: 6, padding: "3px 8px", flexShrink: 0, lineHeight: 1.6 }}>{key}</span>
+                  <span style={{ fontSize: 13, color: "#374151", lineHeight: 1.6 }}>{desc}</span>
+                </div>
+              ))}
+            </div>
+            <div style={{ marginTop: 16, background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontWeight: 700, fontSize: 12, color: "#8c5100", marginBottom: 5 }}>
+                Procédé système — Déconstruction (Module C, EN 15978)
+              </div>
+              <div style={{ fontSize: 12, color: "#78350f", marginBottom: 8 }}>
+                Appliqué à tous les matériaux ayant un poids/unité renseigné. Source : ACV interne, procédé C1.
+              </div>
+              <div style={{ display: "flex", gap: 20, flexWrap: "wrap" }}>
+                <div style={{ fontSize: 12 }}><span style={{ color: "#6b7280" }}>GWP100</span><span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>7,209 kg CO₂eq/t</span></div>
+                <div style={{ fontSize: 12 }}><span style={{ color: "#6b7280" }}>Énergie NR</span><span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>93,856 MJ/t</span></div>
+                <div style={{ fontSize: 12 }}><span style={{ color: "#6b7280" }}>Santé (NMVOC)</span><span style={{ fontWeight: 700, color: "#111827", marginLeft: 6 }}>0,0982 kg/t</span></div>
+              </div>
             </div>
           </div>
         </div>
