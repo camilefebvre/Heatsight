@@ -2,6 +2,7 @@ import { NavLink, useNavigate } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { useAuth } from "../state/AuthContext";
+import ProfileModal from "./ProfileModal";
 import {
   LayoutDashboard,
   FolderOpen,
@@ -71,6 +72,7 @@ function UserSection({ collapsed }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [pos, setPos] = useState(null);
   const ref = useRef(null);
 
@@ -106,6 +108,8 @@ function UserSection({ collapsed }) {
   }
 
   return (
+    <>
+    <ProfileModal open={profileOpen} onClose={() => setProfileOpen(false)} />
     <div ref={ref} style={{ position: "relative" }}>
       {/* Dropdown - s'ouvre vers le haut */}
       {open && (
@@ -125,8 +129,34 @@ function UserSection({ collapsed }) {
           <div style={{ padding: "14px 14px 10px", borderBottom: "1px solid #2a2d45" }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: "white" }}>{user.name}</div>
             <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>{user.email}</div>
+            {user.company_name && (
+              <div style={{ fontSize: 12, color: "#9aa0b4", marginTop: 3, fontWeight: 600 }}>
+                {user.company_name}
+              </div>
+            )}
           </div>
           <div style={{ padding: "6px" }}>
+            <button
+              onClick={() => {
+                setProfileOpen(true);
+                setOpen(false);
+              }}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                color: "#e5e7eb",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "background 0.12s",
+              }}
+            >
+              Mon profil
+            </button>
             <button
               onClick={handleLogout}
               style={{
@@ -181,9 +211,14 @@ function UserSection({ collapsed }) {
             justifyContent: "center",
             flexShrink: 0,
             letterSpacing: "0.04em",
+            overflow: "hidden",
           }}
         >
-          {initials}
+          {user.avatar ? (
+            <img src={user.avatar} alt={user.name} style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+          ) : (
+            initials
+          )}
         </div>
         {!collapsed && (
           <div style={{ flex: 1, textAlign: "left", minWidth: 0 }}>
@@ -203,6 +238,7 @@ function UserSection({ collapsed }) {
         )}
       </button>
     </div>
+    </>
   );
 }
 

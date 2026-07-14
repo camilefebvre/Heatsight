@@ -7,15 +7,26 @@ const STORAGE_KEY = "heatsight_auth";
  *
  * Usage : apiFetch("/projects") au lieu de fetch(`${API_URL}/projects`)
  */
-export function apiFetch(path, options = {}) {
+export async function apiFetch(path, options = {}) {
   const stored = localStorage.getItem(STORAGE_KEY);
   const token = stored ? JSON.parse(stored).token : null;
 
-  return fetch(`${API_URL}${path}`, {
+  const res = await fetch(`${API_URL}${path}`, {
     ...options,
     headers: {
       ...(options.headers || {}),
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
+
+  // Token invalide ou expiré : on purge la session et on renvoie au login
+  // (évite les boucles de 401 sur une interface qui se croit connectée).
+  if (res.status === 401 && token) {
+    localStorage.removeItem(STORAGE_KEY);
+    if (window.location.pathname !== "/login") {
+      window.location.assign("/login");
+    }
+  }
+
+  return res;
 }

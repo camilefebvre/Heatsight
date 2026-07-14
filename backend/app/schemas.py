@@ -23,6 +23,19 @@ class UserSchema(BaseModel):
     email: str
 
 
+class ProfileUpdate(BaseModel):
+    full_name: str | None = None
+    email: EmailStr | None = None
+    avatar: str | None = None
+    company_name: str | None = None
+    company_logo: str | None = None
+
+
+class PasswordChange(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8)
+
+
 # ──────────────────────────────────────────
 # Projects
 # ──────────────────────────────────────────

@@ -872,6 +872,18 @@ def register(payload: schemas.UserCreate, db: Session = Depends(get_db)):
     return {"message": "Compte créé avec succès"}
 
 
+def _user_public(user: models.User) -> dict:
+    """Représentation publique de l'utilisateur (sans le hash du mot de passe)."""
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name,
+        "avatar": user.avatar,
+        "company_name": user.company_name,
+        "company_logo": user.company_logo,
+    }
+
+
 @app.post("/auth/login")
 @limiter.limit("5/minute")
 def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(get_db)):
@@ -882,8 +894,56 @@ def login(request: Request, payload: schemas.UserLogin, db: Session = Depends(ge
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {"id": user.id, "email": user.email, "full_name": user.full_name},
+        "user": _user_public(user),
     }
+
+
+@app.get("/auth/me")
+def get_me(current_user: models.User = Depends(get_current_user)):
+    return _user_public(current_user)
+
+
+@app.patch("/auth/profile")
+def update_profile(
+    payload: schemas.ProfileUpdate,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if payload.email is not None and payload.email != current_user.email:
+        existing = (
+            db.query(models.User)
+            .filter(models.User.email == payload.email, models.User.id != current_user.id)
+            .first()
+        )
+        if existing:
+            raise HTTPException(status_code=400, detail="Email déjà utilisé")
+        current_user.email = payload.email
+    if payload.full_name is not None:
+        full_name = payload.full_name.strip()
+        if not full_name:
+            raise HTTPException(status_code=400, detail="Le nom ne peut pas être vide")
+        current_user.full_name = full_name
+    if payload.avatar is not None:
+        current_user.avatar = payload.avatar or None
+    if payload.company_name is not None:
+        current_user.company_name = payload.company_name.strip() or None
+    if payload.company_logo is not None:
+        current_user.company_logo = payload.company_logo or None
+    db.commit()
+    return _user_public(current_user)
+
+
+@app.post("/auth/change-password")
+def change_password(
+    payload: schemas.PasswordChange,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    if not _verify_password(payload.current_password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
+    current_user.hashed_password = _hash_password(payload.new_password)
+    db.commit()
+    return {"message": "Mot de passe modifié avec succès"}
 
 
 # ==============================

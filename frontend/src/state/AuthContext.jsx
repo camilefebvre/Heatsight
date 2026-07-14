@@ -50,13 +50,62 @@ export function AuthProvider({ children }) {
     return true;
   }
 
+  async function updateProfile(fields) {
+    const allowed = ["full_name", "email", "avatar", "company_name", "company_logo"];
+    const body = {};
+    for (const key of allowed) {
+      if (fields[key] !== undefined) body[key] = fields[key];
+    }
+    const res = await fetch(`${API_URL}/auth/profile`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
+      },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || "Erreur lors de la mise à jour du profil");
+    }
+    const data = await res.json();
+    const updated = {
+      ...user,
+      name: data.full_name,
+      full_name: data.full_name,
+      email: data.email,
+      avatar: data.avatar,
+      company_name: data.company_name,
+      company_logo: data.company_logo,
+    };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+    setUser(updated);
+    return true;
+  }
+
+  async function changePassword(currentPassword, newPassword) {
+    const res = await fetch(`${API_URL}/auth/change-password`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(user?.token ? { Authorization: `Bearer ${user.token}` } : {}),
+      },
+      body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || "Erreur lors du changement de mot de passe");
+    }
+    return true;
+  }
+
   function logout() {
     localStorage.removeItem(STORAGE_KEY);
     setUser(null);
   }
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, login, register, logout, updateProfile, changePassword }}>
       {children}
     </AuthContext.Provider>
   );

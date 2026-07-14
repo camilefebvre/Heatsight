@@ -12,6 +12,9 @@ class User(Base):
     email = Column(String, nullable=False, unique=True)
     hashed_password = Column(String, nullable=False)
     calendar_token = Column(String, nullable=True)  # secret URL .ics (génération paresseuse)
+    avatar = Column(String, nullable=True)         # photo de profil (data URL base64)
+    company_name = Column(String, nullable=True)   # nom du cabinet / entreprise
+    company_logo = Column(String, nullable=True)   # logo entreprise (data URL base64)
 
 
 class Project(Base):
