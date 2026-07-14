@@ -15,6 +15,10 @@ class User(Base):
     avatar = Column(String, nullable=True)         # photo de profil (data URL base64)
     company_name = Column(String, nullable=True)   # nom du cabinet / entreprise
     company_logo = Column(String, nullable=True)   # logo entreprise (data URL base64)
+    plan = Column(String, nullable=True)                 # none/trial/annual/triennial
+    subscription_status = Column(String, nullable=True)  # trialing/pending/active/expired
+    trial_ends_at = Column(String, nullable=True)        # ISO datetime (fin d'essai)
+    current_period_end = Column(String, nullable=True)   # ISO datetime (fin de période payée)
 
 
 class Project(Base):

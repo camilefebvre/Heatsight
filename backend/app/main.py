@@ -947,6 +947,57 @@ def change_password(
 
 
 # ==============================
+# ROUTES: ABONNEMENT
+# ==============================
+_TRIAL_DAYS = 30
+_PLAN_DURATIONS_DAYS = {"annual": 365, "triennial": 3 * 365}
+
+
+def _subscription_public(user: models.User) -> dict:
+    return {
+        "plan": user.plan,
+        "subscription_status": user.subscription_status,
+        "trial_ends_at": user.trial_ends_at,
+        "current_period_end": user.current_period_end,
+    }
+
+
+@app.get("/subscription")
+def get_subscription(current_user: models.User = Depends(get_current_user)):
+    return _subscription_public(current_user)
+
+
+@app.post("/subscription/select")
+def select_subscription(
+    payload: schemas.SubscriptionSelect,
+    current_user: models.User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    plan = payload.plan
+    now = datetime.now(timezone.utc)
+
+    if plan == "trial":
+        # Essai gratuit : une seule fois par compte.
+        if current_user.trial_ends_at is not None:
+            raise HTTPException(status_code=400, detail="La période d'essai a déjà été utilisée")
+        current_user.plan = "trial"
+        current_user.subscription_status = "trialing"
+        current_user.trial_ends_at = (now + timedelta(days=_TRIAL_DAYS)).isoformat()
+    elif plan in _PLAN_DURATIONS_DAYS:
+        # Option B (vitrine) : on enregistre l'intention, facturation manuelle.
+        current_user.plan = plan
+        current_user.subscription_status = "pending"
+        current_user.current_period_end = (
+            now + timedelta(days=_PLAN_DURATIONS_DAYS[plan])
+        ).isoformat()
+    else:
+        raise HTTPException(status_code=400, detail="Plan inconnu")
+
+    db.commit()
+    return _subscription_public(current_user)
+
+
+# ==============================
 # HELPERS EXCEL
 # ==============================
 def _to_number(v: Any):

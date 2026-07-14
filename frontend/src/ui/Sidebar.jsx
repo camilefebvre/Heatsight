@@ -138,6 +138,27 @@ function UserSection({ collapsed }) {
           <div style={{ padding: "6px" }}>
             <button
               onClick={() => {
+                navigate("/abonnement");
+                setOpen(false);
+              }}
+              style={{
+                width: "100%",
+                padding: "9px 10px",
+                borderRadius: 8,
+                border: "none",
+                background: "transparent",
+                color: "#e5e7eb",
+                fontWeight: 600,
+                fontSize: 13,
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "background 0.12s",
+              }}
+            >
+              Mon abonnement
+            </button>
+            <button
+              onClick={() => {
                 setProfileOpen(true);
                 setOpen(false);
               }}

@@ -36,6 +36,10 @@ class PasswordChange(BaseModel):
     new_password: str = Field(min_length=8)
 
 
+class SubscriptionSelect(BaseModel):
+    plan: str  # "trial" | "annual" | "triennial"
+
+
 # ──────────────────────────────────────────
 # Projects
 # ──────────────────────────────────────────
