@@ -29,11 +29,13 @@ class Project(Base):
     project_name = Column(String, nullable=False)
     client_name = Column(String, nullable=False)
     client_email = Column(String, nullable=False)
+    client_emails = Column(JSONB, nullable=True)      # emails additionnels (liste)
     client_phone = Column(String, nullable=True)
     building_address = Column(String, nullable=False)
     building_type = Column(String, nullable=False)
     audit_type = Column(String, nullable=False)
     status = Column(String, nullable=False, default="draft")
+    archived = Column(Boolean, nullable=False, default=False)
     excel_file = Column(String, nullable=False)
     created_at = Column(String, nullable=False)
     updated_at = Column(String, nullable=True)        # ISO datetime de la dernière activité (touch cross-table)
@@ -79,6 +81,7 @@ class ClientRequest(Base):
     message = Column(String, nullable=True)
     status = Column(String, nullable=False, default="sent")
     sent_at = Column(String, nullable=True)
+    last_reminded_at = Column(String, nullable=True)  # ISO datetime du dernier rappel envoyé
     documents = Column(JSONB, nullable=True, default=list)   # [{id, label, received}]
     feedback = Column(String, nullable=True)
     received_files = Column(JSONB, nullable=True, default=list)  # [{name, size}]

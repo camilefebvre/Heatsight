@@ -164,6 +164,7 @@ export default function Agenda() {
   const [modalOpen, setModalOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
   const [mailModal, setMailModal] = useState(null);
+  const [projectFilter, setProjectFilter] = useState("");   // "" = tous, "__none__" = sans projet
   const [now, setNow] = useState(() => new Date());
 
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
@@ -238,6 +239,12 @@ export default function Agenda() {
   const weekEvents = useMemo(() => {
     const byDay = Array.from({ length: 7 }, () => ({ grid: [], band: [] }));
     for (const ev of sorted) {
+      // Filtre par projet (affichage seulement)
+      if (projectFilter === "__none__") {
+        if (ev.project_id) continue;
+      } else if (projectFilter && ev.project_id !== projectFilter) {
+        continue;
+      }
       if (isBandEvent(ev)) {
         const di = dayIndexOf(ev, days);
         if (di !== -1) byDay[di].band.push(ev);
@@ -254,7 +261,7 @@ export default function Agenda() {
     // Répartition des chevauchements en sous-colonnes, par jour
     for (const day of byDay) layoutOverlaps(day.grid);
     return byDay;
-  }, [sorted, days]);
+  }, [sorted, days, projectFilter]);
 
   function shiftWeek(deltaDays) {
     setWeekStart((prev) => { const d = new Date(prev); d.setDate(d.getDate() + deltaDays); return d; });
@@ -437,6 +444,35 @@ export default function Agenda() {
           <div style={{ marginLeft: 6, fontWeight: 800, fontSize: 16, color: "#111827", textTransform: "capitalize" }}>
             {weekLabel}
           </div>
+
+          {/* Filtre par projet */}
+          <select
+            value={projectFilter}
+            onChange={(e) => setProjectFilter(e.target.value)}
+            title="Filtrer par projet"
+            style={{
+              marginLeft: 16,
+              height: 34,
+              padding: "0 10px",
+              borderRadius: 10,
+              border: projectFilter ? "1px solid #c4b5fd" : "1px solid #e5e7eb",
+              background: projectFilter ? "#f5f3ff" : "white",
+              color: projectFilter ? "#59169c" : "#374151",
+              fontWeight: 600,
+              fontSize: 13,
+              cursor: "pointer",
+              maxWidth: 220,
+            }}
+          >
+            <option value="">Tous les projets</option>
+            {projects.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.project_name}
+              </option>
+            ))}
+            <option value="__none__">Sans projet</option>
+          </select>
+
           <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
             {sub && (
               <button type="button" onClick={() => setSubOpen(true)}
@@ -511,7 +547,8 @@ export default function Agenda() {
           <div>
             {HOURS.map((h) => (
               <div key={h} style={{ height: HOUR_PX, position: "relative", borderTop: "1px solid #f3f4f6" }}>
-                <span style={{ position: "absolute", top: -8, right: 6, fontSize: 11, color: "#9ca3af" }}>{h}h</span>
+                {/* Numéro juste sous sa ligne (le trait est au-dessus, sans traverser le chiffre) */}
+                <span style={{ position: "absolute", top: 4, right: 6, fontSize: 11, color: "#9ca3af" }}>{h}h</span>
               </div>
             ))}
           </div>

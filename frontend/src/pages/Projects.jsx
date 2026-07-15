@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { Pencil, Trash2 } from "lucide-react";
+import { Pencil, Trash2, Archive, ArchiveRestore, Plus, X } from "lucide-react";
 import { apiFetch } from "../api";
 import StatusPill from "../ui/StatusPill";
 
@@ -161,6 +161,7 @@ export default function Projects() {
   const [search, setSearch] = useState("");
   // Pré-filtre depuis l'URL (?statut=in_progress) — ex. clic sur une carte du tableau de bord
   const [statusFilter, setStatusFilter] = useState(searchParams.get("statut") || "");
+  const [viewMode, setViewMode] = useState("active");   // "active" | "archived"
   const [auditFilter, setAuditFilter] = useState("");      // "" = tous
   const [sortBy, setSortBy] = useState("created_at");
   const [sortDir, setSortDir] = useState("desc");
@@ -183,6 +184,7 @@ export default function Projects() {
     project_name: "",
     client_name: "",
     client_email: "",
+    client_emails: [],
     client_phone: "",
     building_address: "",
     building_type: "residential",
@@ -200,7 +202,7 @@ export default function Projects() {
     try {
       setLoading(true);
       setError("");
-      const res = await apiFetch(`/projects`);
+      const res = await apiFetch(`/projects${viewMode === "archived" ? "?archived=true" : ""}`);
       if (!res.ok) throw new Error(`GET /projects failed (${res.status})`);
       const data = await res.json();
       setProjects(Array.isArray(data) ? data : []);
@@ -214,7 +216,8 @@ export default function Projects() {
 
   useEffect(() => {
     fetchProjects();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode]);
 
   function toggleSort(field) {
     if (sortBy === field) { setSortDir((d) => (d === "asc" ? "desc" : "asc")); return; }
@@ -262,7 +265,7 @@ export default function Projects() {
       const res = await apiFetch(`/projects`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(serializeForm(form)),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -273,6 +276,32 @@ export default function Projects() {
       fetchProjects();
     } catch (e) {
       setError(e.message || "Error while creating project");
+    }
+  }
+
+  // Nettoie les emails additionnels vides avant envoi (EmailStr refuse les chaînes vides).
+  function serializeForm(f) {
+    return {
+      ...f,
+      client_emails: (f.client_emails || []).map((s) => (s || "").trim()).filter(Boolean),
+    };
+  }
+
+  async function handleArchive(id, archived) {
+    try {
+      const res = await apiFetch(`/projects/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ archived }),
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(txt || `PATCH failed (${res.status})`);
+      }
+      setMenuId(null);
+      fetchProjects();
+    } catch (e) {
+      alert(e.message || "Archive failed");
     }
   }
 
@@ -316,6 +345,7 @@ export default function Projects() {
       project_name: project.project_name || "",
       client_name: project.client_name || "",
       client_email: project.client_email || "",
+      client_emails: project.client_emails || [],
       client_phone: project.client_phone || "",
       building_address: project.building_address || "",
       building_type: project.building_type || "residential",
@@ -334,7 +364,7 @@ export default function Projects() {
       const res = await apiFetch(`/projects/${editing.id}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify(serializeForm(form)),
       });
       if (!res.ok) {
         const txt = await res.text();
@@ -354,30 +384,63 @@ export default function Projects() {
       <div style={{ display: "flex", justifyContent: "space-between", gap: 12, alignItems: "center" }}>
         <div>
           <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
-          <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Projets</h1>
+          <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
+            {viewMode === "archived" ? "Projets archivés" : "Projets"}
+          </h1>
           <div style={{ color: "#6b7280" }}>
-            Créez, modifiez et suivez vos projets d'audit.
+            {viewMode === "archived"
+              ? "Projets mis de côté — vous pouvez les désarchiver à tout moment."
+              : "Créez, modifiez et suivez vos projets d'audit."}
           </div>
         </div>
 
-        <button
-          onClick={() => {
-            setForm(emptyForm);
-            setCreateOpen(true);
-          }}
-          style={{
-            background: "#59169c",
-            color: "white",
-            border: "none",
-            padding: "12px 18px",
-            borderRadius: 12,
-            fontWeight: 700,
-            cursor: "pointer",
-            fontSize: 14,
-          }}
-        >
-          + Nouveau projet
-        </button>
+        <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+          <button
+            onClick={() => setViewMode((v) => (v === "archived" ? "active" : "archived"))}
+            style={{
+              background: "white",
+              color: "#374151",
+              border: "1px solid #e5e7eb",
+              padding: "12px 16px",
+              borderRadius: 12,
+              fontWeight: 700,
+              cursor: "pointer",
+              fontSize: 14,
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+            }}
+          >
+            {viewMode === "archived" ? (
+              <>← Projets actifs</>
+            ) : (
+              <>
+                <Archive size={16} /> Archives
+              </>
+            )}
+          </button>
+
+          {viewMode === "active" && (
+            <button
+              onClick={() => {
+                setForm(emptyForm);
+                setCreateOpen(true);
+              }}
+              style={{
+                background: "#59169c",
+                color: "white",
+                border: "none",
+                padding: "12px 18px",
+                borderRadius: 12,
+                fontWeight: 700,
+                cursor: "pointer",
+                fontSize: 14,
+              }}
+            >
+              + Nouveau projet
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
@@ -540,6 +603,9 @@ export default function Projects() {
                       onClose={() => setMenuId(null)}
                       items={[
                         { label: "Modifier", icon: Pencil, onClick: () => openEdit(p) },
+                        viewMode === "archived"
+                          ? { label: "Désarchiver", icon: ArchiveRestore, onClick: () => handleArchive(p.id, false) }
+                          : { label: "Archiver", icon: Archive, onClick: () => handleArchive(p.id, true) },
                         { label: "Supprimer", icon: Trash2, onClick: () => handleDelete(p.id) },
                       ]}
                     />
@@ -610,9 +676,66 @@ function ProjectForm({ form, updateField, onCancel, onSubmit, submitLabel }) {
       </label>
 
       <label style={{ display: "grid", gap: 6 }}>
-        <span style={{ fontSize: 13, color: "#6b7280" }}>Email du client</span>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Email principal du client</span>
         <input type="email" value={form.client_email} onChange={(e) => updateField("client_email", e.target.value)} required />
       </label>
+
+      <div style={{ display: "grid", gap: 6 }}>
+        <span style={{ fontSize: 13, color: "#6b7280" }}>Autres emails (optionnel)</span>
+        {(form.client_emails || []).map((em, i) => (
+          <div key={i} style={{ display: "flex", gap: 6 }}>
+            <input
+              type="email"
+              value={em}
+              placeholder="email@exemple.com"
+              onChange={(e) => {
+                const next = [...(form.client_emails || [])];
+                next[i] = e.target.value;
+                updateField("client_emails", next);
+              }}
+              style={{ flex: 1 }}
+            />
+            <button
+              type="button"
+              title="Retirer"
+              onClick={() =>
+                updateField("client_emails", (form.client_emails || []).filter((_, j) => j !== i))
+              }
+              style={{
+                border: "1px solid #e5e7eb",
+                background: "white",
+                borderRadius: 8,
+                padding: "0 10px",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+              }}
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ))}
+        <button
+          type="button"
+          onClick={() => updateField("client_emails", [...(form.client_emails || []), ""])}
+          style={{
+            justifySelf: "start",
+            border: "1px dashed #c4b5fd",
+            background: "#f5f3ff",
+            color: "#59169c",
+            borderRadius: 8,
+            padding: "7px 12px",
+            fontWeight: 600,
+            fontSize: 13,
+            cursor: "pointer",
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+          }}
+        >
+          <Plus size={14} /> Ajouter un email
+        </button>
+      </div>
 
       <label style={{ display: "grid", gap: 6 }}>
         <span style={{ fontSize: 13, color: "#6b7280" }}>Telephone (optionnel)</span>

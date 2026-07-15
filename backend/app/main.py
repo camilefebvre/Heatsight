@@ -1352,8 +1352,18 @@ def _upsert_energy_year(
 # ROUTES: PROJECTS CRUD
 # ==============================
 @app.get("/projects", response_model=List[schemas.Project])
-def list_projects(db: Session = Depends(get_db), current_user: models.User = Depends(get_current_user)):
-    return db.query(models.Project).filter(models.Project.owner_id == current_user.id).all()
+def list_projects(
+    archived: bool = False,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    q = db.query(models.Project).filter(models.Project.owner_id == current_user.id)
+    if archived:
+        q = q.filter(models.Project.archived.is_(True))
+    else:
+        # exclut les archivés (les anciens projets ont archived NULL → considérés actifs)
+        q = q.filter((models.Project.archived.is_(False)) | (models.Project.archived.is_(None)))
+    return q.all()
 
 
 @app.post("/projects", response_model=schemas.Project)

@@ -29,7 +29,7 @@ const PROVIDERS = [
 ];
 
 // ── Bouton « Envoyer » + menu de choix du service (réutilisable) ─────────────
-export function SendViaMenu({ to, subject, body, disabled = false, buttonStyle }) {
+export function SendViaMenu({ to, subject, body, disabled = false, buttonStyle, label = "Envoyer", onSend }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
 
@@ -43,6 +43,7 @@ export function SendViaMenu({ to, subject, body, disabled = false, buttonStyle }
 
   function choose(kind) {
     setOpen(false);
+    if (onSend) onSend(kind);       // ex. enregistrer/tracer la demande avant d'ouvrir le mail
     openMail(kind, { to, subject, body });
   }
 
@@ -70,7 +71,7 @@ export function SendViaMenu({ to, subject, body, disabled = false, buttonStyle }
         }
         title="Envoyer le mail"
       >
-        <Send size={15} /> Envoyer
+        <Send size={15} /> {label}
       </button>
 
       {open && (

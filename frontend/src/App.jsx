@@ -18,7 +18,6 @@ import ProjectLCA from "./pages/ProjectLCA";
 import ProjectLCA2 from "./pages/ProjectLCA2";
 import LCAAdmin from "./pages/LCAAdmin";
 import LCALibrary from "./pages/LCALibrary";
-import ClientRequests from "./pages/ClientRequests";
 import ShareAccess from "./pages/ShareAccess";
 import Abonnement from "./pages/Abonnement";
 
@@ -35,7 +34,6 @@ export default function App() {
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/projects" element={<Projects />} />
           <Route path="/agenda" element={<Agenda />} />
-          <Route path="/client-requests" element={<ClientRequests />} />
           <Route path="/share-access" element={<ShareAccess />} />
           <Route path="/abonnement" element={<Abonnement />} />
           {/* routes "dans un projet" - enveloppées par ProjectLayout (fil d'Ariane) */}

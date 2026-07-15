@@ -10,7 +10,6 @@ import {
   ClipboardList,
   Zap,
   FileText,
-  MessageSquare,
   Users2,
   Files,
   TrendingUp,
@@ -486,11 +485,6 @@ export default function Sidebar({ collapsed, onToggle }) {
         <SidebarLink to="/lca/library" icon={Library} label="Bibliothèque ACV" collapsed={collapsed} />
       </nav>
 
-      {/* Collecte de données - global */}
-      <SectionLabel label="Collecte de données" collapsed={collapsed} />
-      <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        <SidebarLink to="/client-requests" icon={MessageSquare} label="Requête client" collapsed={collapsed} />
-      </nav>
 
       {/* Section projet - affichée seulement si un projet est ouvert */}
       {selectedProjectId && (

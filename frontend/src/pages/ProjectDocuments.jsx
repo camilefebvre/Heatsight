@@ -3,7 +3,8 @@ import { useParams } from "react-router-dom";
 import { Zap, Flame, Fuel, Gauge, FileText, Building2, Settings, ClipboardList, Image as ImageIcon, Sparkles, X } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
-import { SendViaMenu } from "../ui/SendEmailModal";
+import ClientRequestsPanel from "../ui/ClientRequestsPanel";
+import ClientRequestModal from "../ui/ClientRequestModal";
 
 // Extensions acceptées pour l'upload (même périmètre que l'attribut accept de l'input)
 const ACCEPTED_EXTS = [".pdf", ".jpg", ".jpeg", ".png"];
@@ -92,6 +93,7 @@ export default function ProjectDocuments() {
 
   const [checklistOpen, setChecklistOpen] = useState(false);
   const [filterType, setFilterType] = useState(null); // null = tous
+  const [activeTab, setActiveTab] = useState("fichiers"); // "fichiers" | "demandes"
 
   const uploadCardRef = useRef(null);
 
@@ -296,17 +298,37 @@ export default function ProjectDocuments() {
     <div style={{ maxWidth: 1400, width: "100%" }}>
       {error && <div style={errorBox}>{error}</div>}
 
-      {/* ── Email draft modal (overlay, position DOM non significative) ── */}
-      {emailDraft && (
-        <EmailDraftModal
-          project={project}
-          projectId={projectId}
-          missingItems={emailDraft.missingItems}
-          onClose={() => setEmailDraft(null)}
-        />
+      {/* ── Rappel / demande au client (modal partagé) ── */}
+      <ClientRequestModal
+        open={!!emailDraft}
+        onClose={() => setEmailDraft(null)}
+        project={project}
+        projectId={projectId}
+        withDocuments
+        initialDocuments={(emailDraft?.missingItems || []).map((i) => ({ label: i.label }))}
+        onSaved={() => setEmailDraft(null)}
+      />
+
+      {/* ── Onglets : Fichiers / Demandes au client ── */}
+      <div style={{ display: "inline-flex", background: "white", borderRadius: 12, padding: 4,
+        border: "1px solid #e9ecf3", gap: 2, marginBottom: 18 }}>
+        {[{ key: "fichiers", label: "Fichiers" }, { key: "demandes", label: "Demandes au client" }].map(({ key, label }) => (
+          <button key={key} onClick={() => setActiveTab(key)}
+            style={{ padding: "8px 18px", borderRadius: 9, border: "none", cursor: "pointer",
+              fontWeight: activeTab === key ? 700 : 500, fontSize: 14,
+              background: activeTab === key ? "#59169c" : "transparent",
+              color: activeTab === key ? "white" : "#6b7280", transition: "background 0.15s, color 0.15s" }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === "demandes" && (
+        <ClientRequestsPanel projectId={projectId} project={project} />
       )}
 
-      {/* ── Deux zones : gestion (gauche) + référence (droite) ── */}
+      {activeTab === "fichiers" && (
+      /* ── Deux zones : gestion (gauche) + référence (droite) ── */
       <div style={{ display: "flex", gap: 20, alignItems: "flex-start", flexWrap: "wrap" }}>
 
         {/* ZONE PRINCIPALE - gestion des documents */}
@@ -440,7 +462,7 @@ export default function ProjectDocuments() {
                 style={{ fontSize: 12, color: "#59169c", background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: 0 }}
                 onClick={() => setFilterType(null)}
               >
-                Effacer ×
+                Réinitialiser le filtre
               </button>
             )}
           </div>
@@ -523,7 +545,8 @@ export default function ProjectDocuments() {
           />
         </div>{/* fin PANNEAU DROITE */}
 
-      </div>{/* fin rangée flex */}
+      </div>
+      )}
     </div>
   );
 }
@@ -771,239 +794,6 @@ function ChecklistPanel({ docs, open, onToggle, onUploadClick, onEmailClick }) {
   );
 }
 
-// ── EmailDraftModal ──────────────────────────────────────────────────────────
-
-function buildEmailText(project, missingItems) {
-  const greeting = project.client_name
-    ? `Madame, Monsieur ${project.client_name},`
-    : "Madame, Monsieur,";
-
-  const addressLine = project.building_address
-    ? ` situé au ${project.building_address}`
-    : "";
-
-  if (missingItems.length === 0) return null;
-
-  const list = missingItems.map((i) => `  • ${i.label}`).join("\n");
-
-  return `${greeting}
-
-Dans le cadre de l'audit énergétique de votre bâtiment${addressLine}, nous constituons actuellement votre dossier selon la méthode AMUREBA.
-
-Afin de compléter notre analyse, nous avons besoin des documents suivants :
-
-${list}
-
-Ces éléments sont indispensables pour établir un bilan énergétique précis et formuler des recommandations d'amélioration adaptées à votre situation.
-
-Pourriez-vous nous les faire parvenir dans les meilleurs délais ? N'hésitez pas à nous contacter si vous avez des questions ou souhaitez nous transmettre ces fichiers par un autre canal.
-
-Nous vous remercions de votre collaboration.
-
-Cordialement,`;
-}
-
-function EmailDraftModal({ project, projectId, missingItems, onClose }) {
-  const allComplete = missingItems.length === 0;
-  const [emailBody, setEmailBody] = useState(() => buildEmailText(project, missingItems));
-  const [subject, setSubject] = useState(
-    `Audit énergétique ${project.project_name} - Documents complémentaires`
-  );
-
-  const [copied, setCopied] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [saveMsg, setSaveMsg] = useState("");
-
-  async function handleCopy() {
-    try {
-      await navigator.clipboard.writeText(emailBody);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // fallback: select the textarea
-      const el = document.getElementById("email-draft-textarea");
-      if (el) { el.select(); document.execCommand("copy"); }
-    }
-  }
-
-  async function handleSaveRequest() {
-    if (!project.client_email) {
-      setSaveMsg("❌ Email client non renseigné dans le projet.");
-      return;
-    }
-    setSaving(true);
-    setSaveMsg("");
-    try {
-      const res = await apiFetch("/client-requests", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          project_id: projectId,
-          client_email: project.client_email,
-          message: emailBody,
-          status: "sent",
-          documents: missingItems.map((i) => ({ type: i.id, label: i.label })),
-        }),
-      });
-      if (!res.ok) throw new Error(`Erreur ${res.status}`);
-      setSaveMsg("✅ Requête client créée avec succès.");
-    } catch (e) {
-      setSaveMsg(`❌ ${e.message}`);
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  return (
-    <div
-      style={{
-        position: "fixed", inset: 0, background: "rgba(17,24,39,0.55)",
-        zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
-      }}
-      onClick={onClose}
-    >
-      <div
-        style={{
-          background: "white", borderRadius: 18, padding: 28, maxWidth: 640,
-          width: "100%", display: "flex", flexDirection: "column", gap: 20,
-          boxShadow: "0 24px 64px rgba(0,0,0,0.18)",
-        }}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
-          <div>
-            <div style={{ fontWeight: 800, fontSize: 16, color: "#111827" }}>
-              Email - documents manquants
-            </div>
-            <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 3 }}>
-              {project.client_email
-                ? `Destinataire : ${project.client_email}`
-                : "Adresse email client non renseignée"}
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            style={{ border: "1px solid #e5e7eb", background: "white", padding: "6px 12px", borderRadius: 10, fontWeight: 700, cursor: "pointer", fontSize: 13 }}
-          >
-            Fermer
-          </button>
-        </div>
-
-        {/* All-complete case */}
-        {allComplete ? (
-          <div style={{
-            background: "#f3f4f6", border: "1px solid #e5e7eb", borderRadius: 12,
-            padding: "16px 20px", display: "flex", alignItems: "center", gap: 12,
-          }}>
-            <div style={{ fontSize: 22 }}>✅</div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: "#374151" }}>
-                Tous les documents principaux sont fournis
-              </div>
-              <div style={{ fontSize: 12, color: "#6b7280", marginTop: 3 }}>
-                La checklist AMUREBA est complète - aucun document ne manque.
-              </div>
-            </div>
-          </div>
-        ) : (
-          <>
-            {/* Missing items recap */}
-            <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-              {missingItems.map((item) => {
-                const cfg = CL_STATUS[item.status];
-                return (
-                  <span key={item.id} style={{
-                    fontSize: 11, fontWeight: 700, color: cfg.badge,
-                    background: cfg.badgeBg, border: `1px solid ${cfg.border}`,
-                    padding: "3px 10px", borderRadius: 99,
-                    display: "flex", alignItems: "center", gap: 4,
-                  }}>
-                    <CatIcon id={item.id} size={12} /> {item.label}
-                  </span>
-                );
-              })}
-            </div>
-
-            {/* Objet */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Objet
-              </div>
-              <input
-                value={subject}
-                onChange={(e) => setSubject(e.target.value)}
-                style={{
-                  width: "100%", padding: "10px 12px",
-                  border: "1px solid #e5e7eb", borderRadius: 10,
-                  fontSize: 14, fontWeight: 600, color: "#111827",
-                  boxSizing: "border-box", outline: "none",
-                }}
-              />
-            </div>
-
-            {/* Email preview (éditable) */}
-            <div>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Message
-              </div>
-              <textarea
-                id="email-draft-textarea"
-                value={emailBody}
-                onChange={(e) => setEmailBody(e.target.value)}
-                style={{
-                  width: "100%", height: 240, padding: "14px 16px",
-                  border: "1px solid #e5e7eb", borderRadius: 12,
-                  fontSize: 13, lineHeight: 1.7, color: "#374151",
-                  background: "white", resize: "vertical",
-                  fontFamily: "inherit", boxSizing: "border-box",
-                  outline: "none",
-                }}
-              />
-            </div>
-
-            {/* Actions */}
-            <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <SendViaMenu
-                to={project.client_email}
-                subject={subject}
-                body={emailBody}
-                disabled={!project.client_email}
-                buttonStyle={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6, cursor: project.client_email ? "pointer" : "default", opacity: project.client_email ? 1 : 0.6 }}
-              />
-              <button
-                type="button"
-                style={{ ...importBtn, display: "flex", alignItems: "center", gap: 6 }}
-                onClick={handleCopy}
-              >
-                {copied ? "✅ Copié !" : "⎘ Copier le texte"}
-              </button>
-              <button
-                type="button"
-                style={{ ...secondaryBtn, fontSize: 13, opacity: saving ? 0.7 : 1 }}
-                disabled={saving}
-                onClick={handleSaveRequest}
-                title="Enregistrer l'email comme requête client dans le projet"
-              >
-                {saving ? "Sauvegarde…" : "Sauvegarder en requête client"}
-              </button>
-            </div>
-
-            {saveMsg && (
-              <div style={{
-                fontSize: 13, fontWeight: 700,
-                color: saveMsg.startsWith("✅") ? "#374151" : "#8f1d2f",
-              }}>
-                {saveMsg}
-              </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── DocumentRow ─────────────────────────────────────────────────────────────
 
