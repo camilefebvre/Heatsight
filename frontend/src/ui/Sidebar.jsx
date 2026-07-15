@@ -21,6 +21,7 @@ import {
   Database,
   BarChart3,
   FileStack,
+  ShieldCheck,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -477,6 +478,9 @@ export default function Sidebar({ collapsed, onToggle }) {
         <SidebarLink to="/dashboard" icon={LayoutDashboard} label="Tableau de bord" collapsed={collapsed} />
         <SidebarLink to="/projects" icon={FolderOpen} label="Projets" collapsed={collapsed} />
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" collapsed={collapsed} />
+        {user?.is_admin && (
+          <SidebarLink to="/admin" icon={ShieldCheck} label="Admin" collapsed={collapsed} />
+        )}
       </nav>
 
       {/* Bibliothèque */}

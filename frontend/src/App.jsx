@@ -20,6 +20,8 @@ import LCAAdmin from "./pages/LCAAdmin";
 import LCALibrary from "./pages/LCALibrary";
 import ShareAccess from "./pages/ShareAccess";
 import Abonnement from "./pages/Abonnement";
+import Admin from "./pages/Admin";
+import RequireAdmin from "./ui/RequireAdmin";
 
 
 export default function App() {
@@ -36,6 +38,9 @@ export default function App() {
           <Route path="/agenda" element={<Agenda />} />
           <Route path="/share-access" element={<ShareAccess />} />
           <Route path="/abonnement" element={<Abonnement />} />
+          <Route element={<RequireAdmin />}>
+            <Route path="/admin" element={<Admin />} />
+          </Route>
           {/* routes "dans un projet" - enveloppées par ProjectLayout (fil d'Ariane) */}
           <Route path="/projects/:projectId" element={<ProjectLayout />}>
             <Route index element={<Navigate to="audit" replace />} />

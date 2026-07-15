@@ -881,7 +881,15 @@ def _user_public(user: models.User) -> dict:
         "avatar": user.avatar,
         "company_name": user.company_name,
         "company_logo": user.company_logo,
+        "is_admin": bool(user.is_admin),
     }
+
+
+def get_current_admin(current_user: models.User = Depends(get_current_user)) -> models.User:
+    """Réservé aux administrateurs du back-office."""
+    if not current_user.is_admin:
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+    return current_user
 
 
 @app.post("/auth/login")
@@ -995,6 +1003,68 @@ def select_subscription(
 
     db.commit()
     return _subscription_public(current_user)
+
+
+# ==============================
+# ROUTES: ADMIN (back-office)
+# ==============================
+def _admin_user_row(u: models.User) -> dict:
+    return {
+        "id": u.id,
+        "full_name": u.full_name,
+        "email": u.email,
+        "company_name": u.company_name,
+        "plan": u.plan,
+        "subscription_status": u.subscription_status,
+        "trial_ends_at": u.trial_ends_at,
+        "current_period_end": u.current_period_end,
+        "is_admin": bool(u.is_admin),
+    }
+
+
+@app.get("/admin/users")
+def admin_list_users(
+    _admin: models.User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    users = db.query(models.User).all()
+    return [_admin_user_row(u) for u in users]
+
+
+@app.get("/admin/overview")
+def admin_overview(
+    _admin: models.User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    users = db.query(models.User).all()
+    def count(pred):
+        return sum(1 for u in users if pred(u))
+    return {
+        "total_users": len(users),
+        "admins": count(lambda u: u.is_admin),
+        "trial": count(lambda u: u.plan == "trial"),
+        "annual": count(lambda u: u.plan == "annual"),
+        "triennial": count(lambda u: u.plan == "triennial"),
+        "no_plan": count(lambda u: not u.plan),
+        "pending": count(lambda u: u.subscription_status == "pending"),
+    }
+
+
+@app.patch("/admin/users/{user_id}")
+def admin_set_user_role(
+    user_id: str,
+    payload: schemas.AdminUserPatch,
+    admin: models.User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    if user_id == admin.id and not payload.is_admin:
+        raise HTTPException(status_code=400, detail="Vous ne pouvez pas retirer votre propre accès admin")
+    user = db.query(models.User).filter(models.User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+    user.is_admin = payload.is_admin
+    db.commit()
+    return _admin_user_row(user)
 
 
 # ==============================

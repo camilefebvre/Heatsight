@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { UserPlus, Trash2, X, Plus, Globe, Pencil } from "lucide-react";
 import { apiFetch } from "../api";
+import { useProject } from "../state/ProjectContext";
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 const MOCK_COLLABORATORS = [
@@ -68,6 +69,7 @@ const MOCK_CLIENT_ACCESS = [
 const ROLES = ["Auditeur principal", "Collaborateur", "Lecture seule"];
 
 const ROLE_STYLE = {
+  "Propriétaire":       { bg: "#ede9fe", color: "#59169c" },
   "Auditeur principal": { bg: "#ede9fe", color: "#59169c" },
   "Collaborateur":      { bg: "#f3f4f6", color: "#374151" },
   "Lecture seule":      { bg: "#f3f4f6", color: "#374151" },
@@ -215,6 +217,8 @@ function Modal({ open, onClose, title, children, width = 560 }) {
 
 // ─── Page principale ───────────────────────────────────────────────────────────
 export default function ShareAccess() {
+  const { selectedProjectId } = useProject();
+  const [view, setView] = useState(selectedProjectId ? "project" : "all"); // "project" | "all" | "mine"
   const [activeTab, setActiveTab] = useState("collaborateurs");
   const [collaborators, setCollaborators] = useState(MOCK_COLLABORATORS);
   const [clientAccess, setClientAccess] = useState(MOCK_CLIENT_ACCESS);
@@ -385,92 +389,151 @@ export default function ShareAccess() {
     cursor: "pointer", fontWeight: 600, fontSize: 13, color: "#ca2946",
   };
 
+  const cardStyle = {
+    background: "white", borderRadius: 16, padding: 16, boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
+  };
+  const tabsWrap = {
+    display: "inline-flex", background: "white", borderRadius: 12, padding: 4,
+    border: "1px solid #e9ecf3", gap: 2,
+  };
+  const tabBtn = (active) => ({
+    padding: "8px 18px", borderRadius: 9, border: "none", cursor: "pointer",
+    fontWeight: active ? 700 : 500, fontSize: 14,
+    background: active ? "#59169c" : "transparent", color: active ? "white" : "#6b7280",
+    transition: "background 0.15s, color 0.15s",
+  });
+  const emptyRow = { color: "#6b7280", padding: "24px 0" };
+
+  // ── Filtrage selon la vue ──
+  const currentProject = projects.find((p) => p.id === selectedProjectId) || null;
+  const collabsForView = view === "project"
+    ? collaborators.filter((c) => c.projectName === currentProject?.project_name)
+    : collaborators;
+  const clientsForView = view === "project"
+    ? clientAccess.filter((c) => c.projectName === currentProject?.project_name)
+    : clientAccess;
+
+  function openInvite() {
+    setInviteForm(view === "project" && currentProject
+      ? { ...emptyInvite, projectName: currentProject.project_name, client: currentProject.client_name || "" }
+      : emptyInvite);
+    setInviteOpen(true);
+  }
+  function openClient() {
+    setClientForm(view === "project" && currentProject
+      ? { ...emptyClient, projectName: currentProject.project_name, client: currentProject.client_name || "" }
+      : emptyClient);
+    setClientOpen(true);
+  }
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* ── En-tête ───────────────────────────────────────────────────────────── */}
-      <div style={{ marginBottom: 24 }}>
-        <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion & Administration</div>
-        <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>
-          Partage &amp; Accès
-        </h1>
-        <div style={{ color: "#6b7280" }}>
-          Gérez les accès des auditeurs et des clients à vos projets.
-        </div>
-      </div>
-
-      {/* ── Onglets + bouton ──────────────────────────────────────────────────── */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          gap: 12,
-          marginBottom: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        {/* Tabs */}
-        <div
-          style={{
-            display: "inline-flex",
-            background: "white",
-            borderRadius: 12,
-            padding: 4,
-            border: "1px solid #e9ecf3",
-            gap: 2,
-          }}
-        >
-          {[
-            { key: "collaborateurs", label: "Collaborateurs" },
-            { key: "clients",        label: "Accès client" },
-          ].map(({ key, label }) => (
-            <button
-              key={key}
-              onClick={() => setActiveTab(key)}
-              style={{
-                padding: "8px 18px",
-                borderRadius: 9,
-                border: "none",
-                cursor: "pointer",
-                fontWeight: activeTab === key ? 700 : 500,
-                fontSize: 14,
-                background: activeTab === key ? "#59169c" : "transparent",
-                color: activeTab === key ? "white" : "#6b7280",
-                transition: "background 0.15s, color 0.15s",
-              }}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-
-        {/* Bouton principal selon l'onglet */}
-        {activeTab === "collaborateurs" ? (
-          <button onClick={() => setInviteOpen(true)} style={btnPrimary}>
-            <UserPlus size={15} />
-            Inviter un collaborateur
-          </button>
-        ) : (
-          <button onClick={() => setClientOpen(true)} style={btnPrimary}>
-            <Globe size={15} />
-            Donner accès client
-          </button>
+      {/* ── Fil d'Ariane (homogène avec les autres modules projet) ── */}
+      <div style={{ fontSize: 13, color: "#6b7280", marginBottom: 16, display: "flex", alignItems: "center", flexWrap: "wrap" }}>
+        {currentProject && (
+          <>
+            <span>{currentProject.client_name || "-"}</span>
+            <span style={{ color: "#d1d5db", margin: "0 8px" }}>|</span>
+            <span>{currentProject.project_name || "-"}</span>
+            <span style={{ color: "#d1d5db", margin: "0 8px" }}>|</span>
+          </>
         )}
+        <span style={{ color: "#374151", fontWeight: 700 }}>Partage &amp; Accès</span>
       </div>
 
-      {/* ── Tableau ───────────────────────────────────────────────────────────── */}
-      <div
-        style={{
-          background: "white",
-          borderRadius: 16,
-          padding: 16,
-          boxShadow: "0 6px 18px rgba(0,0,0,0.06)",
-        }}
-      >
+      {/* ── Sélecteur de vue (3 vues) ── */}
+      <div style={{ ...tabsWrap, marginBottom: 16 }}>
+        {[
+          { key: "project", label: "Ce projet" },
+          { key: "all",     label: "Tous les partages" },
+          { key: "mine",    label: "Mes accès" },
+        ].map(({ key, label }) => (
+          <button key={key} onClick={() => setView(key)} style={tabBtn(view === key)}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* Contexte projet (vue "Ce projet") */}
+      {view === "project" && currentProject && (
+        <div style={{ color: "#6b7280", fontSize: 14, marginBottom: 14 }}>
+          Partages du projet <b style={{ color: "#111827" }}>{currentProject.project_name}</b>
+          {currentProject.client_name ? ` — ${currentProject.client_name}` : ""}
+        </div>
+      )}
+
+      {/* ── Sous-onglets Collaborateurs/Client + bouton (sauf vue "Mes accès") ── */}
+      {view !== "mine" && (
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center",
+          gap: 12, marginBottom: 16, flexWrap: "wrap" }}>
+          <div style={tabsWrap}>
+            {[
+              { key: "collaborateurs", label: "Collaborateurs" },
+              { key: "clients",        label: "Accès client" },
+            ].map(({ key, label }) => (
+              <button key={key} onClick={() => setActiveTab(key)} style={tabBtn(activeTab === key)}>
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {!(view === "project" && !currentProject) && (
+            activeTab === "collaborateurs" ? (
+              <button onClick={openInvite} style={btnPrimary}>
+                <UserPlus size={15} /> Inviter un collaborateur
+              </button>
+            ) : (
+              <button onClick={openClient} style={btnPrimary}>
+                <Globe size={15} /> Donner accès client
+              </button>
+            )
+          )}
+        </div>
+      )}
+
+      {/* ── Vue « Mes accès » : mes projets (accès complet) ── */}
+      {view === "mine" && (
+        <div style={cardStyle}>
+          {projects.length === 0 ? (
+            <div style={emptyRow}>Aucun projet.</div>
+          ) : (
+            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+              <thead>
+                <tr style={{ textAlign: "left", color: "#6b7280", background: "#f9fafb", borderBottom: "1px solid #f3f4f6" }}>
+                  {["Projet", "Client", "Mon rôle"].map((col) => <th key={col} style={thStyle}>{col}</th>)}
+                </tr>
+              </thead>
+              <tbody>
+                {projects.map((p) => (
+                  <tr key={p.id} style={{ borderTop: "1px solid #eef2f7" }}>
+                    <td style={{ ...tdStyle, fontWeight: 700, color: "#111827" }}>{p.project_name}</td>
+                    <td style={{ ...tdStyle, color: "#6b7280", fontSize: 13 }}>{p.client_name}</td>
+                    <td style={tdStyle}>
+                      <RoleBadge role="Propriétaire" />
+                      <span style={{ fontSize: 12, color: "#9ca3af", marginLeft: 8 }}>accès complet</span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
+
+      {/* ── Vue « Ce projet » sans projet ouvert ── */}
+      {view === "project" && !currentProject && (
+        <div style={cardStyle}>
+          <div style={emptyRow}>Ouvrez un projet pour voir ses partages.</div>
+        </div>
+      )}
+
+      {/* ── Tableaux collaborateurs / accès client (vues « Ce projet » & « Tous les partages ») ── */}
+      {view !== "mine" && !(view === "project" && !currentProject) && (
+      <div style={cardStyle}>
         {/* ─ Onglet Collaborateurs ─ */}
         {activeTab === "collaborateurs" && (
-          collaborators.length === 0 ? (
+          collabsForView.length === 0 ? (
             <div style={{ color: "#6b7280", padding: "24px 0" }}>
               Aucun collaborateur. Cliquez sur <b>+ Inviter un collaborateur</b> pour commencer.
             </div>
@@ -484,7 +547,7 @@ export default function ShareAccess() {
                 </tr>
               </thead>
               <tbody>
-                {collaborators.map((c) => (
+                {collabsForView.map((c) => (
                   <tr key={c.id} style={{ borderTop: "1px solid #eef2f7" }}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: "#374151", fontSize: 13 }}>
                       {c.projectName}
@@ -528,7 +591,7 @@ export default function ShareAccess() {
 
         {/* ─ Onglet Accès client ─ */}
         {activeTab === "clients" && (
-          clientAccess.length === 0 ? (
+          clientsForView.length === 0 ? (
             <div style={{ color: "#6b7280", padding: "24px 0" }}>
               Aucun accès client configuré. Cliquez sur <b>+ Donner accès client</b> pour commencer.
             </div>
@@ -542,7 +605,7 @@ export default function ShareAccess() {
                 </tr>
               </thead>
               <tbody>
-                {clientAccess.map((c) => (
+                {clientsForView.map((c) => (
                   <tr key={c.id} style={{ borderTop: "1px solid #eef2f7" }}>
                     <td style={{ ...tdStyle, fontWeight: 600, color: "#374151", fontSize: 13 }}>
                       {c.projectName}
@@ -600,6 +663,7 @@ export default function ShareAccess() {
           )
         )}
       </div>
+      )}
 
       {/* ── Modal : Inviter un collaborateur ──────────────────────────────────── */}
       <Modal open={inviteOpen} onClose={() => setInviteOpen(false)} title="Inviter un collaborateur">

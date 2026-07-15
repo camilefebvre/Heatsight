@@ -40,6 +40,10 @@ class SubscriptionSelect(BaseModel):
     plan: str  # "trial" | "annual" | "triennial"
 
 
+class AdminUserPatch(BaseModel):
+    is_admin: bool
+
+
 # ──────────────────────────────────────────
 # Projects
 # ──────────────────────────────────────────

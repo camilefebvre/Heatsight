@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Plus, X } from "lucide-react";
 import { apiFetch } from "../api";
 import { SendViaMenu } from "./SendEmailModal";
@@ -11,15 +11,17 @@ const GENERIC_TEMPLATE =
 const DOCS_TEMPLATE =
   "Bonjour [nom du client],\n\nDans le cadre de l'audit énergétique [nom de l'audit], merci de nous transmettre les documents suivants :\n\n{{DOCS}}\n\nBien à vous,";
 
-function fillTemplate(tpl, project) {
-  return tpl
+// Remplace les balises par les vraies valeurs — appliqué à l'ENVOI / l'enregistrement.
+function resolveTokens(text, project) {
+  return (text || "")
     .split("[nom du client]").join(project?.client_name || "")
     .split("[nom de l'audit]").join(project?.project_name || "");
 }
 
-function buildDocsMessage(project, labels) {
+// Message documents : on garde les balises de nom, on injecte seulement la liste.
+function buildDocsMessage(labels) {
   const list = labels.length ? labels.map((l) => `  • ${l}`).join("\n") : "  • (aucun)";
-  return fillTemplate(DOCS_TEMPLATE, project).replace("{{DOCS}}", list);
+  return DOCS_TEMPLATE.replace("{{DOCS}}", list);
 }
 
 const inputStyle = {
@@ -36,6 +38,7 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
   const [recipients, setRecipients] = useState([""]);
   const [message, setMessage] = useState("");
   const [saving, setSaving] = useState(false);
+  const messageRef = useRef(null);
 
   const availableEmails = [
     ...new Set([project?.client_email, ...(project?.client_emails || [])].filter(Boolean)),
@@ -46,14 +49,14 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
     if (!open) return;
     if (existing) {
       setRecipients((existing.client_email || "").split(",").map((s) => s.trim()).filter(Boolean) || [""]);
-      setMessage(existing.message || fillTemplate(GENERIC_TEMPLATE, project));
+      setMessage(existing.message || resolveTokens(GENERIC_TEMPLATE, project));
     } else {
       setRecipients(project?.client_email ? [project.client_email] : [""]);
       if (withDocuments) {
         const labels = (initialDocuments || []).map((d) => (d.label || "").trim()).filter(Boolean);
-        setMessage(buildDocsMessage(project, labels));
+        setMessage(resolveTokens(buildDocsMessage(labels), project));
       } else {
-        setMessage(fillTemplate(GENERIC_TEMPLATE, project));
+        setMessage(resolveTokens(GENERIC_TEMPLATE, project));
       }
     }
     // On ne réinitialise qu'à l'ouverture (évite d'écraser la saisie sur re-render).
@@ -66,6 +69,16 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
   const addRecipient = (v) => setRecipients((r) => (v && r.includes(v) ? r : [...r, v]));
   const removeRecipient = (i) => setRecipients((r) => r.filter((_, j) => j !== i));
 
+  // Insère une balise (ex. [nom du client]) à la position du curseur.
+  function insertToken(token) {
+    const el = messageRef.current;
+    if (!el) { setMessage((m) => m + token); return; }
+    const start = el.selectionStart ?? message.length;
+    const end = el.selectionEnd ?? message.length;
+    setMessage(message.slice(0, start) + token + message.slice(end));
+    requestAnimationFrame(() => { el.focus(); const p = start + token.length; el.setSelectionRange(p, p); });
+  }
+
   const subject = `Audit énergétique ${project?.project_name || ""}`;
   const toStr = recipients.map((s) => (s || "").trim()).filter(Boolean).join(", ");
 
@@ -75,7 +88,7 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
     setSaving(true);
     try {
       if (existing) {
-        const body = { client_email: recips.join(", "), message };
+        const body = { client_email: recips.join(", "), message: resolveTokens(message, project) };
         if (reminder) body.last_reminded_at = new Date().toISOString().slice(0, 10);
         const res = await apiFetch(`/client-requests/${existing.id}`, {
           method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
@@ -86,7 +99,7 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
         const payload = {
           project_id: projectId,
           client_email: recips.join(", "),
-          message,
+          message: resolveTokens(message, project),
           status: "sent",
           sent_at: new Date().toISOString().slice(0, 10),
           documents: [],
@@ -171,8 +184,17 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
           {/* Email (un seul champ éditable = ce qui sera envoyé) */}
           <div style={{ display: "grid", gap: 6 }}>
             <span style={{ fontSize: 13, color: "#6b7280", fontWeight: 600 }}>Email</span>
-            <textarea value={message} onChange={(e) => setMessage(e.target.value)}
+            <textarea ref={messageRef} value={message} onChange={(e) => setMessage(e.target.value)}
               rows={10} style={{ ...inputStyle, resize: "vertical", lineHeight: 1.6 }} />
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+              <span style={{ fontSize: 12, color: "#9ca3af" }}>Insérer :</span>
+              <button type="button" style={chip} onClick={() => insertToken(project?.client_name || "")}>
+                <Plus size={12} /> nom du client
+              </button>
+              <button type="button" style={chip} onClick={() => insertToken(project?.project_name || "")}>
+                <Plus size={12} /> nom de l'audit
+              </button>
+            </div>
           </div>
 
           {/* Actions */}
@@ -183,7 +205,7 @@ export default function ClientRequestModal({ open, onClose, project, projectId, 
             <SendViaMenu
               to={toStr}
               subject={subject}
-              body={message}
+              body={resolveTokens(message, project)}
               disabled={saving || !toStr}
               label={existing ? "Renvoyer le rappel" : "Envoyer la demande"}
               onSend={handleSendVia}

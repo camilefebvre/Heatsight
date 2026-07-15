@@ -19,6 +19,7 @@ class User(Base):
     subscription_status = Column(String, nullable=True)  # trialing/pending/active/expired
     trial_ends_at = Column(String, nullable=True)        # ISO datetime (fin d'essai)
     current_period_end = Column(String, nullable=True)   # ISO datetime (fin de période payée)
+    is_admin = Column(Boolean, nullable=False, default=False)  # accès back-office admin
 
 
 class Project(Base):
