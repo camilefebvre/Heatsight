@@ -295,7 +295,7 @@ export default function ProjectAudit() {
   if (error) {
     return (
       <div>
-        <h1 style={{ fontSize: 34, margin: "6px 0 0" }}>Audit</h1>
+        <h1 style={{ fontSize: 34, margin: "6px 0 0", color: "#111827" }}>Audit</h1>
         <div style={{ marginTop: 14, background: "#fee2e2", color: "#8f1d2f", padding: 12, borderRadius: 12, fontWeight: 700 }}>
           {error}
         </div>
@@ -311,7 +311,7 @@ export default function ProjectAudit() {
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
       <div style={{ color: "#6b7280" }}>Projet</div>
-      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>Audit - {project.project_name}</h1>
+      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Audit - {project.project_name}</h1>
       <div style={{ color: "#6b7280" }}>
         Les données ci-dessous mettent à jour le template Excel (sheet 2023).
       </div>

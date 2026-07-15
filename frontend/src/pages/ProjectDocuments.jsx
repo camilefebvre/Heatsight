@@ -3,6 +3,7 @@ import { useParams } from "react-router-dom";
 import { Zap, Flame, Fuel, Gauge, FileText, Building2, Settings, ClipboardList, Image as ImageIcon, Sparkles, X } from "lucide-react";
 import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
+import { SendViaMenu } from "../ui/SendEmailModal";
 
 // Extensions acceptées pour l'upload (même périmètre que l'attribut accept de l'input)
 const ACCEPTED_EXTS = [".pdf", ".jpg", ".jpeg", ".png"];
@@ -804,8 +805,10 @@ Cordialement,`;
 
 function EmailDraftModal({ project, projectId, missingItems, onClose }) {
   const allComplete = missingItems.length === 0;
-  const emailBody = buildEmailText(project, missingItems);
-  const subject = `Audit énergétique ${project.project_name} - Documents complémentaires`;
+  const [emailBody, setEmailBody] = useState(() => buildEmailText(project, missingItems));
+  const [subject, setSubject] = useState(
+    `Audit énergétique ${project.project_name} - Documents complémentaires`
+  );
 
   const [copied, setCopied] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -821,12 +824,6 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
       const el = document.getElementById("email-draft-textarea");
       if (el) { el.select(); document.execCommand("copy"); }
     }
-  }
-
-  function handleMailto() {
-    const to = project.client_email || "";
-    const url = `mailto:${to}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(emailBody)}`;
-    window.open(url, "_blank");
   }
 
   async function handleSaveRequest() {
@@ -929,20 +926,37 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
               })}
             </div>
 
-            {/* Email preview */}
+            {/* Objet */}
             <div>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
-                Aperçu du message
+                Objet
+              </div>
+              <input
+                value={subject}
+                onChange={(e) => setSubject(e.target.value)}
+                style={{
+                  width: "100%", padding: "10px 12px",
+                  border: "1px solid #e5e7eb", borderRadius: 10,
+                  fontSize: 14, fontWeight: 600, color: "#111827",
+                  boxSizing: "border-box", outline: "none",
+                }}
+              />
+            </div>
+
+            {/* Email preview (éditable) */}
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#9ca3af", marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.05em" }}>
+                Message
               </div>
               <textarea
                 id="email-draft-textarea"
-                readOnly
                 value={emailBody}
+                onChange={(e) => setEmailBody(e.target.value)}
                 style={{
                   width: "100%", height: 240, padding: "14px 16px",
                   border: "1px solid #e5e7eb", borderRadius: 12,
                   fontSize: 13, lineHeight: 1.7, color: "#374151",
-                  background: "#f9fafb", resize: "vertical",
+                  background: "white", resize: "vertical",
                   fontFamily: "inherit", boxSizing: "border-box",
                   outline: "none",
                 }}
@@ -951,13 +965,13 @@ function EmailDraftModal({ project, projectId, missingItems, onClose }) {
 
             {/* Actions */}
             <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-              <button
-                type="button"
-                style={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6 }}
-                onClick={handleMailto}
-              >
-                ✉ Ouvrir dans mon client mail
-              </button>
+              <SendViaMenu
+                to={project.client_email}
+                subject={subject}
+                body={emailBody}
+                disabled={!project.client_email}
+                buttonStyle={{ ...primaryBtn, display: "flex", alignItems: "center", gap: 6, cursor: project.client_email ? "pointer" : "default", opacity: project.client_email ? 1 : 0.6 }}
+              />
               <button
                 type="button"
                 style={{ ...importBtn, display: "flex", alignItems: "center", gap: 6 }}

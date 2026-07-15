@@ -11,6 +11,8 @@ html, body {
 
 body {
   font-family: system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-size: 13px;      /* taille de corps de référence (échelle typo homogène) */
+  color: #374151;       /* couleur de corps de référence */
   line-height: 1.5;
   font-weight: 400;
   font-synthesis: none;

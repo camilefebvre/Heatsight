@@ -130,7 +130,7 @@ export default function Abonnement() {
   return (
     <div style={{ maxWidth: 1040, margin: "0 auto" }}>
       <div style={{ marginBottom: 6 }}>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: "#111827", margin: 0 }}>Abonnement</h1>
+        <h1 style={{ fontSize: 34, fontWeight: 800, color: "#111827", margin: 0 }}>Abonnement</h1>
         <p style={{ color: "#6b7280", fontSize: 14, marginTop: 6 }}>
           Choisissez la formule adaptée à votre activité. Tous les prix sont hors TVA.
         </p>

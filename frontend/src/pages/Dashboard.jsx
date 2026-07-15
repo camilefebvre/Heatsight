@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { FolderOpen, Play, Clock, CheckCircle } from "lucide-react";
+import { FolderOpen, Play, Clock, CheckCircle, CalendarDays, MapPin, Video, Activity } from "lucide-react";
 import StatusPill from "../ui/StatusPill";
+import { useProject } from "../state/ProjectContext";
 import { apiFetch } from "../api";
 
 const BUILDING_TYPE_LABELS = {
@@ -14,9 +15,11 @@ function buildingTypeLabel(value) {
   return BUILDING_TYPE_LABELS[value] || value || "";
 }
 
-function StatCard({ title, value, subtitle, Icon, accentColor }) {
+function StatCard({ title, value, subtitle, Icon, accentColor, onClick }) {
   return (
     <div
+      onClick={onClick}
+      className={onClick ? "hs-clickable" : undefined}
       style={{
         background: "white",
         borderRadius: 16,
@@ -25,6 +28,7 @@ function StatCard({ title, value, subtitle, Icon, accentColor }) {
         display: "flex",
         flexDirection: "column",
         gap: 10,
+        cursor: onClick ? "pointer" : "default",
       }}
     >
       <div
@@ -60,27 +64,78 @@ function formatDate(iso) {
   });
 }
 
+function formatDateTime(iso) {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  return (
+    d.toLocaleDateString("fr-BE", { day: "2-digit", month: "short" }) +
+    " · " +
+    d.toLocaleTimeString("fr-BE", { hour: "2-digit", minute: "2-digit" })
+  );
+}
+
 export default function Dashboard() {
   const navigate = useNavigate();
+  const { setSelectedProjectId } = useProject();
   const [projects, setProjects] = useState([]);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading]   = useState(true);
 
   useEffect(() => {
     async function fetchAll() {
       try {
         setLoading(true);
-        const res  = await apiFetch("/projects");
-        const data = await res.json();
-        setProjects(Array.isArray(data) ? data : []);
+        const [pRes, eRes] = await Promise.all([
+          apiFetch("/projects"),
+          apiFetch("/events"),
+        ]);
+        const pData = await pRes.json();
+        const eData = await eRes.json().catch(() => []);
+        setProjects(Array.isArray(pData) ? pData : []);
+        setEvents(Array.isArray(eData) ? eData : []);
       } catch (e) {
         console.error(e);
         setProjects([]);
+        setEvents([]);
       } finally {
         setLoading(false);
       }
     }
     fetchAll();
   }, []);
+
+  // Ouvre un projet (sélectionne + navigue vers son module Audit).
+  function openProject(id) {
+    setSelectedProjectId(id);
+    navigate(`/projects/${id}/audit`);
+  }
+
+  const projectById = useMemo(() => {
+    const m = {};
+    for (const p of projects) m[p.id] = p;
+    return m;
+  }, [projects]);
+
+  // Prochains rendez-vous : événements à venir, triés par date croissante.
+  const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    return [...events]
+      .filter((e) => e.start && new Date(e.start) >= now)
+      .sort((a, b) => new Date(a.start) - new Date(b.start))
+      .slice(0, 5);
+  }, [events]);
+
+  // Dernière activité : projets triés par dernière modification.
+  const recentActivity = useMemo(() => {
+    return [...projects]
+      .filter((p) => p.updated_at || p.created_at)
+      .sort(
+        (a, b) =>
+          new Date(b.updated_at || b.created_at || 0) -
+          new Date(a.updated_at || a.created_at || 0)
+      )
+      .slice(0, 5);
+  }, [projects]);
 
   const stats = useMemo(() => {
     const total = projects.length;
@@ -124,6 +179,7 @@ export default function Dashboard() {
           subtitle={`${loading ? "-" : stats.newThisMonth} ce mois-ci`}
           Icon={FolderOpen}
           accentColor="#6b7280"
+          onClick={() => navigate("/projects")}
         />
         <StatCard
           title="Audits en cours"
@@ -131,6 +187,7 @@ export default function Dashboard() {
           subtitle="En progression"
           Icon={Play}
           accentColor="#59169c"
+          onClick={() => navigate("/projects?statut=in_progress")}
         />
         <StatCard
           title="En attente"
@@ -138,6 +195,7 @@ export default function Dashboard() {
           subtitle="Mis en pause"
           Icon={Clock}
           accentColor="#fe9300"
+          onClick={() => navigate("/projects?statut=on_hold")}
         />
         <StatCard
           title="Audits terminés"
@@ -145,7 +203,108 @@ export default function Dashboard() {
           subtitle="Finalisés"
           Icon={CheckCircle}
           accentColor="#82137e"
+          onClick={() => navigate("/projects?statut=completed")}
         />
+      </div>
+
+      {/* Deux panneaux : prochains rdv + dernière activité */}
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 1fr))",
+          gap: 16,
+          marginBottom: 28,
+        }}
+      >
+        {/* Prochains rendez-vous */}
+        <div style={panelBox}>
+          <div style={panelHeader}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <CalendarDays size={17} color="#59169c" />
+              <h2 style={panelTitle}>Prochains rendez-vous</h2>
+            </div>
+            <button type="button" onClick={() => navigate("/agenda")} style={panelLink}>
+              Voir l'agenda
+            </button>
+          </div>
+          {loading ? (
+            <div style={panelEmpty}>Chargement…</div>
+          ) : upcomingEvents.length === 0 ? (
+            <div style={panelEmpty}>Aucun rendez-vous à venir.</div>
+          ) : (
+            <div>
+              {upcomingEvents.map((ev) => {
+                const proj = projectById[ev.project_id];
+                return (
+                  <div
+                    key={ev.id}
+                    onClick={() => navigate("/agenda")}
+                    className="hs-clickable"
+                    style={panelRow}
+                  >
+                    <div style={{ minWidth: 92, fontSize: 12, fontWeight: 700, color: "#59169c" }}>
+                      {formatDateTime(ev.start)}
+                    </div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                        {ev.title}
+                      </div>
+                      <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 2, fontSize: 12, color: "#9ca3af" }}>
+                        {proj && <span>{proj.client_name || proj.project_name}</span>}
+                        {ev.location && (
+                          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <MapPin size={11} /> {ev.location}
+                          </span>
+                        )}
+                        {ev.link && (
+                          <span style={{ display: "flex", alignItems: "center", gap: 3 }}>
+                            <Video size={11} /> visio
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Dernière activité */}
+        <div style={panelBox}>
+          <div style={panelHeader}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Activity size={17} color="#82137e" />
+              <h2 style={panelTitle}>Dernière activité</h2>
+            </div>
+          </div>
+          {loading ? (
+            <div style={panelEmpty}>Chargement…</div>
+          ) : recentActivity.length === 0 ? (
+            <div style={panelEmpty}>Aucune activité récente.</div>
+          ) : (
+            <div>
+              {recentActivity.map((p) => (
+                <div
+                  key={p.id}
+                  onClick={() => openProject(p.id)}
+                  className="hs-clickable"
+                  style={panelRow}
+                >
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: "#111827", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {p.project_name}
+                    </div>
+                    <div style={{ fontSize: 12, color: "#9ca3af", marginTop: 2 }}>
+                      {p.client_name} · mis à jour le {formatDate(p.updated_at || p.created_at)}
+                    </div>
+                  </div>
+                  <StatusPill status={p.status} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Tableau projets récents */}
@@ -192,8 +351,11 @@ export default function Dashboard() {
               {recentProjects.map((p, i) => (
                 <tr
                   key={p.id}
+                  onClick={() => openProject(p.id)}
+                  className="hs-clickable"
                   style={{
                     borderTop: i === 0 ? "none" : "1px solid #f3f4f6",
+                    cursor: "pointer",
                   }}
                 >
                   <td style={td}>
@@ -223,6 +385,53 @@ export default function Dashboard() {
     </div>
   );
 }
+
+const panelBox = {
+  background: "white",
+  borderRadius: 16,
+  boxShadow: "0 4px 16px rgba(0,0,0,0.06)",
+  padding: "18px 20px",
+  display: "flex",
+  flexDirection: "column",
+};
+
+const panelHeader = {
+  display: "flex",
+  alignItems: "center",
+  justifyContent: "space-between",
+  marginBottom: 10,
+};
+
+const panelTitle = {
+  margin: 0,
+  fontSize: 16,
+  fontWeight: 800,
+  color: "#111827",
+};
+
+const panelLink = {
+  border: "none",
+  background: "transparent",
+  color: "#59169c",
+  fontWeight: 700,
+  fontSize: 12.5,
+  cursor: "pointer",
+};
+
+const panelEmpty = {
+  padding: "14px 2px",
+  color: "#9ca3af",
+  fontSize: 13,
+};
+
+const panelRow = {
+  display: "flex",
+  alignItems: "center",
+  gap: 12,
+  padding: "10px 6px",
+  borderTop: "1px solid #f3f4f6",
+  borderRadius: 8,
+};
 
 const th = {
   padding: "10px 24px",

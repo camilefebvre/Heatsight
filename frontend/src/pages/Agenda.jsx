@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { MapPin, Phone, AlertCircle, CalendarDays, Trash2, Copy, RefreshCw, CalendarClock, Mail, X } from "lucide-react";
 import { apiFetch } from "../api";
+import SendEmailModal from "../ui/SendEmailModal";
 
 // ─── Détection du type depuis le titre ────────────────────────────────────────
 function detectType(title = "") {
@@ -162,6 +163,7 @@ export default function Agenda() {
   const [weekStart, setWeekStart] = useState(() => startOfWeek(new Date()));
   const [modalOpen, setModalOpen] = useState(false);
   const [subOpen, setSubOpen] = useState(false);
+  const [mailModal, setMailModal] = useState(null);
   const [now, setNow] = useState(() => new Date());
 
   // ISO → valeur compatible <input type="datetime-local"> ("YYYY-MM-DDTHH:mm")
@@ -349,8 +351,7 @@ export default function Agenda() {
     if (ev.link) lines.push(`Lien visio : ${ev.link}`);
     lines.push("", "Bien à vous,");
     const body = lines.join("\n");
-    const url = `mailto:${clientEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-    window.location.href = url;
+    setMailModal({ to: clientEmail, subject, body });
   }
 
   function cancelEdit() {
@@ -403,6 +404,13 @@ export default function Agenda() {
 
   return (
     <div style={{ maxWidth: 1200, width: "100%" }}>
+      <SendEmailModal
+        open={!!mailModal}
+        onClose={() => setMailModal(null)}
+        to={mailModal?.to}
+        subject={mailModal?.subject}
+        body={mailModal?.body}
+      />
       <div style={{ color: "#6b7280", fontSize: 13 }}>Gestion &amp; Administration</div>
       <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Agenda</h1>
       <div style={{ color: "#6b7280", fontSize: 14 }}>

@@ -985,7 +985,7 @@ export default function ProjectLCA() {
           </div>
         )}
       </div>
-      <h1 style={{ fontSize: 36, margin: "6px 0 6px" }}>Analyse ACV - {project.project_name}</h1>
+      <h1 style={{ fontSize: 34, margin: "6px 0 6px", color: "#111827" }}>Analyse ACV - {project.project_name}</h1>
       <div style={{ color: "#6b7280" }}>Créez des configurations de bâtiment et comparez leurs résultats.</div>
 
       {error && (

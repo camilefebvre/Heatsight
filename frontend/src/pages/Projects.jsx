@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useProject } from "../state/ProjectContext";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Pencil, Trash2 } from "lucide-react";
 import { apiFetch } from "../api";
 import StatusPill from "../ui/StatusPill";
@@ -157,8 +157,10 @@ export default function Projects() {
   const navigate = useNavigate();
 
   // Tri + filtres (P10) - liste chargée en entier, tri/filtre côté client
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");   // "" = tous
+  // Pré-filtre depuis l'URL (?statut=in_progress) — ex. clic sur une carte du tableau de bord
+  const [statusFilter, setStatusFilter] = useState(searchParams.get("statut") || "");
   const [auditFilter, setAuditFilter] = useState("");      // "" = tous
   const [sortBy, setSortBy] = useState("created_at");
   const [sortDir, setSortDir] = useState("desc");

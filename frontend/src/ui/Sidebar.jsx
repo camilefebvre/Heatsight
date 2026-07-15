@@ -1,4 +1,4 @@
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { useProject } from "../state/ProjectContext";
 import { useAuth } from "../state/AuthContext";
@@ -18,6 +18,10 @@ import {
   Sprout,
   ChevronLeft,
   ChevronRight,
+  ChevronDown,
+  Database,
+  BarChart3,
+  FileStack,
 } from "lucide-react";
 
 const API_URL = import.meta.env.VITE_API_URL || "http://127.0.0.1:8000";
@@ -47,6 +51,63 @@ function SidebarLink({ to, icon: Icon, label, collapsed }) {
       <Icon size={16} strokeWidth={2} />
       {!collapsed && label}
     </NavLink>
+  );
+}
+
+function SidebarGroup({ label, icon: Icon, collapsed, active, children }) {
+  const [open, setOpen] = useState(active);
+
+  useEffect(() => {
+    if (active) setOpen(true);
+  }, [active]);
+
+  // En mode replié : pas de groupe, on affiche directement les liens (icônes).
+  if (collapsed) return <>{children}</>;
+
+  return (
+    <div>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="hs-clickable"
+        style={{
+          width: "100%",
+          display: "flex",
+          alignItems: "center",
+          gap: 10,
+          padding: "9px 12px",
+          borderRadius: 10,
+          border: "none",
+          background: "transparent",
+          color: active ? "white" : "#9ca3b8",
+          fontWeight: active ? 700 : 500,
+          fontSize: 14,
+          cursor: "pointer",
+          textAlign: "left",
+        }}
+      >
+        <Icon size={16} strokeWidth={2} />
+        <span style={{ flex: 1 }}>{label}</span>
+        <ChevronDown
+          size={15}
+          style={{ transform: open ? "rotate(0deg)" : "rotate(-90deg)", transition: "transform 0.15s" }}
+        />
+      </button>
+      {open && (
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 2,
+            marginLeft: 15,
+            marginTop: 2,
+            paddingLeft: 8,
+            borderLeft: "1px solid #1e2235",
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -264,14 +325,22 @@ function UserSection({ collapsed }) {
 }
 
 export default function Sidebar({ collapsed, onToggle }) {
-  const { selectedProjectId } = useProject();
+  const { selectedProjectId, setSelectedProjectId } = useProject();
   const { user } = useAuth();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [projectName, setProjectName] = useState("");
+  const [clientName, setClientName] = useState("");
+  const [projects, setProjects] = useState([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef(null);
 
   useEffect(() => {
     async function loadName() {
       if (!selectedProjectId || !user?.token) {
         setProjectName("");
+        setClientName("");
+        setProjects([]);
         return;
       }
       try {
@@ -279,14 +348,45 @@ export default function Sidebar({ collapsed, onToggle }) {
           headers: { Authorization: `Bearer ${user.token}` },
         });
         const list = await res.json();
-        const p = list.find((x) => x.id === selectedProjectId);
+        setProjects(Array.isArray(list) ? list : []);
+        const p = (Array.isArray(list) ? list : []).find((x) => x.id === selectedProjectId);
         setProjectName(p?.project_name || "");
+        setClientName(p?.client_name || "");
       } catch {
         setProjectName("");
+        setClientName("");
+        setProjects([]);
       }
     }
     loadName();
   }, [selectedProjectId, user?.token]);
+
+  // Fermeture du sélecteur de projet au clic extérieur.
+  useEffect(() => {
+    function handleOutsideClick(e) {
+      if (switcherRef.current && !switcherRef.current.contains(e.target)) {
+        setSwitcherOpen(false);
+      }
+    }
+    if (switcherOpen) document.addEventListener("mousedown", handleOutsideClick);
+    return () => document.removeEventListener("mousedown", handleOutsideClick);
+  }, [switcherOpen]);
+
+  // Change de projet en restant sur le même module (sous-page) qu'actuellement.
+  function switchProject(id) {
+    setSwitcherOpen(false);
+    if (id === selectedProjectId) return;
+    const match = location.pathname.match(/^\/projects\/[^/]+\/([^/]+)/);
+    const module = match ? match[1] : "audit";
+    setSelectedProjectId(id);
+    navigate(`/projects/${id}/${module}`);
+  }
+
+  // Groupe projet actif d'après l'URL (pour ouvrir automatiquement le bon groupe).
+  const path = location.pathname;
+  const isDataGroup = path.includes("/documents") || path.includes("/energy");
+  const isAnalysisGroup = path.includes("/audit") || path.includes("/lca");
+  const isReportGroup = path.includes("/report");
 
   return (
     <aside
@@ -378,7 +478,11 @@ export default function Sidebar({ collapsed, onToggle }) {
         <SidebarLink to="/dashboard" icon={LayoutDashboard} label="Tableau de bord" collapsed={collapsed} />
         <SidebarLink to="/projects" icon={FolderOpen} label="Projets" collapsed={collapsed} />
         <SidebarLink to="/agenda" icon={CalendarDays} label="Agenda" collapsed={collapsed} />
-        <SidebarLink to="/share-access" icon={Users2} label="Partage & Accès" collapsed={collapsed} />
+      </nav>
+
+      {/* Bibliothèque */}
+      <SectionLabel label="Bibliothèque" collapsed={collapsed} />
+      <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
         <SidebarLink to="/lca/library" icon={Library} label="Bibliothèque ACV" collapsed={collapsed} />
       </nav>
 
@@ -391,42 +495,180 @@ export default function Sidebar({ collapsed, onToggle }) {
       {/* Section projet - affichée seulement si un projet est ouvert */}
       {selectedProjectId && (
         <>
-          {!collapsed && (
+          {!collapsed ? (
             <div
+              ref={switcherRef}
               style={{
-                margin: "20px 0 6px",
+                position: "relative",
+                margin: "20px 0 8px",
                 borderTop: "1px solid #1e2235",
                 paddingTop: 16,
               }}
             >
               <div
                 style={{
-                  color: "#a78bfa",
-                  fontSize: 12,
+                  color: "#4b5063",
+                  fontSize: 11,
                   fontWeight: 700,
+                  letterSpacing: "0.08em",
+                  textTransform: "uppercase",
                   marginLeft: 4,
-                  marginBottom: 6,
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                  whiteSpace: "nowrap",
+                  marginBottom: 8,
                 }}
-                title={projectName}
               >
-                {projectName || "Projet"}
+                Projet
               </div>
+
+              {/* Sélecteur de projet */}
+              <button
+                onClick={() => setSwitcherOpen((v) => !v)}
+                className="hs-clickable"
+                title="Changer de projet"
+                style={{
+                  width: "100%",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  padding: "8px 10px",
+                  borderRadius: 10,
+                  border: "1px solid #2a2d45",
+                  background: switcherOpen ? "#1e2235" : "#161933",
+                  cursor: "pointer",
+                  textAlign: "left",
+                }}
+              >
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div
+                    style={{
+                      color: "#a78bfa",
+                      fontSize: 13,
+                      fontWeight: 700,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={clientName}
+                  >
+                    {clientName || "Client"}
+                  </div>
+                  <div
+                    style={{
+                      color: "#9ca3b8",
+                      fontSize: 12,
+                      fontWeight: 500,
+                      marginTop: 2,
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                      whiteSpace: "nowrap",
+                    }}
+                    title={projectName}
+                  >
+                    {projectName || "Audit"}
+                  </div>
+                </div>
+                <ChevronDown
+                  size={16}
+                  color="#9ca3b8"
+                  style={{
+                    flexShrink: 0,
+                    transform: switcherOpen ? "rotate(180deg)" : "rotate(0deg)",
+                    transition: "transform 0.15s",
+                  }}
+                />
+              </button>
+
+              {/* Liste déroulante des projets */}
+              {switcherOpen && (
+                <div
+                  style={{
+                    position: "absolute",
+                    top: "calc(100% + 4px)",
+                    left: 0,
+                    right: 0,
+                    maxHeight: 280,
+                    overflowY: "auto",
+                    background: "#1a1d2e",
+                    border: "1px solid #2a2d45",
+                    borderRadius: 10,
+                    boxShadow: "0 12px 32px rgba(0,0,0,0.5)",
+                    zIndex: 300,
+                    padding: 4,
+                  }}
+                >
+                  {projects.length === 0 && (
+                    <div style={{ padding: "10px 12px", fontSize: 12, color: "#6b7280" }}>
+                      Aucun projet
+                    </div>
+                  )}
+                  {projects.map((p) => {
+                    const current = p.id === selectedProjectId;
+                    return (
+                      <button
+                        key={p.id}
+                        onClick={() => switchProject(p.id)}
+                        className="hs-clickable"
+                        style={{
+                          width: "100%",
+                          display: "block",
+                          padding: "8px 10px",
+                          borderRadius: 8,
+                          border: "none",
+                          background: current ? "#59169c" : "transparent",
+                          cursor: "pointer",
+                          textAlign: "left",
+                        }}
+                      >
+                        <div
+                          style={{
+                            color: current ? "white" : "#e5e7eb",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={p.client_name}
+                        >
+                          {p.client_name || "Client"}
+                        </div>
+                        <div
+                          style={{
+                            color: current ? "#e9d5ff" : "#9ca3b8",
+                            fontSize: 12,
+                            marginTop: 1,
+                            overflow: "hidden",
+                            textOverflow: "ellipsis",
+                            whiteSpace: "nowrap",
+                          }}
+                          title={p.project_name}
+                        >
+                          {p.project_name || "Audit"}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
-          )}
-          {collapsed && (
+          ) : (
             <div style={{ margin: "16px 0", borderTop: "1px solid #1e2235" }} />
           )}
           <nav style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-            <SidebarLink to={`/projects/${selectedProjectId}/documents`} icon={Files} label="Documents" collapsed={collapsed} />
-            <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" collapsed={collapsed} />
-            {/* <SidebarLink to={`/projects/${selectedProjectId}/plan-amelioration`} icon={TrendingUp} label="Plan d'amélioration" /> */}
-            <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" collapsed={collapsed} />
-            <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" collapsed={collapsed} />
-            {/* <SidebarLink to={`/projects/${selectedProjectId}/lca`} icon={Leaf} label="ACV (legacy)" /> */}
-            <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`}  icon={Sprout}  label="ACV" collapsed={collapsed} />
+            <SidebarLink to="/share-access" icon={Users2} label="Partage & Accès" collapsed={collapsed} />
+
+            <SidebarGroup label="Données & Documents" icon={Database} collapsed={collapsed} active={isDataGroup}>
+              <SidebarLink to={`/projects/${selectedProjectId}/documents`} icon={Files} label="Documents" collapsed={collapsed} />
+              <SidebarLink to={`/projects/${selectedProjectId}/energy`} icon={Zap} label="Comptabilité énergie" collapsed={collapsed} />
+            </SidebarGroup>
+
+            <SidebarGroup label="Analyses" icon={BarChart3} collapsed={collapsed} active={isAnalysisGroup}>
+              <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" collapsed={collapsed} />
+              <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`} icon={Sprout} label="ACV" collapsed={collapsed} />
+            </SidebarGroup>
+
+            <SidebarGroup label="Rapports & Livrables" icon={FileStack} collapsed={collapsed} active={isReportGroup}>
+              <SidebarLink to={`/projects/${selectedProjectId}/report`} icon={FileText} label="Rapport" collapsed={collapsed} />
+            </SidebarGroup>
           </nav>
         </>
       )}
