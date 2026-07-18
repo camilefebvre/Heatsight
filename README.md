@@ -75,8 +75,6 @@ HeatSight/
 │   │   │   ├── ProjectReport.jsx   # Génération rapport Word
 │   │   │   ├── ProjectPlanAmelioration.jsx  # Module Audit affiché sur /audit — Plan d'amélioration AMUREBA + IA
 │   │   │   ├── ProjectLCA2.jsx     # Module ACV — bâtiments, parois, composants, optimisation
-│   │   │   ├── ProjectLCA.jsx      # Module ACV legacy (non accessible depuis la navigation)
-│   │   │   ├── LCAAdmin.jsx        # Administration de la bibliothèque ACV
 │   │   │   └── LCALibrary.jsx      # Bibliothèque de matériaux ACV
 │   │   ├── state/
 │   │   │   ├── AuthContext.jsx     # Contexte auth (token JWT + user courant)
@@ -328,11 +326,6 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 - Création automatique de bâtiments « Optimisation 1/2/3 » depuis les solutions sélectionnées
 - Détection **« Configuration déjà optimale »** : si tous les profils alternatifs sont dominés ou égaux au statu quo
 
-### Administration ACV (`/lca/admin`)
-- Import de matériaux depuis un fichier **LCIA-results.xlsx** (format EF v3.0)
-- Modification des propriétés : nom, catégorie, prix, valeur R, unité fonctionnelle
-- Duplication et suppression de matériaux
-
 ### Dashboard
 - Compteurs : total projets, en cours, en attente, terminés, nouveaux ce mois
 - Liste des 5 projets les plus récents
@@ -428,14 +421,13 @@ Moteur ACV complet basé sur la méthode **EF v3.0** et les conventions de **dur
 |---|---|---|
 | GET | `/lca/materials` | Liste tous les matériaux de la bibliothèque |
 | GET | `/lca/materials/{id}` | Détail d'un matériau |
-| POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx (multipart, `version=v2`) |
+| POST | `/lca/materials/import` | Importe un matériau depuis un LCIA-results.xlsx (multipart) |
 | PATCH | `/lca/materials/{id}` | Modifie un matériau (prix, valeur_r, dvr_materiau, flux_reference, valeur_lambda, poids_unite…) |
 | DELETE | `/lca/materials/{id}` | Supprime un matériau |
 | POST | `/lca/materials/{id}/duplicate` | Duplique un matériau |
 | GET | `/projects/{id}/lca` | Récupère les données ACV du projet (bâtiments JSONB + dvr_batiment + age_batiment) |
-| PATCH | `/projects/{id}/lca` | Sauvegarde les éléments ACV (legacy) |
 | PATCH | `/projects/{id}/lca/batiments` | Sauvegarde les bâtiments avec parois, composants, DVR et âge bâtiment |
-| PATCH | `/projects/{id}/lca/optimisation-cache?version=v2` | Sauvegarde le cache des résultats d'optimisation (hash + solutions + fixed_components) |
+| PATCH | `/projects/{id}/lca/optimisation-cache` | Sauvegarde le cache des résultats d'optimisation (hash + solutions + fixed_components) |
 | GET | `/projects/{id}/audit/energie-chauffage` | Récupère le moyen de chauffage pour le calcul ROI |
 
 ### Agenda
@@ -569,4 +561,3 @@ Solution : approche **`zipfile` + `ElementTree`** dans `_apply_changes_to_source
 - **Plan d'amélioration PEB / Autre / Mon template** : onglets prévus, pas encore implémentés
 - **ACV — calculs amortis** : nécessitent que chaque matériau ait une DVR renseignée, un `flux_reference` (isolants) ou un `poids_unite` (non-isolants) — les composants incomplets sont exclus du calcul avec badge ⚠ DÉCON
 - **ACV — indicateur Santé humaine** : disponible uniquement si au moins un matériau de la bibliothèque contient la clé `photochemical_oxidant_hh` ou `photochemical_oxidant` dans ses impacts EF v3.0
-- **ACV — module legacy** (`/projects/:id/lca`) : conservé en base de code mais retiré de la navigation

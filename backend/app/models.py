@@ -274,9 +274,6 @@ class LcaProject(Base):
         nullable=False,
         unique=True,
     )
-    elements  = Column(JSONB, nullable=False, default=list)  # liste d'éléments du bâtiment (legacy)
-    parois    = Column(JSONB, nullable=False, default=list)  # liste des parois avec leurs couches (legacy)
-    batiment  = Column(JSONB, nullable=False, default=dict)  # paramètres bâtiment unique (legacy)
     batiments = Column(JSONB, nullable=False, default=list)  # tableau multi-bâtiments avec parois et composants
     dvr_batiment = Column(Integer, nullable=True, default=60)  # durée de vie bâtiment, années
     age_batiment = Column(Integer, nullable=True)              # âge actuel du bâtiment, années

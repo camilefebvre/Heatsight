@@ -816,9 +816,6 @@ def _ensure_extra_project_columns():
         """CREATE TABLE IF NOT EXISTS lca_projects (
             id TEXT PRIMARY KEY,
             project_id TEXT NOT NULL UNIQUE REFERENCES projects(id) ON DELETE CASCADE,
-            elements JSONB NOT NULL DEFAULT '[]',
-            parois JSONB NOT NULL DEFAULT '[]',
-            batiment JSONB NOT NULL DEFAULT '{}',
             batiments JSONB NOT NULL DEFAULT '[]',
             created_at TEXT NOT NULL,
             updated_at TEXT NOT NULL
@@ -2035,7 +2032,6 @@ async def _get_report_prefill_proposals(
         lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
         if lca:
             data["lca_project"] = {
-                "batiment":  lca.batiment,
                 "batiments": lca.batiments,
             }
     except Exception as lca_err:
@@ -4535,53 +4531,10 @@ def get_project_lca(
 
     return {
         "batiments": lca.batiments if lca else [],
-        # legacy fields kept for backward compatibility
-        "elements": lca.elements if lca else [],
-        "parois":   lca.parois   if lca else [],
-        "batiment": lca.batiment if lca else {},
         # optimisation cache
         "optimisation_hash":  opt_hash,
         "optimisation_cache": opt_cache,
     }
-
-
-@app.patch("/projects/{project_id}/lca")
-def update_project_lca(
-    project_id: str,
-    payload: schemas.LcaProjectUpdate,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    """Legacy route - sauvegarde uniquement les éléments ACV (ancien format)."""
-    project = db.query(models.Project).filter(
-        models.Project.id == project_id,
-        models.Project.owner_id == current_user.id,
-    ).first()
-    if not project:
-        raise HTTPException(status_code=404, detail="Project not found")
-
-    now = datetime.now(timezone.utc).isoformat()
-    elements = [e.model_dump() for e in payload.elements]
-
-    lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
-    if lca:
-        lca.elements = elements
-        lca.updated_at = now
-        flag_modified(lca, "elements")
-    else:
-        lca = models.LcaProject(
-            id=str(uuid4()),
-            project_id=project_id,
-            elements=elements,
-            created_at=now,
-            updated_at=now,
-        )
-        db.add(lca)
-
-    db.commit()
-    db.refresh(lca)
-    _touch_project(db, project_id)
-    return {"elements": lca.elements}
 
 
 class _LcaBatimentsPayload(_PydanticBase):
@@ -4594,7 +4547,6 @@ class _LcaBatimentsPayload(_PydanticBase):
 def update_project_lca_batiments(
     project_id: str,
     payload: _LcaBatimentsPayload,
-    version: str = Query(default="v1"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -4606,29 +4558,25 @@ def update_project_lca_batiments(
     if not project:
         raise HTTPException(status_code=404, detail="Project not found")
 
-    if version == "v2" and payload.age_batiment is None:
-        raise HTTPException(status_code=422, detail="v2 : age_batiment est requis.")
+    if payload.age_batiment is None:
+        raise HTTPException(status_code=422, detail="age_batiment est requis.")
     dvr = payload.dvr_batiment if payload.dvr_batiment is not None else 60
 
     now = datetime.now(timezone.utc).isoformat()
     lca = db.query(models.LcaProject).filter(models.LcaProject.project_id == project_id).first()
     if lca:
         lca.batiments = payload.batiments
-        if version == "v2":
-            lca.dvr_batiment = dvr
-            lca.age_batiment = payload.age_batiment
+        lca.dvr_batiment = dvr
+        lca.age_batiment = payload.age_batiment
         lca.updated_at = now
         flag_modified(lca, "batiments")
     else:
         lca = models.LcaProject(
             id=str(uuid4()),
             project_id=project_id,
-            elements=[],
-            parois=[],
-            batiment={},
             batiments=payload.batiments,
-            dvr_batiment=dvr if version == "v2" else None,
-            age_batiment=payload.age_batiment if version == "v2" else None,
+            dvr_batiment=dvr,
+            age_batiment=payload.age_batiment,
             created_at=now,
             updated_at=now,
         )
@@ -4811,7 +4759,6 @@ async def import_lca_material(
     unit: str = Form(...),
     prix: float = Form(...),
     valeur_r: float = Form(...),
-    version: str = Form(default="v1"),
     dvr_materiau: Optional[int] = Form(default=None),
     flux_reference: Optional[float] = Form(default=None),
     valeur_lambda: Optional[float] = Form(default=None),
@@ -4838,11 +4785,10 @@ async def import_lca_material(
     if valeur_lambda is not None:
         impacts["valeur_lambda"] = valeur_lambda
 
-    if version == "v2":
-        if dvr_materiau is None:
-            raise HTTPException(status_code=422, detail="v2 : dvr_materiau est requis.")
-        if category.lower() == "isolant" and flux_reference is None:
-            raise HTTPException(status_code=422, detail="v2 : flux_reference est requis pour la catégorie Isolant.")
+    if dvr_materiau is None:
+        raise HTTPException(status_code=422, detail="dvr_materiau est requis.")
+    if category.lower() == "isolant" and flux_reference is None:
+        raise HTTPException(status_code=422, detail="flux_reference est requis pour la catégorie Isolant.")
 
     material = models.LcaMaterial(
         id=str(uuid4()),
@@ -4880,7 +4826,6 @@ def get_lca_material(
 def patch_lca_material(
     material_id: str,
     payload: _LcaMaterialEditPayload,
-    version: str = Query(default="v1"),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -4889,15 +4834,14 @@ def patch_lca_material(
         raise HTTPException(status_code=404, detail="Matériau introuvable")
     if material.is_reference:
         raise HTTPException(status_code=403, detail="Fiche de référence non modifiable. Dupliquez-la pour créer une copie éditable.")
-    if version == "v2":
-        effective_dvr = payload.dvr_materiau if payload.dvr_materiau is not None else material.dvr_materiau
-        if effective_dvr is None:
-            raise HTTPException(status_code=422, detail="v2 : dvr_materiau est requis et ne peut pas être vidé.")
-        effective_cat = payload.category or material.category
-        if effective_cat and effective_cat.lower() == "isolant":
-            effective_flux = payload.flux_reference if payload.flux_reference is not None else material.flux_reference
-            if effective_flux is None:
-                raise HTTPException(status_code=422, detail="v2 : flux_reference est requis pour la catégorie Isolant.")
+    effective_dvr = payload.dvr_materiau if payload.dvr_materiau is not None else material.dvr_materiau
+    if effective_dvr is None:
+        raise HTTPException(status_code=422, detail="dvr_materiau est requis et ne peut pas être vidé.")
+    effective_cat = payload.category or material.category
+    if effective_cat and effective_cat.lower() == "isolant":
+        effective_flux = payload.flux_reference if payload.flux_reference is not None else material.flux_reference
+        if effective_flux is None:
+            raise HTTPException(status_code=422, detail="flux_reference est requis pour la catégorie Isolant.")
     for field, value in payload.model_dump(exclude_none=True).items():
         if field == "impacts":
             continue

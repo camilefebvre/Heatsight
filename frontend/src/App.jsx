@@ -14,9 +14,7 @@ import ProjectReport from "./pages/ProjectReport";
 import ProjectPlanAmelioration from "./pages/ProjectPlanAmelioration";
 
 
-import ProjectLCA from "./pages/ProjectLCA";
 import ProjectLCA2 from "./pages/ProjectLCA2";
-import LCAAdmin from "./pages/LCAAdmin";
 import LCALibrary from "./pages/LCALibrary";
 import ShareAccess from "./pages/ShareAccess";
 import Abonnement from "./pages/Abonnement";
@@ -49,10 +47,8 @@ export default function App() {
             <Route path="energy" element={<ProjectEnergy />} />
             <Route path="report" element={<ProjectReport />} />
             {/* <Route path="plan-amelioration" element={<ProjectPlanAmelioration />} /> */}
-            <Route path="lca" element={<ProjectLCA />} />
             <Route path="lca-v2" element={<ProjectLCA2 />} />
           </Route>
-          <Route path="/lca/admin" element={<LCAAdmin />} />
           <Route path="/lca/library" element={<LCALibrary />} />
         </Route>
       </Route>

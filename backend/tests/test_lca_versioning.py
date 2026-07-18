@@ -1,11 +1,15 @@
 """
-Tests d'intégration - Routes ACV versionnées (v1 / v2)
-=======================================================
+Tests d'intégration - Routes ACV (v2 uniquement)
+=================================================
+
+La v1 ACV a été retirée : le paramètre `version` n'existe plus et le
+comportement v2 (DVR / flux_reference / age_batiment requis) s'applique
+systématiquement.
 
 Couvre :
-  POST /lca/materials/import         - Tests 1 à 5
-  GET  /lca/materials/{id}           - Tests 6 et 7
-  PATCH /projects/{id}/lca/batiments - Tests 8 à 10
+  POST /lca/materials/import         - validations DVR / flux_reference
+  GET  /lca/materials/{id}           - lecture (matériau legacy toléré)
+  PATCH /projects/{id}/lca/batiments - age_batiment requis, dvr par défaut
 
 Lancement :
   cd backend
@@ -27,7 +31,6 @@ def _import_payload(
     unit="m²",
     prix=80.0,
     valeur_r=0.25,
-    version="v1",
     dvr_materiau=None,
     flux_reference=None,
     xlsx_bytes=None,
@@ -41,7 +44,6 @@ def _import_payload(
         "unit": unit,
         "prix": str(prix),
         "valeur_r": str(valeur_r),
-        "version": version,
     }
     if dvr_materiau is not None:
         data["dvr_materiau"] = str(dvr_materiau)
@@ -61,34 +63,24 @@ def _import_payload(
 
 class TestImportLcaMaterial:
 
-    def test_01_v1_minimal_sans_dvr_ni_flux_reussit(self, client):
-        """Import v1 sans DVR ni flux_reference doit réussir (200)."""
-        data, files = _import_payload(version="v1")
-        resp = client.post("/lca/materials/import", data=data, files=files)
-        assert resp.status_code == 200, resp.text
-        body = resp.json()
-        assert body["dvr_materiau"] is None
-        assert body["flux_reference"] is None
-
-    def test_02_v2_mur_sans_dvr_echoue_422(self, client):
-        """Import v2 catégorie Mur sans dvr_materiau doit échouer avec 422."""
-        data, files = _import_payload(category="Mur", version="v2")
+    def test_01_mur_sans_dvr_echoue_422(self, client):
+        """Import catégorie Mur sans dvr_materiau doit échouer avec 422."""
+        data, files = _import_payload(category="Mur")
         resp = client.post("/lca/materials/import", data=data, files=files)
         assert resp.status_code == 422
         assert "dvr_materiau" in resp.json()["detail"]
 
-    def test_03_v2_isolant_dvr_sans_flux_echoue_422(self, client):
-        """Import v2 catégorie Isolant avec DVR mais sans flux_reference doit échouer avec 422."""
-        data, files = _import_payload(category="Isolant", version="v2", dvr_materiau=30)
+    def test_02_isolant_dvr_sans_flux_echoue_422(self, client):
+        """Import catégorie Isolant avec DVR mais sans flux_reference doit échouer avec 422."""
+        data, files = _import_payload(category="Isolant", dvr_materiau=30)
         resp = client.post("/lca/materials/import", data=data, files=files)
         assert resp.status_code == 422
         assert "flux_reference" in resp.json()["detail"]
 
-    def test_04_v2_isolant_dvr_et_flux_reussit(self, client):
-        """Import v2 catégorie Isolant avec DVR et flux_reference doit réussir (200)."""
+    def test_03_isolant_dvr_et_flux_reussit(self, client):
+        """Import catégorie Isolant avec DVR et flux_reference doit réussir (200)."""
         data, files = _import_payload(
             category="Isolant",
-            version="v2",
             dvr_materiau=30,
             flux_reference=8.5,
         )
@@ -98,9 +90,9 @@ class TestImportLcaMaterial:
         assert body["dvr_materiau"] == 30
         assert body["flux_reference"] == pytest.approx(8.5)
 
-    def test_05_v2_mur_dvr_sans_flux_reussit(self, client):
-        """Import v2 catégorie Mur avec DVR mais sans flux_reference doit réussir."""
-        data, files = _import_payload(category="Mur", version="v2", dvr_materiau=50)
+    def test_04_mur_dvr_sans_flux_reussit(self, client):
+        """Import catégorie Mur avec DVR mais sans flux_reference doit réussir."""
+        data, files = _import_payload(category="Mur", dvr_materiau=50)
         resp = client.post("/lca/materials/import", data=data, files=files)
         assert resp.status_code == 200, resp.text
         body = resp.json()
@@ -112,59 +104,37 @@ class TestImportLcaMaterial:
 
 class TestGetLcaMaterial:
 
-    def test_06_lecture_materiau_legacy_v1_reussit(self, client, seed_legacy_material):
-        """Lecture d'un matériau ACV 1.0 (sans DVR) via route v1 : doit réussir (200)."""
+    def test_05_lecture_materiau_legacy_reussit(self, client, seed_legacy_material):
+        """
+        Lecture d'un matériau ACV 1.0 (sans DVR) : la route GET n'est pas
+        versionnée, elle retourne 200 et dvr_materiau=null.
+        Le frontend interprète dvr_materiau=null comme un signal "donnée incomplète".
+        """
         resp = client.get(f"/lca/materials/{seed_legacy_material.id}")
         assert resp.status_code == 200
         body = resp.json()
         assert body["id"] == seed_legacy_material.id
         assert body["dvr_materiau"] is None
 
-    def test_07_lecture_materiau_legacy_v2_reussit_dvr_null(self, client, seed_legacy_material):
-        """
-        Lecture d'un matériau ACV 1.0 avec ?version=v2 : la route GET n'est pas
-        encore versionnée - elle retourne 200 et dvr_materiau=null.
-        Le frontend interprète dvr_materiau=null comme un signal "donnée incomplète ACV 2.0".
-        NOTE: validation_warnings n'est pas encore implémenté dans la réponse GET.
-        """
-        resp = client.get(
-            f"/lca/materials/{seed_legacy_material.id}",
-            params={"version": "v2"},
-        )
-        assert resp.status_code == 200
-        body = resp.json()
-        assert body["dvr_materiau"] is None  # marqueur "legacy ACV 1.0"
-
 
 # ── Tests PATCH /projects/{id}/lca/batiments ──────────────────────────────────
 
 class TestPatchLcaBatiments:
 
-    def test_08_v1_sans_age_batiment_reussit(self, client, seed_project):
-        """PATCH v1 sans age_batiment doit réussir (rétrocompatibilité ACV 1.0)."""
+    def test_06_sans_age_batiment_echoue_422(self, client, seed_project):
+        """PATCH sans age_batiment doit échouer avec 422."""
         payload = {"batiments": [{"id": "bat1", "nom": "Bâtiment principal"}]}
         resp = client.patch(
             f"/projects/{seed_project.id}/lca/batiments",
             json=payload,
-            params={"version": "v1"},
-        )
-        assert resp.status_code == 200
-
-    def test_09_v2_sans_age_batiment_echoue_422(self, client, seed_project):
-        """PATCH v2 sans age_batiment doit échouer avec 422."""
-        payload = {"batiments": [{"id": "bat1", "nom": "Bâtiment principal"}]}
-        resp = client.patch(
-            f"/projects/{seed_project.id}/lca/batiments",
-            json=payload,
-            params={"version": "v2"},
         )
         assert resp.status_code == 422
         assert "age_batiment" in resp.json()["detail"]
 
-    def test_10_v2_age_batiment_sans_dvr_applique_defaut_60(
+    def test_07_age_batiment_sans_dvr_applique_defaut_60(
         self, client, seed_project, db_session
     ):
-        """PATCH v2 avec age_batiment sans dvr_batiment : réussit et applique dvr_batiment=60."""
+        """PATCH avec age_batiment sans dvr_batiment : réussit et applique dvr_batiment=60."""
         payload = {
             "batiments": [{"id": "bat1", "nom": "Bâtiment principal"}],
             "age_batiment": 15,
@@ -172,7 +142,6 @@ class TestPatchLcaBatiments:
         resp = client.patch(
             f"/projects/{seed_project.id}/lca/batiments",
             json=payload,
-            params={"version": "v2"},
         )
         assert resp.status_code == 200, resp.text
 

@@ -7,8 +7,7 @@ const MODULE_LABELS = [
   { match: "/audit",     label: "Audit" },
   { match: "/energy",    label: "Comptabilité énergie" },
   { match: "/report",    label: "Rapport" },
-  { match: "/lca-v2",    label: "ACV" },   // avant /lca (sinon /lca matcherait /lca-v2)
-  { match: "/lca",       label: "ACV" },
+  { match: "/lca-v2",    label: "ACV" },
 ];
 function moduleLabel(pathname) {
   return (MODULE_LABELS.find((m) => pathname.includes(m.match)) || {}).label || "";

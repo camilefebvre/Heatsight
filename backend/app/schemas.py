@@ -216,28 +216,6 @@ class LcaMaterialPatch(BaseModel):
     poids_unite: Optional[float] = None
 
 
-class LcaElement(BaseModel):
-    material_id: str
-    material_name: str
-    category: str
-    quantity: float
-    unit: str
-    impacts: Dict[str, float]   # valeurs par unité fonctionnelle (copiées du matériau)
-    is_fixed: bool = False
-
-
-class LcaProjectUpdate(BaseModel):
-    elements: List[LcaElement]
-
-
-class LcaParoisUpdate(BaseModel):
-    parois: List[Dict[str, Any]]
-
-
-class LcaBatimentUpdate(BaseModel):
-    batiment: Dict[str, Any]
-
-
 # ──────────────────────────────────────────
 # Project Documents
 # ──────────────────────────────────────────
