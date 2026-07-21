@@ -128,6 +128,7 @@ export default function AcvBuilder() {
   const [frozenProj, setFrozenProj] = useState(null);
   const [editEdge, setEditEdge] = useState(null);      // { index, value } — édition d'un mur
   const [fitPts, setFitPts] = useState(RECT);          // référence de cadrage figée (pas d'auto-zoom)
+  const [svgScale, setSvgScale] = useState(1);         // px écran par unité viewBox (pour la barre d'échelle)
 
   const canUndo = hist.i > 0;
   const canRedo = hist.i < hist.stack.length - 1;
@@ -165,6 +166,19 @@ export default function AcvBuilder() {
     return () => svg.removeEventListener("wheel", onWheel);
   }, []);
 
+  useEffect(() => {
+    const svg = svgRef.current;
+    if (!svg || typeof ResizeObserver === "undefined") return undefined;
+    const update = () => {
+      const r = svg.getBoundingClientRect();
+      if (r.width && r.height) setSvgScale(Math.min(r.width / VIEW_W, r.height / VIEW_H));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(svg);
+    return () => ro.disconnect();
+  }, []);
+
   const allPts = shapes.flat();
   const dragging = drag && (drag.kind === "vertex" || drag.kind === "shape");
   const proj = dragging && frozenProj ? frozenProj : buildProjection(fitPts, zoom, pan);
@@ -172,6 +186,7 @@ export default function AcvBuilder() {
   const scaleM = niceScaleMeters(110, proj.scale);
   const scaleBarPx = scaleM * proj.scale;
   const scaleLabel = `${String(scaleM).replace(".", ",")} m`;
+  const cssBarPx = scaleBarPx * svgScale;              // longueur de la barre en px écran
 
   const allRect = shapes.every(isRectilinear);
   const uni = allRect ? unionRectilinear(shapes) : { outer: [], holes: [], regions: shapes.length, area: 0 };
@@ -514,19 +529,16 @@ export default function AcvBuilder() {
             </circle>
           ))}
 
-          {/* Barre d'échelle (bas gauche) */}
-          {scaleBarPx > 4 && (
-            <g style={{ pointerEvents: "none" }}>
-              <line x1={14} y1={VIEW_H - 20} x2={14 + scaleBarPx} y2={VIEW_H - 20} stroke="#111827" strokeWidth={3} />
-              <line x1={14} y1={VIEW_H - 26} x2={14} y2={VIEW_H - 14} stroke="#111827" strokeWidth={3} />
-              <line x1={14 + scaleBarPx} y1={VIEW_H - 26} x2={14 + scaleBarPx} y2={VIEW_H - 14} stroke="#111827" strokeWidth={3} />
-              <text x={14 + scaleBarPx / 2} y={VIEW_H - 30} textAnchor="middle" fontSize={13} fontWeight={800} fill="#111827" stroke="#ffffff" strokeWidth={3.5} paintOrder="stroke">{scaleLabel}</text>
-            </g>
-          )}
         </svg>
         {invalid && (
           <div style={{ position: "absolute", left: 14, top: 12, fontSize: 11, fontWeight: 600, color: "#b91c1c", background: "rgba(254,242,242,0.9)", border: "1px solid #fecaca", borderRadius: 8, padding: "3px 8px", pointerEvents: "none" }}>
             ⚠ {regions} îlots — les formes doivent se toucher
+          </div>
+        )}
+        {cssBarPx > 4 && (
+          <div style={{ position: "absolute", left: 14, bottom: 12, pointerEvents: "none", userSelect: "none" }}>
+            <div style={{ width: cssBarPx, textAlign: "center", fontSize: 12, fontWeight: 400, color: "#111827", marginBottom: 2 }}>{scaleLabel}</div>
+            <div style={{ width: cssBarPx, height: 6, boxSizing: "border-box", borderLeft: "1px solid #111827", borderRight: "1px solid #111827", borderBottom: "1px solid #111827" }} />
           </div>
         )}
       </main>
