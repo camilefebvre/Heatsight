@@ -37,6 +37,16 @@ const RECT = [{ x: 0, y: 0 }, { x: 10, y: 0 }, { x: 10, y: 7 }, { x: 0, y: 7 }];
 const clampZoom = (z) => Math.max(ZOOM_MIN, Math.min(ZOOM_MAX, z));
 const fmt = (n) => n.toFixed(1).replace(".", ",");
 
+// Nombre de mètres « rond » (1/2/5 × 10ⁿ) pour une longueur cible à l'écran -> barre d'échelle.
+function niceScaleMeters(targetPx, pxPerM) {
+  const raw = targetPx / pxPerM;
+  if (!Number.isFinite(raw) || raw <= 0) return 1;
+  const pow = Math.pow(10, Math.floor(Math.log10(raw)));
+  let best = pow;
+  for (const c of [1, 2, 5, 10]) if (c * pow <= raw) best = c * pow;
+  return best;
+}
+
 function samePoints(a, b) {
   if (!a || !b || a.length !== b.length) return false;
   return a.every((p, i) => p.x === b[i].x && p.y === b[i].y);
@@ -159,6 +169,9 @@ export default function AcvBuilder() {
   const dragging = drag && (drag.kind === "vertex" || drag.kind === "shape");
   const proj = dragging && frozenProj ? frozenProj : buildProjection(fitPts, zoom, pan);
   const g2s = (p) => groundToScreen(proj, p.x, p.y);
+  const scaleM = niceScaleMeters(110, proj.scale);
+  const scaleBarPx = scaleM * proj.scale;
+  const scaleLabel = `${String(scaleM).replace(".", ",")} m`;
 
   const allRect = shapes.every(isRectilinear);
   const uni = allRect ? unionRectilinear(shapes) : { outer: [], holes: [], regions: shapes.length, area: 0 };
@@ -424,11 +437,6 @@ export default function AcvBuilder() {
         <div style={{ width: 1, height: 22, background: "#e5e7eb" }} />
         <button type="button" onClick={removeShape} disabled={shapes.length <= 1} style={{ ...iconBtn, width: "auto", padding: "6px 10px", gap: 6, fontSize: 12, fontWeight: 600, color: shapes.length <= 1 ? "#d1d5db" : "#b91c1c", cursor: shapes.length <= 1 ? "default" : "pointer" }} title="Supprimer la forme active (Suppr)"><Trash2 size={14} /> Supprimer</button>
         <div style={{ fontSize: 12, color: "#9ca3af" }}>{shapes.length} forme{shapes.length > 1 ? "s" : ""}</div>
-        {invalid && (
-          <div style={{ fontSize: 12, fontWeight: 700, color: RED, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 999, padding: "3px 10px" }}>
-            ⚠ Les formes doivent se toucher ({regions} îlots)
-          </div>
-        )}
         {!invalid && !canFlatten && uni.holes.length > 0 && (
           <div style={{ fontSize: 12, fontWeight: 700, color: "#92400e", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 999, padding: "3px 10px" }}>
             Cour intérieure : fusion indisponible pour l'instant
@@ -505,12 +513,22 @@ export default function AcvBuilder() {
               <title>Coin {i + 1}</title>
             </circle>
           ))}
+
+          {/* Barre d'échelle (bas gauche) */}
+          {scaleBarPx > 4 && (
+            <g style={{ pointerEvents: "none" }}>
+              <line x1={14} y1={VIEW_H - 20} x2={14 + scaleBarPx} y2={VIEW_H - 20} stroke="#111827" strokeWidth={3} />
+              <line x1={14} y1={VIEW_H - 26} x2={14} y2={VIEW_H - 14} stroke="#111827" strokeWidth={3} />
+              <line x1={14 + scaleBarPx} y1={VIEW_H - 26} x2={14 + scaleBarPx} y2={VIEW_H - 14} stroke="#111827" strokeWidth={3} />
+              <text x={14 + scaleBarPx / 2} y={VIEW_H - 30} textAnchor="middle" fontSize={13} fontWeight={800} fill="#111827" stroke="#ffffff" strokeWidth={3.5} paintOrder="stroke">{scaleLabel}</text>
+            </g>
+          )}
         </svg>
-        <div style={{ position: "absolute", left: 14, bottom: 12, color: "#9ca3af", fontSize: 12, pointerEvents: "none" }}>
-          {single
-            ? "Clique un mur pour saisir sa longueur • glisse un coin pour redimensionner • R / Maj+R = pivoter • molette = zoom"
-            : "Clique une forme pour l'activer • glisse-la pour la placer • glisse un coin pour redimensionner • R = pivoter • Suppr"}
-        </div>
+        {invalid && (
+          <div style={{ position: "absolute", left: 14, top: 12, fontSize: 11, fontWeight: 600, color: "#b91c1c", background: "rgba(254,242,242,0.9)", border: "1px solid #fecaca", borderRadius: 8, padding: "3px 8px", pointerEvents: "none" }}>
+            ⚠ {regions} îlots — les formes doivent se toucher
+          </div>
+        )}
       </main>
     </div>
   );
