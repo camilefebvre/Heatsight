@@ -7,6 +7,7 @@ const MODULE_LABELS = [
   { match: "/audit",     label: "Audit" },
   { match: "/energy",    label: "Comptabilité énergie" },
   { match: "/report",    label: "Rapport" },
+  { match: "/acv-builder", label: "ACV 3D" },
   { match: "/lca-v2",    label: "ACV" },
 ];
 function moduleLabel(pathname) {

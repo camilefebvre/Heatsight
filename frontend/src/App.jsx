@@ -15,6 +15,7 @@ import ProjectPlanAmelioration from "./pages/ProjectPlanAmelioration";
 
 
 import ProjectLCA2 from "./pages/ProjectLCA2";
+import AcvBuilder from "./pages/AcvBuilder";
 import LCALibrary from "./pages/LCALibrary";
 import ShareAccess from "./pages/ShareAccess";
 import Abonnement from "./pages/Abonnement";
@@ -48,6 +49,7 @@ export default function App() {
             <Route path="report" element={<ProjectReport />} />
             {/* <Route path="plan-amelioration" element={<ProjectPlanAmelioration />} /> */}
             <Route path="lca-v2" element={<ProjectLCA2 />} />
+            <Route path="acv-builder" element={<AcvBuilder />} />
           </Route>
           <Route path="/lca/library" element={<LCALibrary />} />
         </Route>

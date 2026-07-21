@@ -48,7 +48,9 @@ function SidebarLink({ to, icon: Icon, label, collapsed }) {
         transition: "background 0.15s, color 0.15s",
       })}
     >
-      <Icon size={16} strokeWidth={2} />
+      {Icon
+        ? <Icon size={16} strokeWidth={2} />
+        : (collapsed && <span style={{ width: 6, height: 6, borderRadius: "50%", background: "currentColor" }} />)}
       {!collapsed && label}
     </NavLink>
   );
@@ -662,6 +664,7 @@ export default function Sidebar({ collapsed, onToggle }) {
             <SidebarGroup label="Analyses" icon={BarChart3} collapsed={collapsed} active={isAnalysisGroup}>
               <SidebarLink to={`/projects/${selectedProjectId}/audit`} icon={ClipboardList} label="Audit" collapsed={collapsed} />
               <SidebarLink to={`/projects/${selectedProjectId}/lca-v2`} icon={Sprout} label="ACV" collapsed={collapsed} />
+              <SidebarLink to={`/projects/${selectedProjectId}/acv-builder`} label="ACV 3D" collapsed={collapsed} />
             </SidebarGroup>
 
             <SidebarGroup label="Rapports & Livrables" icon={FileStack} collapsed={collapsed} active={isReportGroup}>
